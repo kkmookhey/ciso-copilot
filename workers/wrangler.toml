@@ -1,0 +1,23 @@
+name = "ciso-copilot"
+main = "src/index.ts"
+compatibility_date = "2026-05-16"
+
+# D1 — relational store for CVE / KEV / EPSS / users / briefs / feedback / llm_cache.
+[[d1_databases]]
+binding = "DB"
+database_name = "ciso_copilot"
+database_id = "a16500c1-5c97-4af3-9251-87a2aa19df5e"
+
+# R2 — raw timestamped archives of each pulled feed.
+[[r2_buckets]]
+binding = "RAW"
+bucket_name = "ciso-copilot-raw"
+
+# Cron triggers — all CISOBrief.md §6 schedules in one Worker.
+[triggers]
+crons = [
+  "0 * * * *",     # KEV   — hourly
+  "0 */2 * * *",   # NVD   — every 2h
+  "0 6 * * *",     # EPSS  — daily 06:00 UTC
+  "30 6 * * *",    # brief — daily 06:30 UTC (after EPSS)
+]

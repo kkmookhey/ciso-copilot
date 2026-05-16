@@ -1,0 +1,16 @@
+{
+  "name": "ciso-copilot-workers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "schema": "wrangler d1 execute ciso_copilot --remote --file=src/schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240620.0",
+    "typescript": "^5.5.0"
+  }
+}
