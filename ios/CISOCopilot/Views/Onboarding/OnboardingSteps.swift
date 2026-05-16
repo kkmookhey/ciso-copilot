@@ -1,32 +1,6 @@
 import SwiftUI
 
-struct ChipPicker: View {
-    let title: String
-    let subtitle: String
-    let options: [String]
-    @Binding var selection: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.title2).bold()
-            Text(subtitle).foregroundStyle(.secondary)
-
-            FlowLayout(spacing: 8) {
-                ForEach(options, id: \.self) { opt in
-                    Chip(label: opt, isSelected: selection.contains(opt)) {
-                        if let idx = selection.firstIndex(of: opt) {
-                            selection.remove(at: idx)
-                        } else {
-                            selection.append(opt)
-                        }
-                    }
-                }
-            }
-            Spacer()
-        }
-        .padding()
-    }
-}
+// MARK: - Chip primitives
 
 struct Chip: View {
     let label: String
@@ -86,7 +60,53 @@ struct FlowLayout: Layout {
     }
 }
 
-// MARK: - Steps
+// MARK: - Reusable pickers
+
+struct ChipPicker: View {
+    let title: String
+    let subtitle: String
+    let options: [String]
+    @Binding var selection: [String]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(title).font(.title2).bold()
+                Text(subtitle).foregroundStyle(.secondary)
+                FlowLayout(spacing: 8) {
+                    ForEach(options, id: \.self) { opt in
+                        Chip(label: opt, isSelected: selection.contains(opt)) {
+                            if let idx = selection.firstIndex(of: opt) {
+                                selection.remove(at: idx)
+                            } else {
+                                selection.append(opt)
+                            }
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding()
+        }
+    }
+}
+
+struct SingleSelectChips: View {
+    let options: [String]
+    @Binding var selection: String?
+
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(options, id: \.self) { opt in
+                Chip(label: opt, isSelected: selection == opt) {
+                    selection = (selection == opt) ? nil : opt
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Onboarding steps
 
 struct CloudStep: View {
     @Binding var draft: OnboardingDraft
@@ -94,7 +114,7 @@ struct CloudStep: View {
         ChipPicker(
             title: "Cloud platforms",
             subtitle: "Where do you run production workloads?",
-            options: ["AWS", "Azure", "GCP", "Oracle Cloud"],
+            options: StackOptions.cloud,
             selection: Binding(get: { draft.cloud }, set: { draft.cloud = $0 })
         )
     }
@@ -106,7 +126,7 @@ struct IdentityStep: View {
         ChipPicker(
             title: "Identity provider",
             subtitle: "Who does SSO / MFA / directory?",
-            options: ["Okta", "Microsoft Entra", "Azure AD", "Ping Identity", "Duo", "OneLogin"],
+            options: StackOptions.identity,
             selection: Binding(get: { draft.identity }, set: { draft.identity = $0 })
         )
     }
@@ -118,7 +138,7 @@ struct EDRStep: View {
         ChipPicker(
             title: "Endpoint protection",
             subtitle: "What's on the endpoints?",
-            options: ["CrowdStrike", "SentinelOne", "Microsoft Defender", "Carbon Black"],
+            options: StackOptions.edr,
             selection: Binding(get: { draft.edr }, set: { draft.edr = $0 })
         )
     }
@@ -130,7 +150,7 @@ struct SIEMStep: View {
         ChipPicker(
             title: "SIEM / logging",
             subtitle: "Where do logs land?",
-            options: ["Splunk", "Datadog", "Elastic", "Sumo Logic", "Microsoft Sentinel"],
+            options: StackOptions.siem,
             selection: Binding(get: { draft.siem }, set: { draft.siem = $0 })
         )
     }
@@ -142,9 +162,52 @@ struct SaaSStep: View {
         ChipPicker(
             title: "Key SaaS",
             subtitle: "Top SaaS that hold sensitive data or run critical workflows.",
-            options: ["Microsoft 365", "Google Workspace", "Salesforce", "Slack", "Atlassian", "GitHub", "GitLab", "Zoom", "Workday"],
+            options: StackOptions.saas,
             selection: Binding(get: { draft.saas }, set: { draft.saas = $0 })
         )
+    }
+}
+
+struct RegulatedDataStep: View {
+    @Binding var draft: OnboardingDraft
+    var body: some View {
+        ChipPicker(
+            title: "Regulated data",
+            subtitle: "What kinds of sensitive data do you store?",
+            options: StackOptions.regulatedData,
+            selection: Binding(get: { draft.regulatedData }, set: { draft.regulatedData = $0 })
+        )
+    }
+}
+
+struct OrgStep: View {
+    @Binding var draft: OnboardingDraft
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("About your org").font(.title2).bold()
+                Text("Helps tune the briefing to your size and sector.")
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Sector").font(.headline)
+                    SingleSelectChips(
+                        options: StackOptions.sector,
+                        selection: Binding(get: { draft.sector }, set: { draft.sector = $0 })
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Employees").font(.headline)
+                    SingleSelectChips(
+                        options: StackOptions.employeeBand,
+                        selection: Binding(get: { draft.employeeBand }, set: { draft.employeeBand = $0 })
+                    )
+                }
+                Spacer(minLength: 0)
+            }
+            .padding()
+        }
     }
 }
 
@@ -173,16 +236,18 @@ struct FinalStep: View {
             }
 
             Button(action: onSubmit) {
-                if saving {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                } else {
-                    Text("Generate my first brief")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
+                HStack(spacing: 8) {
+                    if saving {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                        Text("Generating your first brief…")
+                    } else {
+                        Text("Generate my first brief")
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
             .buttonStyle(.borderedProminent)
             .disabled(saving)

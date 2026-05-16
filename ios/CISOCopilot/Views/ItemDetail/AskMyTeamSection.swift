@@ -42,7 +42,7 @@ struct AskMyTeamSection: View {
                             Text("\(idx + 1).").foregroundStyle(.secondary)
                             Text(q)
                             Spacer()
-                            CopyButton(text: q)
+                            ShareButton(text: q)
                         }
                     }
                 }

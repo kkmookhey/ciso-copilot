@@ -11,7 +11,7 @@ struct OnboardingFlow: View {
     @State private var saving = false
     @State private var error: String?
 
-    private let totalSteps = 6
+    private let totalSteps = 8
 
     var body: some View {
         NavigationStack {
@@ -26,7 +26,9 @@ struct OnboardingFlow: View {
                     EDRStep(draft: $draft).tag(2)
                     SIEMStep(draft: $draft).tag(3)
                     SaaSStep(draft: $draft).tag(4)
-                    FinalStep(draft: $draft, saving: $saving, error: $error, onSubmit: submit).tag(5)
+                    RegulatedDataStep(draft: $draft).tag(5)
+                    OrgStep(draft: $draft).tag(6)
+                    FinalStep(draft: $draft, saving: $saving, error: $error, onSubmit: submit).tag(7)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
 

@@ -22,6 +22,9 @@ const ALIASES: Record<string, { vendor?: string; product?: string }> = {
   "GCP":                  { vendor: "google" },
   "Google Cloud":         { vendor: "google" },
   "Oracle Cloud":         { vendor: "oracle" },
+  "IBM Cloud":            { vendor: "ibm" },
+  "DigitalOcean":         { vendor: "digitalocean" },
+  "Alibaba Cloud":        { vendor: "alibaba" },
 
   // Identity
   "Okta":                 { vendor: "okta" },
@@ -30,12 +33,20 @@ const ALIASES: Record<string, { vendor?: string; product?: string }> = {
   "Ping Identity":        { vendor: "pingidentity" },
   "Duo":                  { vendor: "cisco", product: "duo" },
   "OneLogin":             { vendor: "onelogin" },
+  "JumpCloud":            { vendor: "jumpcloud" },
+  "ForgeRock":            { vendor: "forgerock" },
 
   // EDR
   "CrowdStrike":          { vendor: "crowdstrike" },
   "SentinelOne":          { vendor: "sentinelone" },
   "Microsoft Defender":   { vendor: "microsoft", product: "defender" },
   "Carbon Black":         { vendor: "vmware", product: "carbon_black" },
+  "Cybereason":           { vendor: "cybereason" },
+  "Cortex XDR":           { vendor: "paloaltonetworks", product: "cortex_xdr" },
+  "Trellix":              { vendor: "trellix" },
+  "Sophos":               { vendor: "sophos" },
+  "Trend Micro":          { vendor: "trendmicro" },
+  "Palo Alto Networks":   { vendor: "paloaltonetworks" },
 
   // SIEM
   "Splunk":               { vendor: "splunk" },
@@ -43,6 +54,11 @@ const ALIASES: Record<string, { vendor?: string; product?: string }> = {
   "Elastic":              { vendor: "elastic" },
   "Sumo Logic":           { vendor: "sumologic" },
   "Microsoft Sentinel":   { vendor: "microsoft", product: "sentinel" },
+  "IBM QRadar":           { vendor: "ibm", product: "qradar" },
+  "Exabeam":              { vendor: "exabeam" },
+  "Securonix":            { vendor: "securonix" },
+  "ArcSight":             { vendor: "microfocus", product: "arcsight" },
+  "LogRhythm":            { vendor: "logrhythm" },
 
   // SaaS
   "Microsoft 365":        { vendor: "microsoft", product: "office_365" },
@@ -54,6 +70,13 @@ const ALIASES: Record<string, { vendor?: string; product?: string }> = {
   "GitLab":               { vendor: "gitlab" },
   "Zoom":                 { vendor: "zoom" },
   "Workday":              { vendor: "workday" },
+  "ServiceNow":           { vendor: "servicenow" },
+  "Box":                  { vendor: "box" },
+  "Dropbox":              { vendor: "dropbox" },
+  "Notion":               { vendor: "notion" },
+  "Confluence":           { vendor: "atlassian", product: "confluence" },
+  "Jira":                 { vendor: "atlassian", product: "jira" },
+  "Asana":                { vendor: "asana" },
 };
 
 export function tokenizeStack(p: StackProfile): { vendors: Set<string>; products: Set<string> } {

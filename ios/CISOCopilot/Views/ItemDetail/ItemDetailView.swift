@@ -24,7 +24,7 @@ struct ItemDetailView: View {
                 if let board = item.boardParagraph {
                     Section_(title: "Board paragraph") {
                         Text(board)
-                        CopyButton(text: board)
+                        ShareButton(text: board)
                     }
                 }
 
@@ -143,20 +143,14 @@ private struct FeedbackButton: View {
     }
 }
 
-struct CopyButton: View {
+/// Opens the native iOS share sheet — Slack, Teams, Mail, Messages, AirDrop, Copy, etc.
+/// One affordance, every destination users care about.
+struct ShareButton: View {
     let text: String
-    @State private var copied = false
 
     var body: some View {
-        Button {
-            UIPasteboard.general.string = text
-            copied = true
-            Task {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                copied = false
-            }
-        } label: {
-            Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+        ShareLink(item: text) {
+            Label("Share", systemImage: "square.and.arrow.up")
                 .font(.subheadline)
         }
         .buttonStyle(.bordered)
