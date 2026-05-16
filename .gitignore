@@ -4,6 +4,8 @@
 # Secrets — never commit
 .env
 .env.*
+.info
+.info.*
 *.p8
 *.pem
 *.key
