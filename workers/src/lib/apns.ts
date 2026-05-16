@@ -3,7 +3,9 @@
 
 import type { Env } from "../index";
 
-const APNS_HOST = "api.push.apple.com";   // use api.sandbox.push.apple.com for dev builds
+// Dev builds installed via Xcode use the sandbox; TestFlight / App Store builds use production.
+// Match this to the `aps-environment` value in CISOCopilot.entitlements.
+const APNS_HOST = "api.sandbox.push.apple.com";
 
 interface ApnsAlert {
   title: string;
@@ -42,9 +44,11 @@ export async function sendApnsPush(
     body: JSON.stringify(payload),
   });
 
+  const apnsId = res.headers.get("apns-id");
+  const body = await res.text();
+  console.log(`APNs ${res.status} apns-id=${apnsId} body=${body || "(empty)"}`);
   if (!res.ok) {
-    const err = await res.text();
-    console.error(`APNs ${res.status}: ${err}`);
+    throw new Error(`APNs ${res.status}: ${body || "(empty)"}`);
   }
 }
 
