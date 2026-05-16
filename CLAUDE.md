@@ -1,26 +1,33 @@
 # CISO Copilot
 
-A daily threat & vulnerability briefing for CISOs, filtered through their own
-tech stack. iOS-first, ~5-minute morning read, with push alerts for things
-that actually matter.
+A multi-tenant CISO platform — connects to AWS, Azure, Entra, GCP, runs
+posture scans, ingests real-time alerts and config drift, surfaces it all
+through an iOS app and a voice interface.
 
-**Source of truth for the build:** `CISOBrief.md` in this directory. That is
-the PRD and the executable spec. Where this file and the PRD disagree, this
-file's locked-in decisions win — they reflect choices made after the PRD was
-written. The PRD wins on everything else.
+## Two specs in this repo — read v2 first
+
+- **`CISOBrief-v2.md`** is the **current** spec (multi-tenant SaaS, AWS-native,
+  enterprise, multi-cloud, real-time, voice via OpenAI Realtime). v2 is what
+  we are building.
+- **`CISOBrief.md`** is the v1 spec (Cloudflare-only public-threat-feed brief).
+  v1 is deployed and live at `ciso-copilot.kkmookhey.workers.dev` but is
+  **being sunset** when v2 Phase A ships. v1 details below remain for reference
+  until then.
+
+Where v1 and v2 disagree, v2 wins. Where v2 and this CLAUDE.md disagree, v2
+wins. This file is orientation — the v2 spec is the build contract.
 
 ## Status
 
-Deployed at **https://ciso-copilot.kkmookhey.workers.dev** · repo at
-**https://github.com/kkmookhey/ciso-copilot** (MIT, public).
+**v1 — deployed and live, soon to be sunset.**
+`https://ciso-copilot.kkmookhey.workers.dev` · `github.com/kkmookhey/ciso-copilot`
+(MIT, public). KEV + NVD + EPSS in D1, brief generation + LLM prose + APNs
+push to a real iPhone all verified end-to-end on 2026-05-16.
 
-End-to-end verified: KEV (1,592 entries) + NVD 7-day window (~5k CVEs) + EPSS
-scores in D1 · synthetic user's brief produced 5 LLM-enriched items
-(why-it-matters, board paragraph, team questions) in 13.8s cold / 0.33s with
-LLM cache hits. iOS app builds clean, onboarding renders on simulator.
-
-Phase 8 (real-iPhone APNs) is wired in the Worker but unverified — needs the
-app installed on a physical iPhone to register a device token and fire a push.
+**v2 — spec written, build not started.** See `CISOBrief-v2.md`. v2 lives in
+this same repo (now private, proprietary license). v2 Phase 0 starts when
+`settlingforless.com` DNS is wired, the AWS account is provisioned, and the
+Cognito Microsoft + Google IdP registrations are in place.
 
 ## Locked-in decisions (these override the PRD)
 
