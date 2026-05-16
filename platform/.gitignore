@@ -5,3 +5,7 @@ cdk.out/
 *.js.map
 *.tsbuildinfo
 .env
+
+# Python bytecode (Lambda asset dirs)
+**/__pycache__/
+*.pyc
