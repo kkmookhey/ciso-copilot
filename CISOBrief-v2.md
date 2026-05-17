@@ -87,6 +87,7 @@ The product is judged on how well a five-minute interaction (scroll, or 30 secon
 - **Real-time drift ingestion** — CloudTrail write events + AWS Config items, Azure Activity Log, GCP Audit Logs.
 - **Push rules engine** — deterministic rules decide which events fire APNs immediately, per-tenant configurable thresholds.
 - **iOS app** — re-pointed from Cloudflare, new auth flow, screens listed in §5.
+- **Web app** — Vite + React + TypeScript SPA on S3 + CloudFront at `app.settlingforless.com`. Same Cognito user pool as iOS (separate web client), same API endpoints, screens parallel to iOS (Top Risks, Posture, Alerts, Connect Clouds wizard, Resource detail).
 - **Voice interface** — OpenAI Realtime, tool calls into our API, hands-free Q&A.
 - **Compliance scoring** — Shasta's existing scoring layer across SOC 2, ISO 27001, CIS AWS, CIS Azure, MCSB, HIPAA. Trend over time.
 - **Multi-tenant data model** — tenants, users, cloud_connections, scans, findings, assets, events, drift_events, alerts, scores, audit_events. Aurora Serverless v2 PostgreSQL with row-level tenant isolation.
@@ -99,7 +100,7 @@ The product is judged on how well a five-minute interaction (scroll, or 30 secon
 - **Remediation automation** — read-only platform. Remediation guidance is rendered as text only; we never modify customer clouds.
 - **Custom checks / rule editor** — Shasta's check set is the surface. Custom rules in v3.
 - **Trust center / customer-facing security pages** — separate product surface, not part of v2.
-- **Compliance report PDF generation** — Shasta has it, but v2 is mobile-first. Add via web dashboard in v2.5 if customers ask.
+- **Compliance report PDF generation** — Shasta has it; add via web in v2.5 if customers ask.
 - **API for third-party integrations** — internal use only in v2.
 - **Multi-region backend** — us-east-1 only. EU residency in v2.5 if a customer requires it.
 - **AWS Organizations org-wide onboarding** — per-account in v2. Org-wide enrollment in v2.5.
@@ -779,6 +780,7 @@ Each phase ends with a working, deployable, demoable increment.
 - **A.4 Push rules** — engine in router Lambda; SNS Mobile Push integration; APNs.
 - **A.5 iOS screens** — Brief (Top Risks + Posture Diff + Threat Exposure), Alerts (live inbox), Posture (scores), Connected Clouds.
 - **A.6 Finding / event detail screens** — LLM narratives pre-rendered.
+- **A.7 Web SPA** — Vite + React + TypeScript at `app.settlingforless.com`. Same Cognito user pool, separate web client. Screens parallel to iOS: Sign-in, Connect AWS wizard, Top Risks, Posture, Alerts, Resource detail.
 
 **Done means:** Phase A demo contract (§4.3).
 
