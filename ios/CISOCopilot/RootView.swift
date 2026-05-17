@@ -34,7 +34,7 @@ struct RootView: View {
     private var approvedOrPending: some View {
         switch tenantStatus {
         case "approved":
-            WelcomeView()
+            MainTabView()
         case "rejected":
             SignInView()
         case nil where checkingStatus:
