@@ -6,8 +6,9 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import { Construct } from 'constructs';
 
 interface ScanStackProps extends cdk.StackProps {
-  dbCluster:           rds.DatabaseCluster;
-  shastaRunnerRepo:    ecr.Repository;
+  dbCluster:             rds.DatabaseCluster;
+  shastaRunnerRepo:      ecr.Repository;
+  shastaRunnerAzureRepo: ecr.Repository;
 }
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
@@ -25,43 +26,59 @@ interface ScanStackProps extends cdk.StackProps {
 ///   - secretsmanager:GetSecretValue on ciso-copilot/connections/* (in
 ///     case we move credential pickup into the Lambda later)
 export class ScanStack extends cdk.Stack {
-  public readonly shastaRunner: lambda.DockerImageFunction;
+  public readonly shastaRunner:      lambda.DockerImageFunction;
+  public readonly shastaRunnerAzure: lambda.DockerImageFunction;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
 
+    const dbEnv = {
+      DB_CLUSTER_ARN: props.dbCluster.clusterArn,
+      DB_SECRET_ARN:  props.dbCluster.secret!.secretArn,
+      DB_NAME:        'ciso_copilot',
+    };
+
+    const secretsArn = `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`;
+
+    // ===== AWS scanner =====
     this.shastaRunner = new lambda.DockerImageFunction(this, 'ShastaRunner', {
       functionName: 'ciso-copilot-shasta-runner',
-      code: lambda.DockerImageCode.fromEcr(props.shastaRunnerRepo, {
-        tagOrDigest: 'latest',
-      }),
-      timeout:    cdk.Duration.minutes(15),    // Lambda's max
-      memorySize: 2048,                        // Shasta scans many resources
+      code: lambda.DockerImageCode.fromEcr(props.shastaRunnerRepo, { tagOrDigest: 'latest' }),
+      timeout:    cdk.Duration.minutes(15),
+      memorySize: 2048,
       architecture: lambda.Architecture.X86_64,
-      environment: {
-        DB_CLUSTER_ARN: props.dbCluster.clusterArn,
-        DB_SECRET_ARN:  props.dbCluster.secret!.secretArn,
-        DB_NAME:        'ciso_copilot',
-      },
+      environment: dbEnv,
     });
-
     props.dbCluster.grantDataApiAccess(this.shastaRunner);
-
-    // STS AssumeRole on customer roles named CISOCopilotReader.
     this.shastaRunner.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['sts:AssumeRole'],
       resources: ['arn:aws:iam::*:role/CISOCopilotReader'],
     }));
-
-    // Read connection-credentials secrets (currently only used by the
-    // onboarding/complete flow; the runner gets role+external from the
-    // invocation payload, but reserving the permission for future use).
     this.shastaRunner.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`],
+      resources: [secretsArn],
     }));
 
-    new cdk.CfnOutput(this, 'ShastaRunnerArn',      { value: this.shastaRunner.functionArn });
-    new cdk.CfnOutput(this, 'ShastaRunnerFnName',   { value: this.shastaRunner.functionName });
+    // ===== Azure scanner =====
+    // No cross-cloud assume-role needed (Azure SDK uses SP credentials directly
+    // from env vars, which we inject from Secrets Manager at invoke time).
+    this.shastaRunnerAzure = new lambda.DockerImageFunction(this, 'AzureRunner', {
+      functionName: 'ciso-copilot-shasta-runner-azure',
+      code: lambda.DockerImageCode.fromEcr(props.shastaRunnerAzureRepo, { tagOrDigest: 'latest' }),
+      timeout:    cdk.Duration.minutes(15),
+      memorySize: 2048,
+      architecture: lambda.Architecture.X86_64,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(this.shastaRunnerAzure);
+    this.shastaRunnerAzure.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [secretsArn],
+    }));
+
+    new cdk.CfnOutput(this, 'ShastaRunnerArn',         { value: this.shastaRunner.functionArn });
+    new cdk.CfnOutput(this, 'ShastaRunnerFnName',      { value: this.shastaRunner.functionName });
+    new cdk.CfnOutput(this, 'ShastaRunnerAzureArn',    { value: this.shastaRunnerAzure.functionArn });
+    new cdk.CfnOutput(this, 'ShastaRunnerAzureFnName', { value: this.shastaRunnerAzure.functionName });
   }
 }

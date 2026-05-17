@@ -46,6 +46,16 @@ final class APIClient {
         return try decoder.decode(InitiateAwsResponse.self, from: data)
     }
 
+    // MARK: - /onboarding/azure/initiate
+
+    func initiateAzureOnboarding(displayName: String) async throws -> InitiateAzureResponse {
+        var req = try await authedRequest(method: "POST", path: "onboarding/azure/initiate")
+        req.httpBody = try encoder.encode(["display_name": displayName])
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(InitiateAzureResponse.self, from: data)
+    }
+
     // MARK: - /findings
 
     func listFindings(severity: String? = nil, cloud: String? = nil, limit: Int = 50) async throws -> [Finding] {
@@ -141,6 +151,13 @@ struct InitiateAwsResponse: Decodable {
     let external_id: String
     let cfn_url: String
     let template_url: String
+}
+
+struct InitiateAzureResponse: Decodable {
+    let connection_id: String
+    let external_id: String
+    let script_url: String
+    let run_command: String
 }
 
 struct FindingsResponse: Decodable {

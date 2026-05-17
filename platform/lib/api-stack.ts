@@ -10,12 +10,13 @@ import { Construct } from 'constructs';
 import * as path from 'path';
 
 interface ApiStackProps extends cdk.StackProps {
-  userPool:        cognito.UserPool;
-  userPoolClient:  cognito.UserPoolClient;
-  dbCluster:       rds.DatabaseCluster;
-  eventBus:        events.EventBus;
-  cdnDistribution: cloudfront.Distribution;
-  shastaRunner:    lambda.IFunction;
+  userPool:          cognito.UserPool;
+  userPoolClient:    cognito.UserPoolClient;
+  dbCluster:         rds.DatabaseCluster;
+  eventBus:          events.EventBus;
+  cdnDistribution:   cloudfront.Distribution;
+  shastaRunner:      lambda.IFunction;
+  shastaRunnerAzure: lambda.IFunction;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -188,6 +189,54 @@ export class ApiStack extends cdk.Stack {
     // GET /findings
     api.root.addResource('findings').addMethod(
       'GET', new apigw.LambdaIntegration(findingsListFn), authedOpts,
+    );
+
+    // ========================================================================
+    // Phase B — Azure onboarding
+    // ========================================================================
+
+    const azureScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/azure/onboard.sh`;
+
+    const onboardingAzureInitiateFn = new lambda.Function(this, 'OnboardingAzureInitiateFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_azure_initiate')),
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        ...dbEnv,
+        AZURE_SCRIPT_URL: azureScriptUrl,
+        OUR_ACCOUNT_ID:   this.account,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(onboardingAzureInitiateFn);
+
+    const onboardingAzureCompleteFn = new lambda.Function(this, 'OnboardingAzureCompleteFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_azure_complete')),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...dbEnv,
+        AZURE_RUNNER_FN: props.shastaRunnerAzure.functionName,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(onboardingAzureCompleteFn);
+    onboardingAzureCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'secretsmanager:CreateSecret',
+        'secretsmanager:PutSecretValue',
+        'secretsmanager:GetSecretValue',
+      ],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`],
+    }));
+    props.shastaRunnerAzure.grantInvoke(onboardingAzureCompleteFn);
+
+    const onboardingAzure = onboarding.addResource('azure');
+    onboardingAzure.addResource('initiate').addMethod(
+      'POST', new apigw.LambdaIntegration(onboardingAzureInitiateFn), authedOpts,
+    );
+    onboardingAzure.addResource('complete').addMethod(
+      'POST', new apigw.LambdaIntegration(onboardingAzureCompleteFn),
     );
 
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });

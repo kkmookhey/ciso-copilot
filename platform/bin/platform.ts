@@ -29,17 +29,19 @@ const staticStack = new StaticStack(app, 'CisoCopilotStatic', { env });
 const eventsStack = new EventsStack(app, 'CisoCopilotEvents', { env, dbCluster: data.cluster });
 const scanStack   = new ScanStack(app, 'CisoCopilotScan', {
   env,
-  dbCluster:        data.cluster,
-  shastaRunnerRepo: ecrStack.shastaRunner,
+  dbCluster:             data.cluster,
+  shastaRunnerRepo:      ecrStack.shastaRunner,
+  shastaRunnerAzureRepo: ecrStack.shastaRunnerAzure,
 });
 
-// API last — references events bus + CDN domain + shasta-runner Lambda
+// API last — references events bus + CDN domain + shasta-runner Lambdas
 new ApiStack(app, 'CisoCopilotApi', {
   env,
-  userPool:        auth.userPool,
-  userPoolClient:  auth.userPoolClient,
-  dbCluster:       data.cluster,
-  eventBus:        eventsStack.eventBus,
-  cdnDistribution: staticStack.cdnDistribution,
-  shastaRunner:    scanStack.shastaRunner,
+  userPool:          auth.userPool,
+  userPoolClient:    auth.userPoolClient,
+  dbCluster:         data.cluster,
+  eventBus:          eventsStack.eventBus,
+  cdnDistribution:   staticStack.cdnDistribution,
+  shastaRunner:      scanStack.shastaRunner,
+  shastaRunnerAzure: scanStack.shastaRunnerAzure,
 });

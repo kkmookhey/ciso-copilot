@@ -46,6 +46,13 @@ export interface InitiateAwsResponse {
   template_url:  string;
 }
 
+export interface InitiateAzureResponse {
+  connection_id: string;
+  external_id:   string;
+  script_url:    string;
+  run_command:   string;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await validIdToken();
   if (!token) { signOut(); throw new Error("not_signed_in"); }
@@ -67,6 +74,11 @@ export const api = {
   listConnections: ()                         => call<{ connections: Connection[] }>("/connections"),
   initiateAwsOnboarding: (displayName: string) =>
     call<InitiateAwsResponse>("/onboarding/aws/initiate", {
+      method: "POST",
+      body:   JSON.stringify({ display_name: displayName }),
+    }),
+  initiateAzureOnboarding: (displayName: string) =>
+    call<InitiateAzureResponse>("/onboarding/azure/initiate", {
       method: "POST",
       body:   JSON.stringify({ display_name: displayName }),
     }),

@@ -1,9 +1,13 @@
 import SwiftUI
+import UIKit
 
 struct ConnectCloudsView: View {
     @Environment(APIClient.self) private var api
-    @State private var pending = false
-    @State private var cfnUrl: URL?
+
+    @State private var pendingAws   = false
+    @State private var pendingAzure = false
+    @State private var awsCfnUrl: URL?
+    @State private var azureCommand: String?
     @State private var error: String?
 
     var body: some View {
@@ -17,15 +21,24 @@ struct ConnectCloudsView: View {
                 CloudTile(name: "AWS",
                           tagline: "Cross-account read-only role via CloudFormation",
                           enabled: true,
-                          loading: pending,
+                          loading: pendingAws,
                           action: { Task { await connectAws() } })
 
-                CloudTile(name: "Azure",  tagline: "Coming in Phase B", enabled: false)
+                CloudTile(name: "Azure",
+                          tagline: "Service Principal via Cloud Shell",
+                          enabled: true,
+                          loading: pendingAzure,
+                          action: { Task { await connectAzure() } })
+
                 CloudTile(name: "Entra",  tagline: "Coming in Phase C", enabled: false)
                 CloudTile(name: "GCP",    tagline: "Coming in Phase D", enabled: false)
 
-                if let cfnUrl = cfnUrl {
-                    LaunchCard(url: cfnUrl)
+                if let awsCfnUrl = awsCfnUrl {
+                    LaunchCard(url: awsCfnUrl)
+                }
+
+                if let cmd = azureCommand {
+                    AzureCommandCard(command: cmd)
                 }
 
                 if let error = error {
@@ -38,15 +51,21 @@ struct ConnectCloudsView: View {
     }
 
     private func connectAws() async {
-        pending = true
-        error = nil
-        defer { pending = false }
+        pendingAws = true; error = nil
+        defer { pendingAws = false }
         do {
             let r = try await api.initiateAwsOnboarding(displayName: "AWS Account")
-            cfnUrl = URL(string: r.cfn_url)
-        } catch {
-            self.error = error.localizedDescription
-        }
+            awsCfnUrl = URL(string: r.cfn_url)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func connectAzure() async {
+        pendingAzure = true; error = nil
+        defer { pendingAzure = false }
+        do {
+            let r = try await api.initiateAzureOnboarding(displayName: "Azure Subscription")
+            azureCommand = r.run_command
+        } catch { self.error = error.localizedDescription }
     }
 }
 
@@ -91,13 +110,10 @@ struct LaunchCard: View {
             Text("One-click AWS connection")
                 .font(.headline)
             Text("Tap below to open the AWS CloudFormation console with our template + your one-time external ID pre-filled. Review and click Create. Once the stack completes, you'll see your AWS account in the Brief tab.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
+                .font(.callout).foregroundStyle(.secondary)
             Link(destination: url) {
                 Label("Launch CloudFormation", systemImage: "arrow.up.right.square.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
         }
@@ -105,10 +121,57 @@ struct LaunchCard: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.blue.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.blue.opacity(0.25), lineWidth: 1)
-                )
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.25), lineWidth: 1))
+        )
+    }
+}
+
+struct AzureCommandCard: View {
+    let command: String
+
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Run this in Azure Cloud Shell")
+                .font(.headline)
+            Text("Opens Cloud Shell with your subscription selected. Paste and run the command below; it creates a Service Principal with Reader + Security Reader, then notifies CISO Copilot. Takes about 30 seconds.")
+                .font(.callout).foregroundStyle(.secondary)
+
+            // Command in a monospaced text view (selectable)
+            Text(command)
+                .font(.system(.caption, design: .monospaced))
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .textSelection(.enabled)
+
+            HStack {
+                Button {
+                    UIPasteboard.general.string = command
+                    copied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        copied = false
+                    }
+                } label: {
+                    Label(copied ? "Copied" : "Copy command",
+                          systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+
+                Link(destination: URL(string: "https://shell.azure.com")!) {
+                    Label("Open Cloud Shell", systemImage: "arrow.up.right.square.fill")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.purple.opacity(0.08))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.purple.opacity(0.25), lineWidth: 1))
         )
     }
 }
