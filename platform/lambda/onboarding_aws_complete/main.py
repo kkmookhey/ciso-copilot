@@ -25,11 +25,13 @@ import boto3
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
-CENTRAL_EVENT_BUS_ARN  = os.environ["CENTRAL_EVENT_BUS_ARN"]
+CENTRAL_EVENT_BUS_ARN = os.environ["CENTRAL_EVENT_BUS_ARN"]
+SHASTA_RUNNER_FN      = os.environ.get("SHASTA_RUNNER_FN", "")
 
 rds_data = boto3.client("rds-data")
 sm       = boto3.client("secretsmanager")
 events   = boto3.client("events")
+lambda_client = boto3.client("lambda")
 
 
 def handler(event: dict, context) -> dict:
@@ -90,9 +92,67 @@ def handler(event: dict, context) -> dict:
 
     print(f"connection {conn_id} activated for tenant {conn['tenant_id']} (account {account_id})")
 
-    # TODO: enqueue an initial scan via Step Functions (separate task)
+    # Kick off the initial scan.
+    scan_id = _enqueue_initial_scan(
+        tenant_id   = conn["tenant_id"],
+        conn_id     = conn_id,
+        role_arn    = role_arn,
+        external_id = external_id,
+        account_id  = account_id,
+    )
 
-    return _resp(200, {"status": "active", "connection_id": conn_id})
+    return _resp(200, {"status": "active", "connection_id": conn_id, "initial_scan_id": scan_id})
+
+
+def _enqueue_initial_scan(
+    *, tenant_id: str, conn_id: str, role_arn: str, external_id: str, account_id: str,
+) -> str | None:
+    """Insert a scan row and async-invoke the shasta-runner Lambda.
+
+    Fails open — if the invoke fails, the connection is still active and the
+    user can re-trigger from the app. We don't want a temporary Lambda hiccup
+    to block onboarding.
+    """
+    import uuid
+    if not SHASTA_RUNNER_FN:
+        print("WARN: SHASTA_RUNNER_FN not configured; skipping initial scan")
+        return None
+
+    scan_id = str(uuid.uuid4())
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=(
+            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, scope) "
+            "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
+            "        'onboarding', 'queued', CAST(:scope AS JSONB))"
+        ),
+        parameters=[
+            {"name": "sid",   "value": {"stringValue": scan_id}},
+            {"name": "tid",   "value": {"stringValue": tenant_id}},
+            {"name": "cid",   "value": {"stringValue": conn_id}},
+            {"name": "scope", "value": {"stringValue": json.dumps({"regions": ["us-east-1"]})}},
+        ],
+    )
+
+    try:
+        lambda_client.invoke(
+            FunctionName   = SHASTA_RUNNER_FN,
+            InvocationType = "Event",   # async — return immediately
+            Payload=json.dumps({
+                "scan_id":     scan_id,
+                "tenant_id":   tenant_id,
+                "conn_id":     conn_id,
+                "role_arn":    role_arn,
+                "external_id": external_id,
+                "account_id":  account_id,
+                "regions":     ["us-east-1"],
+            }).encode(),
+        )
+        print(f"initial scan {scan_id} enqueued for {conn_id}")
+    except Exception as e:
+        print(f"WARN: initial scan invoke failed for {conn_id}: {e}")
+
+    return scan_id
 
 
 def _get_connection(conn_id: str) -> dict[str, Any] | None:

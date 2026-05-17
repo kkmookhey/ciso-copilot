@@ -15,6 +15,7 @@ interface ApiStackProps extends cdk.StackProps {
   dbCluster:       rds.DatabaseCluster;
   eventBus:        events.EventBus;
   cdnDistribution: cloudfront.Distribution;
+  shastaRunner:    lambda.IFunction;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -91,10 +92,11 @@ export class ApiStack extends cdk.Stack {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
       code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_aws_complete')),
-      timeout: cdk.Duration.seconds(20),
+      timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
         CENTRAL_EVENT_BUS_ARN: props.eventBus.eventBusArn,
+        SHASTA_RUNNER_FN:      props.shastaRunner.functionName,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingCompleteFn);
@@ -110,6 +112,8 @@ export class ApiStack extends cdk.Stack {
       actions:   ['events:PutPermission', 'events:DescribeEventBus'],
       resources: [props.eventBus.eventBusArn],
     }));
+    // Allow async-invoke of shasta-runner to kick off the initial scan.
+    props.shastaRunner.grantInvoke(onboardingCompleteFn);
 
     const connectionsListFn = new lambda.Function(this, 'ConnectionsListFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
