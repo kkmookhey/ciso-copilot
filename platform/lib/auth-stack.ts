@@ -120,12 +120,38 @@ export class AuthStack extends cdk.Stack {
       idTokenValidity:      cdk.Duration.minutes(60),
       refreshTokenValidity: cdk.Duration.days(30),
     });
-    // Ensure providers exist before the client references them.
     this.userPoolClient.node.addDependency(microsoft);
     this.userPoolClient.node.addDependency(google);
 
+    // ===== Web app client — used by the SPA at app.settlingforless.com =====
+    const webClient = this.userPool.addClient('WebClient', {
+      generateSecret: false,                    // public client (browser)
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.custom('Microsoft'),
+        cognito.UserPoolClientIdentityProvider.GOOGLE,
+      ],
+      oAuth: {
+        flows:  { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+        callbackUrls: [
+          `https://app.${config.domain}/callback`,
+          'http://localhost:5173/callback',     // Vite dev server
+        ],
+        logoutUrls: [
+          `https://app.${config.domain}/`,
+          'http://localhost:5173/',
+        ],
+      },
+      accessTokenValidity:  cdk.Duration.minutes(60),
+      idTokenValidity:      cdk.Duration.minutes(60),
+      refreshTokenValidity: cdk.Duration.days(30),
+    });
+    webClient.node.addDependency(microsoft);
+    webClient.node.addDependency(google);
+
     new cdk.CfnOutput(this, 'UserPoolId',       { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: this.userPoolClient.userPoolClientId });
+    new cdk.CfnOutput(this, 'WebClientId',      { value: webClient.userPoolClientId });
     new cdk.CfnOutput(this, 'CognitoDomain',    { value: `ciso-copilot.auth.${config.awsRegion}.amazoncognito.com` });
   }
 }

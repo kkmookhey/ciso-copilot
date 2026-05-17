@@ -6,6 +6,7 @@ import { NetworkStack } from '../lib/network-stack';
 import { DataStack } from '../lib/data-stack';
 import { AuthStack } from '../lib/auth-stack';
 import { ApiStack } from '../lib/api-stack';
+import { EcrStack } from '../lib/ecr-stack';
 
 const app = new cdk.App();
 
@@ -26,3 +27,6 @@ new ApiStack(app, 'CisoCopilotApi', {
   userPoolClient: auth.userPoolClient,
   dbCluster:      data.cluster,
 });
+
+// Phase A — container image repo for the Shasta scanner Lambda + Fargate fallback.
+new EcrStack(app, 'CisoCopilotEcr', { env });
