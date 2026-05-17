@@ -1,17 +1,16 @@
 import SwiftUI
-import SwiftData
 
 @main
 struct CISOCopilotApp: App {
-    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var api = APIClient()
+    @State private var auth = AuthManager()
+    @State private var api  = APIClient()
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environment(auth)
                 .environment(api)
-                .environment(PushManager.shared)
+                .onAppear { api.bind(auth: auth) }
         }
-        .modelContainer(for: [StoredProfile.self, StoredFeedback.self])
     }
 }

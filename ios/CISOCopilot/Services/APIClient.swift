@@ -1,99 +1,79 @@
 import Foundation
 import Observation
 
+/// HTTP client for the v2 AWS-native backend. All requests are JWT-authed
+/// against API Gateway's CognitoUserPoolsAuthorizer using the ID token from
+/// AuthManager.
+///
+/// The /me endpoint is the only v2 Phase 0 surface. Phase A reintroduces
+/// /profile, /brief, /feedback, /history with proper schema.
 @Observable
 final class APIClient {
-    /// Worker URL. Update after `wrangler deploy` prints the deployed URL.
-    /// Form: https://ciso-copilot.<workers-subdomain>.workers.dev
-    static var baseURL: URL {
-        URL(string: "https://ciso-copilot.kkmookhey.workers.dev")!
-    }
+    static let baseURL = URL(string: "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1")!
 
-    private var deviceId: String { DeviceID.current }
     private let session = URLSession.shared
-    private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    private weak var auth: AuthManager?
 
-    // MARK: - POST /profile
+    func bind(auth: AuthManager) {
+        self.auth = auth
+    }
 
-    func postProfile(_ profile: StackProfileDTO, deviceToken: String?) async throws {
-        let url = Self.baseURL.appending(path: "profile")
+    // MARK: - /me
+
+    func fetchMe() async throws -> MeResponse? {
+        let url = Self.baseURL.appending(path: "me")
         var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try encoder.encode(
-            ProfileRequest(deviceId: deviceId, stackProfile: profile, deviceToken: deviceToken)
-        )
-        try await sendAndVerify(req)
-    }
+        try await attachAuthHeader(&req)
 
-    // MARK: - GET /brief
-
-    func getBrief() async throws -> BriefDTO {
-        var components = URLComponents(url: Self.baseURL.appending(path: "brief"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "device", value: deviceId)]
-        let (data, response) = try await session.data(from: components.url!)
-        try Self.assertOK(response)
-        return try decoder.decode(BriefDTO.self, from: data)
-    }
-
-    // MARK: - GET /history
-
-    func getHistory() async throws -> HistoryDTO {
-        var components = URLComponents(url: Self.baseURL.appending(path: "history"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "device", value: deviceId)]
-        let (data, response) = try await session.data(from: components.url!)
-        try Self.assertOK(response)
-        return try decoder.decode(HistoryDTO.self, from: data)
-    }
-
-    // MARK: - POST /feedback
-
-    func postFeedback(itemId: String, sentiment: String, reason: String?) async throws {
-        let url = Self.baseURL.appending(path: "feedback")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try encoder.encode(
-            FeedbackRequest(deviceId: deviceId, itemId: itemId, sentiment: sentiment, reason: reason)
-        )
-        try await sendAndVerify(req)
-    }
-
-    // MARK: - POST /register-token
-
-    func registerToken(_ token: String) async throws {
-        let url = Self.baseURL.appending(path: "register-token")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try encoder.encode(TokenRequest(deviceId: deviceId, deviceToken: token))
-        try await sendAndVerify(req)
-    }
-
-    // MARK: - Helpers
-
-    private func sendAndVerify(_ req: URLRequest) async throws {
-        let (_, response) = try await session.data(for: req)
-        try Self.assertOK(response)
-    }
-
-    private static func assertOK(_ response: URLResponse) throws {
+        let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw APIError.badResponse }
+        if http.statusCode == 401 { return nil }  // caller should sign user out
         guard (200..<300).contains(http.statusCode) else {
             throw APIError.badStatus(http.statusCode)
         }
+        return try decoder.decode(MeResponse.self, from: data)
     }
+
+    // MARK: - Auth header
+
+    private func attachAuthHeader(_ req: inout URLRequest) async throws {
+        guard let auth = auth, let token = await auth.validIdToken() else {
+            throw APIError.notAuthenticated
+        }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
+}
+
+// MARK: - DTOs
+
+struct MeResponse: Decodable {
+    let user: MeUser?
+    let tenant: MeTenant?
+}
+
+struct MeUser: Decodable {
+    let email: String?
+    let role: String?
+}
+
+struct MeTenant: Decodable {
+    let tenant_id: String?
+    let display_name: String?
+    let status: String?  // "pending" | "approved" | "rejected" | "suspended"
 }
 
 enum APIError: Error, LocalizedError {
     case badResponse
     case badStatus(Int)
+    case notAuthenticated
 
     var errorDescription: String? {
         switch self {
-        case .badResponse:    return "Unexpected response"
-        case .badStatus(let s): return "Server returned status \(s)"
+        case .badResponse:        return "Unexpected response"
+        case .badStatus(let s):   return "Server returned \(s)"
+        case .notAuthenticated:   return "Not signed in"
         }
     }
 }
