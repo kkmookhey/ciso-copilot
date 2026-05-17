@@ -72,7 +72,12 @@ def handler(event: dict, context) -> dict:
         tenant_id = str(uuid.uuid4())
         _create_tenant(tenant_id, email_domain)
         _upsert_user(tenant_id, email, sso_provider, sso_subject, role="admin")
-        _send_approval_email(tenant_id, email_domain, email)
+        # Email failure must not block sign-in (DNS-pending, SES-throttled, etc.).
+        # The admin can also approve via the AWS console; we log loudly here.
+        try:
+            _send_approval_email(tenant_id, email_domain, email)
+        except Exception as ses_err:
+            print(f"WARN: approval email send failed for tenant {tenant_id}: {ses_err}")
         print(f"created pending tenant {tenant_id} for {email_domain}")
     else:
         _upsert_user(tenant["tenant_id"], email, sso_provider, sso_subject, role="member")
