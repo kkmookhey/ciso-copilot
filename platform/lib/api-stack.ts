@@ -195,7 +195,7 @@ export class ApiStack extends cdk.Stack {
     // Phase B — Azure onboarding
     // ========================================================================
 
-    const azureScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/azure/onboard.sh`;
+    const azureScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/azure/onboard.sh`;
 
     const onboardingAzureInitiateFn = new lambda.Function(this, 'OnboardingAzureInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
