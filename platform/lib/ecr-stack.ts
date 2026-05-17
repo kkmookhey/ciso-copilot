@@ -8,27 +8,26 @@ import { Construct } from 'constructs';
 export class EcrStack extends cdk.Stack {
   public readonly shastaRunner:      ecr.Repository;
   public readonly shastaRunnerAzure: ecr.Repository;
+  public readonly shastaRunnerEntra: ecr.Repository;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    this.shastaRunner = new ecr.Repository(this, 'ShastaRunner', {
-      repositoryName: 'shasta-runner',
-      imageScanOnPush: true,
-      lifecycleRules: [{ maxImageCount: 10 }],
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      emptyOnDelete: false,
-    });
+    const repo = (id: string, name: string) =>
+      new ecr.Repository(this, id, {
+        repositoryName: name,
+        imageScanOnPush: true,
+        lifecycleRules: [{ maxImageCount: 10 }],
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+        emptyOnDelete: false,
+      });
 
-    this.shastaRunnerAzure = new ecr.Repository(this, 'ShastaRunnerAzure', {
-      repositoryName: 'shasta-runner-azure',
-      imageScanOnPush: true,
-      lifecycleRules: [{ maxImageCount: 10 }],
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      emptyOnDelete: false,
-    });
+    this.shastaRunner      = repo('ShastaRunner',      'shasta-runner');
+    this.shastaRunnerAzure = repo('ShastaRunnerAzure', 'shasta-runner-azure');
+    this.shastaRunnerEntra = repo('ShastaRunnerEntra', 'shasta-runner-entra');
 
     new cdk.CfnOutput(this, 'ShastaRunnerRepoUri',      { value: this.shastaRunner.repositoryUri });
     new cdk.CfnOutput(this, 'ShastaRunnerAzureRepoUri', { value: this.shastaRunnerAzure.repositoryUri });
+    new cdk.CfnOutput(this, 'ShastaRunnerEntraRepoUri', { value: this.shastaRunnerEntra.repositoryUri });
   }
 }

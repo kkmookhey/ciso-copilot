@@ -3,12 +3,15 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
+import { config } from './config';
 
 interface ScanStackProps extends cdk.StackProps {
   dbCluster:             rds.DatabaseCluster;
   shastaRunnerRepo:      ecr.Repository;
   shastaRunnerAzureRepo: ecr.Repository;
+  shastaRunnerEntraRepo: ecr.Repository;
 }
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
@@ -28,6 +31,8 @@ interface ScanStackProps extends cdk.StackProps {
 export class ScanStack extends cdk.Stack {
   public readonly shastaRunner:      lambda.DockerImageFunction;
   public readonly shastaRunnerAzure: lambda.DockerImageFunction;
+  public readonly shastaRunnerEntra: lambda.DockerImageFunction;
+  public readonly entraScannerSecret: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -76,9 +81,39 @@ export class ScanStack extends cdk.Stack {
       resources: [secretsArn],
     }));
 
+    // ===== Entra scanner credentials =====
+    // Shared across all customer Entra connections (our app reg's credentials).
+    // Value is bootstrapped from .env at deploy time via unsafePlainText — fine
+    // for dev. Rotate via the AWS console or secretsmanager:RotateSecret in prod.
+    this.entraScannerSecret = new secretsmanager.Secret(this, 'EntraScannerCreds', {
+      secretName: 'ciso-copilot/entra-scanner-creds',
+      description: 'Microsoft Entra app credentials for Graph API client-credentials flow against customer tenants.',
+      secretObjectValue: {
+        client_id:     cdk.SecretValue.unsafePlainText(config.entraClientId),
+        client_secret: cdk.SecretValue.unsafePlainText(config.entraClientSecret),
+      },
+    });
+
+    // ===== Entra scanner Lambda =====
+    this.shastaRunnerEntra = new lambda.DockerImageFunction(this, 'EntraRunner', {
+      functionName: 'ciso-copilot-shasta-runner-entra',
+      code: lambda.DockerImageCode.fromEcr(props.shastaRunnerEntraRepo, { tagOrDigest: 'latest' }),
+      timeout:    cdk.Duration.minutes(15),
+      memorySize: 2048,
+      architecture: lambda.Architecture.X86_64,
+      environment: {
+        ...dbEnv,
+        ENTRA_SCANNER_SECRET_NAME: this.entraScannerSecret.secretName,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(this.shastaRunnerEntra);
+    this.entraScannerSecret.grantRead(this.shastaRunnerEntra);
+
     new cdk.CfnOutput(this, 'ShastaRunnerArn',         { value: this.shastaRunner.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerFnName',      { value: this.shastaRunner.functionName });
     new cdk.CfnOutput(this, 'ShastaRunnerAzureArn',    { value: this.shastaRunnerAzure.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerAzureFnName', { value: this.shastaRunnerAzure.functionName });
+    new cdk.CfnOutput(this, 'ShastaRunnerEntraArn',    { value: this.shastaRunnerEntra.functionArn });
+    new cdk.CfnOutput(this, 'ShastaRunnerEntraFnName', { value: this.shastaRunnerEntra.functionName });
   }
 }

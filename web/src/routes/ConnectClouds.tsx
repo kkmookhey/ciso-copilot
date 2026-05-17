@@ -6,9 +6,11 @@ import { api } from "../lib/api";
 export function ConnectClouds() {
   const [pendingAws,   setPendingAws]   = useState(false);
   const [pendingAzure, setPendingAzure] = useState(false);
-  const [cfnUrl,    setCfnUrl]      = useState<string | null>(null);
-  const [azureCmd,  setAzureCmd]    = useState<string | null>(null);
-  const [error,     setError]       = useState<string | null>(null);
+  const [pendingEntra, setPendingEntra] = useState(false);
+  const [cfnUrl,        setCfnUrl]        = useState<string | null>(null);
+  const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
+  const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
+  const [error,         setError]         = useState<string | null>(null);
 
   async function connectAws() {
     setPendingAws(true); setError(null);
@@ -28,6 +30,15 @@ export function ConnectClouds() {
     finally { setPendingAzure(false); }
   }
 
+  async function connectEntra() {
+    setPendingEntra(true); setError(null);
+    try {
+      const r = await api.initiateEntraOnboarding("Entra Tenant");
+      setEntraConsent(r.consent_url);
+    } catch (e) { setError((e as Error).message); }
+    finally { setPendingEntra(false); }
+  }
+
   return (
     <div className="max-w-3xl">
       <h1 className="text-3xl font-bold tracking-tight">Connect a cloud</h1>
@@ -40,7 +51,9 @@ export function ConnectClouds() {
         <CloudTile name="Azure"
                    tagline="Service Principal via Cloud Shell"
                    enabled={true} loading={pendingAzure} onClick={connectAzure} />
-        <CloudTile name="Entra"  tagline="Coming Phase C" enabled={false} />
+        <CloudTile name="Entra"
+                   tagline="Microsoft admin consent for Graph API"
+                   enabled={true} loading={pendingEntra} onClick={connectEntra} />
         <CloudTile name="GCP"    tagline="Coming Phase D" enabled={false} />
       </div>
 
@@ -81,6 +94,22 @@ export function ConnectClouds() {
               Open Cloud Shell →
             </a>
           </div>
+        </div>
+      )}
+
+      {entraConsent && (
+        <div className="mt-10 p-6 rounded-2xl border-2 border-teal-200 bg-teal-50">
+          <h2 className="font-semibold text-lg">Entra admin consent</h2>
+          <p className="text-sm text-slate-700 mt-2">
+            Your tenant admin needs to approve CISO Copilot's Microsoft Graph
+            permissions (Policy.Read.All, Directory.Read.All,
+            IdentityProtection.Read.All). Click below — you'll be redirected
+            to a confirmation page when done.
+          </p>
+          <a href={entraConsent} target="_blank" rel="noopener noreferrer"
+             className="mt-4 inline-block bg-teal-600 hover:bg-teal-700 text-white font-medium px-5 py-2.5 rounded-lg">
+            Open admin consent →
+          </a>
         </div>
       )}
 

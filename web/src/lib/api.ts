@@ -53,6 +53,12 @@ export interface InitiateAzureResponse {
   run_command:   string;
 }
 
+export interface InitiateEntraResponse {
+  connection_id: string;
+  state:         string;
+  consent_url:   string;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await validIdToken();
   if (!token) { signOut(); throw new Error("not_signed_in"); }
@@ -79,6 +85,11 @@ export const api = {
     }),
   initiateAzureOnboarding: (displayName: string) =>
     call<InitiateAzureResponse>("/onboarding/azure/initiate", {
+      method: "POST",
+      body:   JSON.stringify({ display_name: displayName }),
+    }),
+  initiateEntraOnboarding: (displayName: string) =>
+    call<InitiateEntraResponse>("/onboarding/entra/initiate", {
       method: "POST",
       body:   JSON.stringify({ display_name: displayName }),
     }),

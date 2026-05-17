@@ -56,6 +56,16 @@ final class APIClient {
         return try decoder.decode(InitiateAzureResponse.self, from: data)
     }
 
+    // MARK: - /onboarding/entra/initiate
+
+    func initiateEntraOnboarding(displayName: String) async throws -> InitiateEntraResponse {
+        var req = try await authedRequest(method: "POST", path: "onboarding/entra/initiate")
+        req.httpBody = try encoder.encode(["display_name": displayName])
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(InitiateEntraResponse.self, from: data)
+    }
+
     // MARK: - /findings
 
     func listFindings(severity: String? = nil, cloud: String? = nil, limit: Int = 50) async throws -> [Finding] {
@@ -158,6 +168,12 @@ struct InitiateAzureResponse: Decodable {
     let external_id: String
     let script_url: String
     let run_command: String
+}
+
+struct InitiateEntraResponse: Decodable {
+    let connection_id: String
+    let state:         String
+    let consent_url:   String
 }
 
 struct FindingsResponse: Decodable {

@@ -32,6 +32,7 @@ const scanStack   = new ScanStack(app, 'CisoCopilotScan', {
   dbCluster:             data.cluster,
   shastaRunnerRepo:      ecrStack.shastaRunner,
   shastaRunnerAzureRepo: ecrStack.shastaRunnerAzure,
+  shastaRunnerEntraRepo: ecrStack.shastaRunnerEntra,
 });
 
 // API last — references events bus + CDN domain + shasta-runner Lambdas
@@ -44,4 +45,6 @@ new ApiStack(app, 'CisoCopilotApi', {
   cdnDistribution:   staticStack.cdnDistribution,
   shastaRunner:      scanStack.shastaRunner,
   shastaRunnerAzure: scanStack.shastaRunnerAzure,
+  shastaRunnerEntra: scanStack.shastaRunnerEntra,
+  entraAppId:        config.entraClientId,
 });

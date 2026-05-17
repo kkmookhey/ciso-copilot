@@ -17,6 +17,8 @@ interface ApiStackProps extends cdk.StackProps {
   cdnDistribution:   cloudfront.Distribution;
   shastaRunner:      lambda.IFunction;
   shastaRunnerAzure: lambda.IFunction;
+  shastaRunnerEntra: lambda.IFunction;
+  entraAppId:        string;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -239,6 +241,52 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(onboardingAzureCompleteFn),
     );
 
-    new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
+    // ========================================================================
+    // Phase C — Entra onboarding (admin-consent flow)
+    // ========================================================================
+
+    // Self-referential URL for the consent callback. Hardcoded API ID matches
+    // the existing API Gateway; if we ever rotate it, update here.
+    const entraCallbackUrl = `https://xoljryrb7i.execute-api.${this.region}.amazonaws.com/v1/onboarding/entra/callback`;
+
+    const onboardingEntraInitiateFn = new lambda.Function(this, 'OnboardingEntraInitiateFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_entra_initiate')),
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        ...dbEnv,
+        ENTRA_APP_ID:         props.entraAppId,
+        ENTRA_CALLBACK_URL:   entraCallbackUrl,
+        OUR_ACCOUNT_ID:       this.account,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(onboardingEntraInitiateFn);
+
+    const onboardingEntraCallbackFn = new lambda.Function(this, 'OnboardingEntraCallbackFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_entra_callback')),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...dbEnv,
+        ENTRA_RUNNER_FN: props.shastaRunnerEntra.functionName,
+        APP_DOMAIN:      `https://${props.cdnDistribution.distributionDomainName}`,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(onboardingEntraCallbackFn);
+    props.shastaRunnerEntra.grantInvoke(onboardingEntraCallbackFn);
+
+    const onboardingEntra = onboarding.addResource('entra');
+    onboardingEntra.addResource('initiate').addMethod(
+      'POST', new apigw.LambdaIntegration(onboardingEntraInitiateFn), authedOpts,
+    );
+    // /callback is GET (Microsoft redirects user's browser here)
+    onboardingEntra.addResource('callback').addMethod(
+      'GET', new apigw.LambdaIntegration(onboardingEntraCallbackFn),
+    );
+
+    new cdk.CfnOutput(this, 'ApiUrl',            { value: api.url });
+    new cdk.CfnOutput(this, 'EntraCallbackUrl',  { value: entraCallbackUrl });
   }
 }
