@@ -135,10 +135,12 @@ export class AuthStack extends cdk.Stack {
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [
           `https://app.${config.domain}/callback`,
-          'http://localhost:5173/callback',     // Vite dev server
+          'https://dil1ztnjosz43.cloudfront.net/callback', // CloudFront default until DNS lands
+          'http://localhost:5173/callback',                 // Vite dev server
         ],
         logoutUrls: [
           `https://app.${config.domain}/`,
+          'https://dil1ztnjosz43.cloudfront.net/',
           'http://localhost:5173/',
         ],
       },
