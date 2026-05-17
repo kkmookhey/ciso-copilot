@@ -7,6 +7,8 @@ import { DataStack } from '../lib/data-stack';
 import { AuthStack } from '../lib/auth-stack';
 import { ApiStack } from '../lib/api-stack';
 import { EcrStack } from '../lib/ecr-stack';
+import { StaticStack } from '../lib/static-stack';
+import { EventsStack } from '../lib/events-stack';
 
 const app = new cdk.App();
 
@@ -30,3 +32,10 @@ new ApiStack(app, 'CisoCopilotApi', {
 
 // Phase A — container image repo for the Shasta scanner Lambda + Fargate fallback.
 new EcrStack(app, 'CisoCopilotEcr', { env });
+
+// Phase A — static hosting: CDN for CFN templates + web SPA bucket.
+new StaticStack(app, 'CisoCopilotStatic', { env });
+
+// Phase A — real-time event pipeline: EventBridge bus, S3 raw archive,
+// router Lambda that normalizes + writes to Aurora.
+new EventsStack(app, 'CisoCopilotEvents', { env, dbCluster: data.cluster });
