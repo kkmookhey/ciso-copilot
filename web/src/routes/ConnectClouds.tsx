@@ -7,9 +7,11 @@ export function ConnectClouds() {
   const [pendingAws,   setPendingAws]   = useState(false);
   const [pendingAzure, setPendingAzure] = useState(false);
   const [pendingEntra, setPendingEntra] = useState(false);
+  const [pendingGcp,   setPendingGcp]   = useState(false);
   const [cfnUrl,        setCfnUrl]        = useState<string | null>(null);
   const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
   const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
+  const [gcpCmd,        setGcpCmd]        = useState<string | null>(null);
   const [error,         setError]         = useState<string | null>(null);
 
   async function connectAws() {
@@ -39,6 +41,15 @@ export function ConnectClouds() {
     finally { setPendingEntra(false); }
   }
 
+  async function connectGcp() {
+    setPendingGcp(true); setError(null);
+    try {
+      const r = await api.initiateGcpOnboarding("GCP Project");
+      setGcpCmd(r.run_command);
+    } catch (e) { setError((e as Error).message); }
+    finally { setPendingGcp(false); }
+  }
+
   return (
     <div className="max-w-3xl">
       <h1 className="text-3xl font-bold tracking-tight">Connect a cloud</h1>
@@ -54,7 +65,9 @@ export function ConnectClouds() {
         <CloudTile name="Entra"
                    tagline="Microsoft admin consent for Graph API"
                    enabled={true} loading={pendingEntra} onClick={connectEntra} />
-        <CloudTile name="GCP"    tagline="Coming Phase D" enabled={false} />
+        <CloudTile name="GCP"
+                   tagline="Workload Identity Federation via Cloud Shell"
+                   enabled={true} loading={pendingGcp} onClick={connectGcp} />
       </div>
 
       {cfnUrl && (
@@ -110,6 +123,33 @@ export function ConnectClouds() {
              className="mt-4 inline-block bg-teal-600 hover:bg-teal-700 text-white font-medium px-5 py-2.5 rounded-lg">
             Open admin consent →
           </a>
+        </div>
+      )}
+
+      {gcpCmd && (
+        <div className="mt-10 p-6 rounded-2xl border-2 border-orange-200 bg-orange-50">
+          <h2 className="font-semibold text-lg">Run in Google Cloud Shell</h2>
+          <p className="text-sm text-slate-700 mt-2">
+            Make sure <code className="font-mono text-xs bg-white px-1 rounded">gcloud config get-value project</code> shows
+            the project you want to onboard. The script enables required APIs,
+            creates a Workload Identity Pool + AWS provider + service account
+            (Security Reviewer + Cloud Asset Viewer + Logging Viewer), and
+            binds our scanner role to impersonate it. No keys leave your
+            project — all auth is federated.
+          </p>
+          <pre className="mt-4 p-3 rounded-lg bg-white text-xs font-mono overflow-x-auto select-all">
+            {gcpCmd}
+          </pre>
+          <div className="mt-4 flex items-center gap-3">
+            <button onClick={() => navigator.clipboard.writeText(gcpCmd)}
+                    className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-sm">
+              Copy command
+            </button>
+            <a href="https://shell.cloud.google.com" target="_blank" rel="noopener noreferrer"
+               className="bg-orange-600 hover:bg-orange-700 text-white font-medium px-5 py-2.5 rounded-lg">
+              Open Cloud Shell →
+            </a>
+          </div>
         </div>
       )}
 

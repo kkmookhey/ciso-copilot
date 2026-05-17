@@ -59,6 +59,13 @@ export interface InitiateEntraResponse {
   consent_url:   string;
 }
 
+export interface InitiateGcpResponse {
+  connection_id: string;
+  external_id:   string;
+  script_url:    string;
+  run_command:   string;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await validIdToken();
   if (!token) { signOut(); throw new Error("not_signed_in"); }
@@ -90,6 +97,11 @@ export const api = {
     }),
   initiateEntraOnboarding: (displayName: string) =>
     call<InitiateEntraResponse>("/onboarding/entra/initiate", {
+      method: "POST",
+      body:   JSON.stringify({ display_name: displayName }),
+    }),
+  initiateGcpOnboarding: (displayName: string) =>
+    call<InitiateGcpResponse>("/onboarding/gcp/initiate", {
       method: "POST",
       body:   JSON.stringify({ display_name: displayName }),
     }),

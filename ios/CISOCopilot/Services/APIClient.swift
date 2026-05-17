@@ -66,6 +66,16 @@ final class APIClient {
         return try decoder.decode(InitiateEntraResponse.self, from: data)
     }
 
+    // MARK: - /onboarding/gcp/initiate
+
+    func initiateGcpOnboarding(displayName: String) async throws -> InitiateGcpResponse {
+        var req = try await authedRequest(method: "POST", path: "onboarding/gcp/initiate")
+        req.httpBody = try encoder.encode(["display_name": displayName])
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(InitiateGcpResponse.self, from: data)
+    }
+
     // MARK: - /findings
 
     func listFindings(severity: String? = nil, cloud: String? = nil, limit: Int = 50) async throws -> [Finding] {
@@ -174,6 +184,13 @@ struct InitiateEntraResponse: Decodable {
     let connection_id: String
     let state:         String
     let consent_url:   String
+}
+
+struct InitiateGcpResponse: Decodable {
+    let connection_id: String
+    let external_id:   String
+    let script_url:    String
+    let run_command:   String
 }
 
 struct FindingsResponse: Decodable {

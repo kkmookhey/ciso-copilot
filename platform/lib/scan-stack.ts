@@ -12,6 +12,7 @@ interface ScanStackProps extends cdk.StackProps {
   shastaRunnerRepo:      ecr.Repository;
   shastaRunnerAzureRepo: ecr.Repository;
   shastaRunnerEntraRepo: ecr.Repository;
+  shastaRunnerGcpRepo:   ecr.Repository;
 }
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
@@ -32,6 +33,7 @@ export class ScanStack extends cdk.Stack {
   public readonly shastaRunner:      lambda.DockerImageFunction;
   public readonly shastaRunnerAzure: lambda.DockerImageFunction;
   public readonly shastaRunnerEntra: lambda.DockerImageFunction;
+  public readonly shastaRunnerGcp:   lambda.DockerImageFunction;
   public readonly entraScannerSecret: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
@@ -109,11 +111,38 @@ export class ScanStack extends cdk.Stack {
     props.dbCluster.grantDataApiAccess(this.shastaRunnerEntra);
     this.entraScannerSecret.grantRead(this.shastaRunnerEntra);
 
+    // ===== GCP scanner =====
+    // Pre-create the IAM role with a fixed name so customer's WIF binding
+    // can stably reference 'arn:aws:sts::470226123496:assumed-role/ciso-copilot-gcp-scanner'.
+    // Without a fixed name, CDK appends a random suffix and the binding breaks
+    // every time the stack is replaced.
+    const gcpScannerRole = new iam.Role(this, 'GcpScannerRole', {
+      roleName: 'ciso-copilot-gcp-scanner',
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    this.shastaRunnerGcp = new lambda.DockerImageFunction(this, 'GcpRunner', {
+      functionName: 'ciso-copilot-shasta-runner-gcp',
+      role:         gcpScannerRole,
+      code: lambda.DockerImageCode.fromEcr(props.shastaRunnerGcpRepo, { tagOrDigest: 'latest' }),
+      timeout:    cdk.Duration.minutes(15),
+      memorySize: 2048,
+      architecture: lambda.Architecture.X86_64,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(this.shastaRunnerGcp);
+
     new cdk.CfnOutput(this, 'ShastaRunnerArn',         { value: this.shastaRunner.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerFnName',      { value: this.shastaRunner.functionName });
     new cdk.CfnOutput(this, 'ShastaRunnerAzureArn',    { value: this.shastaRunnerAzure.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerAzureFnName', { value: this.shastaRunnerAzure.functionName });
     new cdk.CfnOutput(this, 'ShastaRunnerEntraArn',    { value: this.shastaRunnerEntra.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerEntraFnName', { value: this.shastaRunnerEntra.functionName });
+    new cdk.CfnOutput(this, 'ShastaRunnerGcpArn',      { value: this.shastaRunnerGcp.functionArn });
+    new cdk.CfnOutput(this, 'ShastaRunnerGcpFnName',   { value: this.shastaRunnerGcp.functionName });
+    new cdk.CfnOutput(this, 'ShastaRunnerGcpRoleArn',  { value: gcpScannerRole.roleArn });
   }
 }

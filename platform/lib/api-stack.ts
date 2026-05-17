@@ -18,6 +18,7 @@ interface ApiStackProps extends cdk.StackProps {
   shastaRunner:      lambda.IFunction;
   shastaRunnerAzure: lambda.IFunction;
   shastaRunnerEntra: lambda.IFunction;
+  shastaRunnerGcp:   lambda.IFunction;
   entraAppId:        string;
 }
 
@@ -286,7 +287,48 @@ export class ApiStack extends cdk.Stack {
       'GET', new apigw.LambdaIntegration(onboardingEntraCallbackFn),
     );
 
-    new cdk.CfnOutput(this, 'ApiUrl',            { value: api.url });
-    new cdk.CfnOutput(this, 'EntraCallbackUrl',  { value: entraCallbackUrl });
+    // ========================================================================
+    // Phase D — GCP onboarding (Workload Identity Federation)
+    // ========================================================================
+
+    const gcpScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/gcp/onboard.sh`;
+
+    const onboardingGcpInitiateFn = new lambda.Function(this, 'OnboardingGcpInitiateFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_gcp_initiate')),
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        ...dbEnv,
+        GCP_SCRIPT_URL: gcpScriptUrl,
+        OUR_ACCOUNT_ID: this.account,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(onboardingGcpInitiateFn);
+
+    const onboardingGcpCompleteFn = new lambda.Function(this, 'OnboardingGcpCompleteFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'onboarding_gcp_complete')),
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        ...dbEnv,
+        GCP_RUNNER_FN: props.shastaRunnerGcp.functionName,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(onboardingGcpCompleteFn);
+    props.shastaRunnerGcp.grantInvoke(onboardingGcpCompleteFn);
+
+    const onboardingGcp = onboarding.addResource('gcp');
+    onboardingGcp.addResource('initiate').addMethod(
+      'POST', new apigw.LambdaIntegration(onboardingGcpInitiateFn), authedOpts,
+    );
+    onboardingGcp.addResource('complete').addMethod(
+      'POST', new apigw.LambdaIntegration(onboardingGcpCompleteFn),
+    );
+
+    new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
+    new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });
+    new cdk.CfnOutput(this, 'GcpScriptUrl',     { value: gcpScriptUrl });
   }
 }
