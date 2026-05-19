@@ -14,6 +14,7 @@ import { TrustAdmin }   from "./routes/TrustAdmin";
 import { TrustPublic }  from "./routes/TrustPublic";
 import { InstallCallback } from "./routes/InstallCallback";
 import { RepoPicker } from "./routes/RepoPicker";
+import { AIInventory } from "./routes/AIInventory";
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/admin"     element={<Admin />} />
           <Route path="/ai/install/callback" element={<InstallCallback />} />
           <Route path="/ai/connections/:id/repos" element={<RepoPicker />} />
+          <Route path="/ai/inventory"             element={<AIInventory />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
