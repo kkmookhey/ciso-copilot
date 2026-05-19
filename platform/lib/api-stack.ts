@@ -308,12 +308,13 @@ export class ApiStack extends cdk.Stack {
     }));
 
     // ========================================================================
-    // /v1/ai/scans + /v1/ai/assets — start scans and browse the AI inventory
+    // /v1/ai/scans + /v1/entities — start scans, browse the unified inventory,
+    // walk the per-entity trust graph. Replaces ai_scan_api (SP1).
     // ========================================================================
-    const aiScanApiFn = new lambda.Function(this, 'AiScanApiFn', {
+    const entitiesApiFn = new lambda.Function(this, 'EntitiesApiFn', {
       runtime:    lambda.Runtime.PYTHON_3_12,
       handler:    'main.handler',
-      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_scan_api')),
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'entities_api')),
       timeout:    cdk.Duration.seconds(15),
       memorySize: 512,
       environment: {
@@ -321,8 +322,8 @@ export class ApiStack extends cdk.Stack {
         AI_SCAN_QUEUE_URL: props.aiScanQueue.queueUrl,
       },
     });
-    props.dbCluster.grantDataApiAccess(aiScanApiFn);
-    props.aiScanQueue.grantSendMessages(aiScanApiFn);
+    props.dbCluster.grantDataApiAccess(entitiesApiFn);
+    props.aiScanQueue.grantSendMessages(entitiesApiFn);
 
     // ========================================================================
     // REST API + authorizer
@@ -670,16 +671,22 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
     );
 
-    // /v1/ai/scans + /v1/ai/assets — start scans, browse the inventory.
+    // /v1/ai/scans (unchanged) + /v1/entities/* (new) — entities_api Lambda.
+    // /v1/ai/assets and /v1/ai/assets/{id} retired (replaced by /v1/entities*).
     const aiScans   = aiRes.addResource('scans');
     const aiScanId  = aiScans.addResource('{id}');
-    const aiAssets  = aiRes.addResource('assets');
-    const aiAssetId = aiAssets.addResource('{id}');
-    aiScans.addMethod(  'POST', new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
-    aiScans.addMethod(  'GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
-    aiScanId.addMethod( 'GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
-    aiAssets.addMethod( 'GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
-    aiAssetId.addMethod('GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
+    aiScans.addMethod( 'POST', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    aiScans.addMethod( 'GET',  new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    aiScanId.addMethod('GET',  new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+
+    const entities     = api.root.addResource('entities');
+    const entityId     = entities.addResource('{id}');
+    const entityGraph  = entityId.addResource('graph');
+    const entityRels   = entityId.addResource('relationships');
+    entities.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    entityId.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    entityGraph.addMethod( 'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
 
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });
