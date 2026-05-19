@@ -1,21 +1,25 @@
 """Detect calls to commercial LLM SDKs (OpenAI, Anthropic, Bedrock).
 
 Strategy: scan .py files for `model="..."` (or `modelId="..."`) strings AND
-JSON-style `"model": "..."` literals and emit one asset per (file, provider,
+JSON-style `"model": "..."` literals and emit one entity per (provider,
 model_id) tuple. The file must also carry SOME provider signal — either an
 SDK import or a hard-coded API URL — to keep false positives down (a
 deterministic security scanner shouldn't flag every config file that
 mentions the word "model").
+
+SP1 shape: emits `ai_model` entities deduped across files/repos by
+natural_key `"{provider}/{model_id}"` and `github_repo → calls → ai_model`
+edges (one per repo+model pair).
 """
 from __future__ import annotations
 
 import re
 
-from detectors.base import AssetEmission, RelEmission, DetectorResult
+from detectors.base import EntityEmission, EdgeEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.model_usage"
-detector_version = "0.2.0"
+detector_version = "0.3.0"
 
 # Provider signals: any of these substrings → consider the file in scope for
 # that provider. Covers both SDK imports and raw-HTTPS usage of the API.
@@ -43,9 +47,11 @@ MODEL_ID_PROVIDER_HINTS = [
 
 
 def detect(ctx) -> DetectorResult:
-    assets: list[AssetEmission] = []
-    rels:   list[RelEmission] = []
-    seen: set[tuple[str, str, str]] = set()  # (path, provider, model)
+    # Per-natural-key dedup across files: same model in two files still
+    # produces ONE entity (with the first-seen file as source_path/evidence).
+    entities_by_nk: dict[str, EntityEmission] = {}
+    edges_by_nk:    dict[str, EdgeEmission]   = {}
+    repo_natural_key = f"github.com/{ctx.repo_full_name}"
 
     py_files = sorted(ctx.repo_workdir.rglob("*.py"))
     for f in py_files:
@@ -77,10 +83,11 @@ def detect(ctx) -> DetectorResult:
                     # "bedrock-runtime" + a "claude-3-5-sonnet" string is
                     # still bedrock, not anthropic-direct).
                     resolved = _resolve_provider(provider, model_id)
-                    key = (rel_path, resolved, model_id)
-                    if key in seen:
+                    nk = f"{resolved}/{model_id}"
+                    if nk in entities_by_nk:
+                        # Already emitted from an earlier file — skip
+                        # (dedup is by natural_key, first match wins).
                         continue
-                    seen.add(key)
 
                     line_no = text[:m.start()].count("\n") + 1
                     lines = text.splitlines()
@@ -89,7 +96,7 @@ def detect(ctx) -> DetectorResult:
                     packet = ev.build(
                         detector_id=detector_id, detector_version=detector_version,
                         subject_kind="ai_asset", subject_type="model",
-                        subject_name=f"{resolved}/{model_id}",
+                        subject_name=nk,
                         source_events=[{
                             "kind": "file", "repo": ctx.repo_full_name,
                             "commit_sha": ctx.head_commit_sha,
@@ -101,34 +108,37 @@ def detect(ctx) -> DetectorResult:
                         ],
                         confidence="high",
                     )
-                    assets.append(AssetEmission(
-                        tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-                        asset_type="model", name=f"{resolved}/{model_id}",
-                        source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+                    entities_by_nk[nk] = EntityEmission(
+                        tenant_id=ctx.tenant_id, kind="ai_model",
+                        natural_key=nk, display_name=nk, domain="ai",
                         attributes={"provider": resolved, "model_id": model_id},
                         evidence_packet=packet,
                         detector_id=detector_id, detector_version=detector_version,
-                    ))
+                        connection_id=ctx.connection_id, source_path=rel_path,
+                    )
 
                     rel_packet = ev.build(
                         detector_id=detector_id, detector_version=detector_version,
                         subject_kind="ai_relationship", subject_type="calls",
-                        subject_name=f"repo→calls→{resolved}/{model_id}",
+                        subject_name=f"repo→calls→{nk}",
                         source_events=[],
                         reasoning_chain=["model use detected in repo"],
                         confidence="high",
                     )
-                    rels.append(RelEmission(
+                    edges_by_nk[nk] = EdgeEmission(
                         tenant_id=ctx.tenant_id,
-                        source_asset_ref=f"repository::::{ctx.repo_asset_id}",
-                        target_asset_ref=f"model::{ctx.repo_asset_id}::{rel_path}::{resolved}/{model_id}",
-                        relationship_type="calls",
-                        attributes={"provider": resolved},
+                        source_kind="github_repo", source_natural_key=repo_natural_key,
+                        target_kind="ai_model", target_natural_key=nk,
+                        kind="calls", attributes={"provider": resolved},
                         evidence_packet=rel_packet,
                         detector_id=detector_id, detector_version=detector_version,
-                    ))
+                    )
 
-    return DetectorResult(assets=assets, relationships=rels, findings=[])
+    return DetectorResult(
+        entities=list(entities_by_nk.values()),
+        edges=list(edges_by_nk.values()),
+        findings=[],
+    )
 
 
 def _resolve_provider(default_provider: str, model_id: str) -> str:

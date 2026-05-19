@@ -1,12 +1,11 @@
 {
-  "assets": [
+  "entities": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "model",
-      "name": "openai/gpt-4o-mini",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "app/llm.py",
+      "kind": "ai_model",
+      "natural_key": "openai/gpt-4o-mini",
+      "display_name": "openai/gpt-4o-mini",
+      "domain": "ai",
       "attributes": {
         "provider": "openai",
         "model_id": "gpt-4o-mini"
@@ -15,7 +14,7 @@
         "version": "0.1",
         "detector": {
           "id": "ai.detectors.model_usage",
-          "version": "0.2.0"
+          "version": "0.3.0"
         },
         "subject": {
           "kind": "ai_asset",
@@ -44,16 +43,19 @@
         "signature": null
       },
       "detector_id": "ai.detectors.model_usage",
-      "detector_version": "0.2.0",
-      "id": null
+      "detector_version": "0.3.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "app/llm.py"
     }
   ],
-  "relationships": [
+  "edges": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
-      "target_asset_ref": "model::44444444-4444-4444-4444-444444444444::app/llm.py::openai/gpt-4o-mini",
-      "relationship_type": "calls",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_model",
+      "target_natural_key": "openai/gpt-4o-mini",
+      "kind": "calls",
       "attributes": {
         "provider": "openai"
       },
@@ -61,7 +63,7 @@
         "version": "0.1",
         "detector": {
           "id": "ai.detectors.model_usage",
-          "version": "0.2.0"
+          "version": "0.3.0"
         },
         "subject": {
           "kind": "ai_relationship",
@@ -78,7 +80,7 @@
         "signature": null
       },
       "detector_id": "ai.detectors.model_usage",
-      "detector_version": "0.2.0"
+      "detector_version": "0.3.0"
     }
   ],
   "findings": []
