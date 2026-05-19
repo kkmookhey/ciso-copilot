@@ -5,7 +5,7 @@
 
 export const cognito = {
   domain:      "ciso-copilot.auth.us-east-1.amazoncognito.com",
-  clientId:    "1cauum3919ml3ppdnrijg532tm",
+  clientId:    "5vroudnp54n7fdqvjj49ff53br",
   region:      "us-east-1",
   scope:       "openid email profile",
 
@@ -30,9 +30,11 @@ export const cognito = {
   },
 
   get logoutUrl(): string {
+    // Trailing slash is required — Cognito does exact-match against the client's
+    // registered LogoutURLs (which CDK registers as `https://.../`).
     const p = new URLSearchParams({
       client_id:  this.clientId,
-      logout_uri: window.location.origin,
+      logout_uri: `${window.location.origin}/`,
     });
     return `https://${this.domain}/logout?${p}`;
   },
@@ -97,6 +99,34 @@ export function signOut() {
 export function startSignIn() {
   window.location.href = cognito.authorizeUrl;
 }
+
+/// Email-first sign-in. Mirrors the iOS AuthManager flow.
+/// Calls POST /auth/discover-tenant with the email; backend returns an
+/// authorize URL with the right per-tenant Microsoft IdP (or generic Google)
+/// hint baked in. Redirect to it.
+export async function discoverTenantAndSignIn(email: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/auth/discover-tenant`, {
+    method:  "POST",
+    headers: { "content-type": "application/json" },
+    body:    JSON.stringify({ email, platform: "web" }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = `Could not route sign-in (${res.status})`;
+    try {
+      const j = JSON.parse(body);
+      if (j.message) msg = j.message;
+      else if (j.error === "tenant_not_found") msg = "We couldn't find a Microsoft 365 or Google Workspace tenant for that email domain.";
+      else if (j.error === "invalid_email") msg = "That doesn't look like a valid email.";
+      else if (j.error) msg = j.error;
+    } catch { /* keep generic msg */ }
+    throw new Error(msg);
+  }
+  const j: { authorize_url: string } = await res.json();
+  window.location.href = j.authorize_url;
+}
+
+const API_BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
 
 /** Called by the /callback route — exchanges code for tokens, persists, returns. */
 export async function handleCallback(code: string): Promise<void> {

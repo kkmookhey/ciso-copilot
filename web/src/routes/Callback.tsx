@@ -8,6 +8,12 @@ export function Callback() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const errParam = params.get("error");
+    const errDesc  = params.get("error_description");
+    if (errParam) {
+      setError(`Sign-in failed (${errParam}): ${errDesc ?? "no description"}`);
+      return;
+    }
     const code = params.get("code");
     if (!code) {
       setError("Sign-in was cancelled or returned no code.");

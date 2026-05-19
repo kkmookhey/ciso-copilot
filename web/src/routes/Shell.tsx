@@ -30,8 +30,15 @@ export function Shell() {
 
         <nav className="flex flex-col gap-1 text-sm">
           <NavItem to="/"          label="Overview"        active={loc.pathname === "/"} />
-          <NavItem to="/findings"  label="Top Risks"       active={loc.pathname === "/findings"} />
-          <NavItem to="/connect"   label="Connect clouds"  active={loc.pathname === "/connect"} />
+          <NavItem to="/findings"  label="Top Risks"       active={loc.pathname.startsWith("/findings")} />
+          <NavItem to="/risks"     label="Risk register"   active={loc.pathname.startsWith("/risks")} />
+          <NavItem to="/policies"       label="Policies"       active={loc.pathname.startsWith("/policies")} />
+          <NavItem to="/questionnaires" label="Questionnaires" active={loc.pathname.startsWith("/questionnaires")} />
+          <NavItem to="/trust"          label="Trust center"   active={loc.pathname.startsWith("/trust")} />
+          <NavItem to="/connect"        label="Connect clouds" active={loc.pathname === "/connect"} />
+          {isAdmin(me?.user?.email) && (
+            <NavItem to="/admin"   label="Admin"           active={loc.pathname.startsWith("/admin")} />
+          )}
         </nav>
 
         <div className="mt-auto pt-6 border-t border-slate-200 text-xs text-slate-500">
@@ -42,6 +49,15 @@ export function Shell() {
       <main className="flex-1 p-10 overflow-y-auto"><Outlet /></main>
     </div>
   );
+}
+
+const ADMIN_EMAILS = new Set([
+  "kkmookhey@gmail.com",
+  "kkmookhey@transilience.ai",
+  "kkmookhey@networkintelligence.ai",
+]);
+function isAdmin(email: string | null | undefined): boolean {
+  return !!email && ADMIN_EMAILS.has(email.toLowerCase());
 }
 
 function NavItem({ to, label, active }: { to: string; label: string; active: boolean }) {

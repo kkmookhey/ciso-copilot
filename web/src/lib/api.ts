@@ -22,6 +22,29 @@ export interface Connection {
   created_at:         string;
 }
 
+export interface AlertEvent {
+  event_id:     string;
+  kind:         "alert" | "drift";
+  source:       string;
+  severity:     "critical" | "high" | "medium" | "low" | "info";
+  title:        string;
+  description:  string | null;
+  resource_arn: string | null;
+  actor:        string | null;
+  fired_at:     string;
+  ingested_at:  string;
+}
+
+export interface FindingGroup {
+  domain:           string;
+  check_id:         string;
+  title:            string;
+  severity:         "critical" | "high" | "medium" | "low" | "info";
+  count:            number;
+  frameworks:       Record<string, string[]>;
+  sample_resources: Array<{ resource_arn: string; region: string | null }>;
+}
+
 export interface Finding {
   finding_id:    string;
   check_id:      string;
@@ -82,8 +105,186 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface ComplianceSummary {
+  summary: Record<string, { total: number; passing: number; failing: number; score_pct: number }>;
+  by_framework_control: Array<{ framework: string; control_id: string; fail_count: number; pass_count: number; total: number }>;
+}
+
+export interface TrustPageSettings {
+  page_id?:             string;
+  slug:                 string;
+  public_name:          string;
+  notes:                string | null;
+  is_published:         boolean;
+  show_compliance:      boolean;
+  show_finding_counts:  boolean;
+  show_clouds:          boolean;
+  show_last_scan:       boolean;
+  created_at?:          string;
+  updated_at?:          string;
+}
+
+export interface QuestionnaireSummary {
+  questionnaire_id: string;
+  name:             string;
+  template_key:     string;
+  status:           "in_progress" | "complete" | "exported";
+  created_at:       string;
+  updated_at:       string;
+  total:            number;
+  answered:         number;
+}
+
+export interface QuestionnaireItem {
+  item_id:        string;
+  question_id:    string;
+  question:       string;
+  category:       string | null;
+  answer:         string | null;        // "yes" | "no" | "partial" | free-text
+  confidence:     string | null;        // "auto-high" | "auto-medium" | "manual" | "ai-suggested"
+  evidence:       { check_ids?: string[]; pass?: number; fail?: number; note?: string };
+  notes:          string | null;
+  sort_order:     number;
+  source_row_idx: number | null;        // for Excel write-back
+}
+
+export interface QuestionnaireDetail {
+  questionnaire_id: string;
+  name:             string;
+  template_key:     string;
+  status:           string;
+  created_at:       string;
+  source_filename:  string | null;
+  items:            QuestionnaireItem[];
+}
+
+export interface PolicyTemplate {
+  key:            string;
+  title:          string;
+  soc2_controls:  string[];
+}
+
+export interface PolicySummary {
+  policy_id:     string;
+  template_key:  string;
+  title:         string;
+  status:        "draft" | "approved" | "retired";
+  version:       number;
+  soc2_controls: string[];
+  created_at:    string;
+  updated_at:    string;
+}
+
+export interface Policy extends PolicySummary {
+  content_md: string;
+  vars:       Record<string, string>;
+}
+
+export interface Risk {
+  risk_id:     string;
+  title:       string;
+  description: string | null;
+  severity:    "critical" | "high" | "medium" | "low" | "info";
+  status:      "open" | "mitigated" | "accepted" | "transferred" | "closed";
+  owner:       string | null;
+  due_date:    string | null;  // YYYY-MM-DD
+  finding_id:  string | null;
+  notes:       string | null;
+  created_at:  string;
+  updated_at:  string;
+}
+
+export interface AdminTenantRow {
+  tenant_id:    string;
+  display_name: string;
+  email_domain: string;
+  status:       "pending" | "approved" | "rejected" | "suspended";
+  created_at:   string;
+  first_user:   string | null;
+}
+
+export interface FindingsSummary {
+  by_severity: { critical: number; high: number; medium: number; low: number; info: number };
+  by_cloud:    { aws: number; azure: number; gcp: number; entra: number };
+  total: number;
+}
+
 export const api = {
   me: ()                                      => call<MeResponse>("/me"),
+  complianceSummary: ()                       => call<ComplianceSummary>("/compliance/summary"),
+  findingsSummary: ()                         => call<FindingsSummary>("/findings/summary"),
+  listRisks: (params?: { status?: string; severity?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status)   q.set("status", params.status);
+    if (params?.severity) q.set("severity", params.severity);
+    const qs = q.toString();
+    return call<{ risks: Risk[]; count: number }>(`/risks${qs ? "?" + qs : ""}`);
+  },
+  createRisk: (body: {
+    title: string; severity: string;
+    description?: string; owner?: string; due_date?: string;
+    finding_id?: string; notes?: string;
+  }) => call<{ risk_id: string; status: string }>(`/risks`, {
+    method: "POST", body: JSON.stringify(body),
+  }),
+  updateRisk: (riskId: string, body: { status?: string; owner?: string; due_date?: string | null; notes?: string }) =>
+    call<{ updated: boolean }>(`/risks/${riskId}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    }),
+  listPolicyTemplates: () => call<{ templates: PolicyTemplate[] }>(`/policies/templates`),
+  listPolicies: (status?: string) =>
+    call<{ policies: PolicySummary[]; count: number }>(`/policies${status ? "?status=" + status : ""}`),
+  getPolicy: (id: string) => call<Policy>(`/policies/${id}`),
+  createPolicy: (body: { template_key: string; vars: Record<string, string> }) =>
+    call<{ policy_id: string; status: string }>(`/policies`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  updatePolicy: (id: string, body: { content_md?: string; status?: string; title?: string }) =>
+    call<{ updated: boolean }>(`/policies/${id}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    }),
+  enrichPolicy: (id: string) =>
+    call<{ enriched: boolean; content_md: string }>(`/policies/${id}/enrich`, {
+      method: "POST", body: "{}",
+    }),
+  generateAllPolicies: (vars: { company_name: string; effective_date: string; approver?: string }) =>
+    call<{ count: number; policies: Array<{ template_key: string; policy_id: string; title: string; enriched: boolean; error?: string }> }>(
+      `/policies/generate-all`, { method: "POST", body: JSON.stringify({ vars }) },
+    ),
+  listQuestionnaireTemplates: () =>
+    call<{ templates: { key: string; name: string; question_count: number }[] }>(`/questionnaires/templates`),
+  listQuestionnaires: () =>
+    call<{ questionnaires: QuestionnaireSummary[] }>(`/questionnaires`),
+  getQuestionnaire: (id: string) =>
+    call<QuestionnaireDetail>(`/questionnaires/${id}`),
+  createQuestionnaire: (body: { template_key: string; name?: string }) =>
+    call<{ questionnaire_id: string; items: number }>(`/questionnaires`, {
+      method: "POST", body: JSON.stringify(body),
+    }),
+  patchQuestionnaireItem: (qid: string, iid: string, body: { answer?: string | null; notes?: string }) =>
+    call<{ updated: boolean }>(`/questionnaires/${qid}/items/${iid}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    }),
+  suggestQuestionnaireItem: (qid: string, iid: string) =>
+    call<{ answer: string; justification: string; confidence: string }>(
+      `/questionnaires/${qid}/items/${iid}`, { method: "POST", body: "{}" }
+    ),
+  questionnaireFromExcel: (body: { filename: string; name?: string; rows: Array<{ row_idx: number; question: string; category?: string }> }) =>
+    call<{ questionnaire_id: string; items: number }>(
+      `/questionnaires/from-excel`, { method: "POST", body: JSON.stringify(body) }
+    ),
+  getTrustPage: () => call<{ page: TrustPageSettings | null }>(`/trust`),
+  putTrustPage: (body: Partial<TrustPageSettings>) =>
+    call<{ saved: boolean; slug: string; is_published: boolean }>(`/trust`, {
+      method: "PUT", body: JSON.stringify(body),
+    }),
+  adminListTenants: (status: string = "pending") =>
+    call<{ tenants: AdminTenantRow[] }>(`/admin/tenants?status=${encodeURIComponent(status)}`),
+  adminTenantAction: (tenantId: string, decision: "approve" | "reject") =>
+    call<{ tenant_id: string; new_status: string; notify_email: string | null; email_status: string }>(
+      `/admin/tenants/${tenantId}/action`,
+      { method: "POST", body: JSON.stringify({ decision }) },
+    ),
   listConnections: ()                         => call<{ connections: Connection[] }>("/connections"),
   initiateAwsOnboarding: (displayName: string) =>
     call<InitiateAwsResponse>("/onboarding/aws/initiate", {
@@ -105,14 +306,36 @@ export const api = {
       method: "POST",
       body:   JSON.stringify({ display_name: displayName }),
     }),
-  listFindings: (params?: { severity?: string; cloud?: string; limit?: number }) => {
+  listEvents: (params?: { kind?: string; severity?: string; source?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.kind)     q.set("kind", params.kind);
+    if (params?.severity) q.set("severity", params.severity);
+    if (params?.source)   q.set("source", params.source);
+    if (params?.limit)    q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return call<{ events: AlertEvent[]; total: number; limit: number; offset: number }>(
+      `/events${qs ? "?" + qs : ""}`,
+    );
+  },
+  listFindings: (params?: { severity?: string; cloud?: string; check_id?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.severity) q.set("severity", params.severity);
     if (params?.cloud)    q.set("cloud", params.cloud);
+    if (params?.check_id) q.set("check_id", params.check_id);
     if (params?.limit)    q.set("limit", String(params.limit));
     const qs = q.toString();
-    return call<{ findings: Finding[]; limit: number; offset: number; count: number }>(
+    return call<{ findings: Finding[]; limit: number; offset: number; count: number; total: number }>(
       `/findings${qs ? "?" + qs : ""}`,
+    );
+  },
+  findingsRollup: (params?: { severity?: string; cloud?: string; q?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.severity) qs.set("severity", params.severity);
+    if (params?.cloud)    qs.set("cloud", params.cloud);
+    if (params?.q)        qs.set("q", params.q);
+    const s = qs.toString();
+    return call<{ groups: FindingGroup[]; total_findings: number; total_groups: number }>(
+      `/findings/rollup${s ? "?" + s : ""}`,
     );
   },
 };
