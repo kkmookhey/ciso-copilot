@@ -1,6 +1,6 @@
 {
-  "assets": [],
-  "relationships": [],
+  "entities": [],
+  "edges": [],
   "findings": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
@@ -8,19 +8,38 @@
       "severity": "high",
       "title": "Hardcoded openai credential in AI module app/llm.py",
       "description": "A string matching the openai credential format was found at app/llm.py:3, in a file that imports a known LLM SDK. Move the credential out of source and rotate it if real.",
+      "subject_entity_kind": null,
+      "subject_entity_natural_key": null,
       "subject_type": "ai_module",
       "subject_ref": "app/llm.py:3",
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.secrets_in_ai_code", "version": "0.1.0"},
-        "subject": {"kind": "finding", "type": "hardcoded_credential_in_ai_module", "name": "app/llm.py:3"},
+        "detector": {
+          "id": "ai.detectors.secrets_in_ai_code",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "finding",
+          "type": "hardcoded_credential_in_ai_module",
+          "name": "app/llm.py:3"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "app/llm.py", "snippet_lines": [3, 3],
-           "snippet": "(secret redacted)"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "app/llm.py",
+            "snippet_lines": [
+              3,
+              3
+            ],
+            "snippet": "(secret redacted)"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched openai-shaped secret at app/llm.py:3 in file with LLM SDK import"],
+        "reasoning_chain": [
+          "matched openai-shaped secret at app/llm.py:3 in file with LLM SDK import"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null

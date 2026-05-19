@@ -3,8 +3,13 @@
 Correlation gate: a generic secret in a non-AI file is someone else's
 problem; this detector only fires when the secret appears in a file that
 imports openai / anthropic / bedrock-runtime. One
-``hardcoded_credential_in_ai_module`` finding per match. No assets,
-no relationships.
+``hardcoded_credential_in_ai_module`` finding per match. No entities,
+no edges.
+
+SP1 shape: findings here are NOT linked to an emitted entity (the file
+isn't itself an entity in our model), so we use the legacy free-text
+``subject_type`` / ``subject_ref`` fields and leave
+``subject_entity_kind`` / ``subject_entity_natural_key`` as ``None``.
 """
 from __future__ import annotations
 
@@ -15,7 +20,7 @@ from detectors.base import FindingEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.secrets_in_ai_code"
-detector_version = "0.1.0"
+detector_version = "0.2.0"
 
 SDK_MARKERS = (
     "from openai", "import openai",
@@ -49,7 +54,7 @@ def detect(ctx) -> DetectorResult:
                 _emit(ctx, label=label, rel_path=rel_path,
                        line=line_no, findings=findings)
 
-    return DetectorResult(assets=[], relationships=[], findings=findings)
+    return DetectorResult(entities=[], edges=[], findings=findings)
 
 
 def _emit(ctx, *, label: str, rel_path: str, line: int,
@@ -79,6 +84,8 @@ def _emit(ctx, *, label: str, rel_path: str, line: int,
             f"{rel_path}:{line}, in a file that imports a known LLM SDK. "
             "Move the credential out of source and rotate it if real."
         ),
+        subject_entity_kind=None,
+        subject_entity_natural_key=None,
         subject_type="ai_module",
         subject_ref=f"{rel_path}:{line}",
         evidence_packet=packet,
