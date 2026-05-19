@@ -34,6 +34,9 @@ def handler(event: dict, context) -> dict:
             return _complete(event)
         if method == "GET" and path == "/v1/ai/connections":
             return _list_connections(event)
+        # Path with {id} parameter
+        if method == "GET" and path.startswith("/v1/ai/connections/") and path.endswith("/repos"):
+            return _list_repos(event)
         return helpers.resp(404, {"error": "not_found", "path": path, "method": method})
     except Exception as e:  # noqa: BLE001 — top-level fence
         # Surface message; production observability already logs to CloudWatch.
@@ -169,3 +172,65 @@ def _list_connections(event: dict) -> dict:
         for r in rs.get("records", [])
     ]
     return helpers.resp(200, {"connections": connections})
+
+
+# ----------------------------------------------------------------------------
+# GET /v1/ai/connections/{id}/repos
+# ----------------------------------------------------------------------------
+
+def _list_repos(event: dict) -> dict:
+    tenant_id = helpers.resolve_tenant_id(event)
+    if not tenant_id:
+        return helpers.resp(401, {"error": "no_tenant"})
+
+    conn_id = (event.get("pathParameters") or {}).get("id")
+    if not conn_id:
+        return helpers.resp(400, {"error": "missing_id"})
+
+    rs = helpers.rds_data.execute_statement(
+        resourceArn=helpers.DB_CLUSTER_ARN,
+        secretArn=helpers.DB_SECRET_ARN,
+        database=helpers.DB_NAME,
+        sql=(
+            "SELECT github_installation_id FROM ai_connections "
+            "WHERE id = CAST(:id AS UUID) AND tenant_id = CAST(:tid AS UUID) "
+            "  AND provider = 'github' AND status = 'active'"
+        ),
+        parameters=[
+            {"name": "id",  "value": {"stringValue": conn_id}},
+            {"name": "tid", "value": {"stringValue": tenant_id}},
+        ],
+    )
+    rows = rs.get("records", [])
+    if not rows:
+        return helpers.resp(404, {"error": "not_found"})
+    installation_id = rows[0][0].get("longValue")
+
+    q = event.get("queryStringParameters") or {}
+    try:
+        page     = int(q.get("page", "1"))
+        per_page = min(int(q.get("per_page", "30")), 100)
+    except (TypeError, ValueError):
+        return helpers.resp(400, {"error": "bad_pagination"})
+
+    try:
+        return helpers.resp(200, github_app.list_authorized_repos(
+            installation_id=installation_id, page=page, per_page=per_page,
+        ))
+    except RuntimeError as e:
+        # GitHub 401 → installation likely revoked
+        if " 401 " in str(e):
+            _mark_revoked(conn_id)
+            return helpers.resp(409, {"error": "installation_revoked"})
+        raise
+
+
+def _mark_revoked(conn_id: str) -> None:
+    helpers.rds_data.execute_statement(
+        resourceArn=helpers.DB_CLUSTER_ARN,
+        secretArn=helpers.DB_SECRET_ARN,
+        database=helpers.DB_NAME,
+        sql=("UPDATE ai_connections SET status='revoked', updated_at=NOW() "
+             "WHERE id = CAST(:id AS UUID)"),
+        parameters=[{"name": "id", "value": {"stringValue": conn_id}}],
+    )

@@ -135,3 +135,41 @@ def test_list_connections_returns_tenant_rows(monkeypatch):
     body = json.loads(out["body"])
     assert body["connections"][0]["provider"] == "github"
     assert body["connections"][0]["github_org_name"] == "kkmookhey"
+
+
+def test_repos_returns_paginated_list(monkeypatch):
+    import main, helpers, github_app
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+
+    # tenant ownership lookup: returns the installation_id
+    def fake_execute(**kw):
+        assert "SELECT github_installation_id" in kw["sql"]
+        return {"records": [[{"longValue": 99999}]]}
+    helpers.rds_data.execute_statement = fake_execute
+
+    monkeypatch.setattr(github_app, "list_authorized_repos",
+                        lambda installation_id, page, per_page: {
+                            "repos": [{"full_name": "kk/foo", "default_branch": "main",
+                                       "last_pushed_at": "2026-05-18T10:00:00Z", "size_kb": 1,
+                                       "primary_language": "Python", "is_private": True}],
+                            "next_page": None, "total_count": 1,
+                        })
+    event = _event_authed("tenant-1", method="GET",
+                          path="/v1/ai/connections/cid-1/repos",
+                          path_params={"id": "11111111-1111-1111-1111-111111111111"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 200
+    body = json.loads(out["body"])
+    assert body["repos"][0]["full_name"] == "kk/foo"
+    assert body["next_page"] is None
+
+
+def test_repos_404_when_connection_not_owned_by_tenant(monkeypatch):
+    import main, helpers
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+    helpers.rds_data.execute_statement = lambda **kw: {"records": []}  # no rows == not found
+    event = _event_authed("tenant-1", method="GET",
+                          path="/v1/ai/connections/cid-1/repos",
+                          path_params={"id": "11111111-1111-1111-1111-111111111111"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 404
