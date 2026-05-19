@@ -13,6 +13,7 @@ interface ScanStackProps extends cdk.StackProps {
   shastaRunnerAzureRepo: ecr.Repository;
   shastaRunnerEntraRepo: ecr.Repository;
   shastaRunnerGcpRepo:   ecr.Repository;
+  aiScannerRepo:         ecr.Repository;
 }
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
