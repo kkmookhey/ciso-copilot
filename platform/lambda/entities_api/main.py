@@ -372,8 +372,7 @@ def _get_entity(event: dict) -> dict:
             "       detector_id, "
             "       to_char(first_seen_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), "
             "       to_char(last_seen_at,  'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), "
-            "       attributes::text, COALESCE(evidence_packet::text, 'null'), "
-            "       COALESCE(connection_id::text, '') "
+            "       attributes::text, COALESCE(evidence_packet::text, 'null') "
             "FROM entities WHERE tenant_id = CAST(:tid AS UUID) "
             "  AND id = CAST(:eid AS UUID) LIMIT 1"
         ),
@@ -397,7 +396,7 @@ def _get_entity(event: dict) -> dict:
         "last_seen_at":    r[7].get("stringValue"),
         "attributes":      json.loads(r[8].get("stringValue") or "{}"),
         "evidence_packet": json.loads(r[9].get("stringValue") or "null"),
-        "connection_id":   r[10].get("stringValue") or None,
+        "connection_id":   None,  # entities don't carry connection_id; scanners do
     })
 
 

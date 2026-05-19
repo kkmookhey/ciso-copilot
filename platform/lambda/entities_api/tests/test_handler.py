@@ -205,7 +205,6 @@ def test_get_entity_returns_evidence_packet(monkeypatch):
             {"stringValue": "2026-05-19T00:00:00Z"},
             {"stringValue": "{\"imports_seen\": 2}"},
             {"stringValue": "{\"version\":\"0.1\"}"},
-            {"stringValue": "c1"},
         ]]},
     ])
     import main
@@ -214,7 +213,7 @@ def test_get_entity_returns_evidence_packet(monkeypatch):
     body = json.loads(out["body"])
     assert body["attributes"]      == {"imports_seen": 2}
     assert body["evidence_packet"] == {"version": "0.1"}
-    assert body["connection_id"]   == "c1"
+    assert body["connection_id"]   is None
 
 
 def test_get_entity_404(monkeypatch):
