@@ -41,10 +41,19 @@ def mint_app_jwt() -> str:
     c = credentials()
     now = int(time.time())
     iat = now - 30              # 30s clock-skew tolerance per GitHub recommendation
+    # GitHub prefers client_id (since 2024) but still accepts the numeric
+    # app_id. Fall back to app_id when client_id is empty/missing — this
+    # also makes the credentials secret usable even if client_id wasn't
+    # populated during setup.
+    iss = c.get("client_id") or str(c.get("app_id") or "")
+    if not iss:
+        raise RuntimeError(
+            "Neither client_id nor app_id is set in the GitHub App credentials secret"
+        )
     payload = {
         "iat": iat,
         "exp": iat + 600,       # 10 minutes TTL from iat (max permitted by GitHub)
-        "iss": c["client_id"],  # GitHub now prefers client_id over numeric app_id
+        "iss": iss,
     }
     return pyjwt.encode(payload, c["private_key"], algorithm="RS256")
 
