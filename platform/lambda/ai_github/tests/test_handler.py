@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,3 +58,57 @@ def test_install_url_401_when_no_tenant(monkeypatch):
 
     out = main.handler(_event_authed("tenant-x"), None)
     assert out["statusCode"] == 401
+
+
+def test_complete_inserts_row_and_returns_connection_id(monkeypatch):
+    import main, helpers, state_jwt, github_app
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+    monkeypatch.setattr(state_jwt, "verify",
+                        lambda token: {"tenant_id": "tenant-1", "user_sub": "u1"})
+
+    # GitHub /app/installations/{id} response — stub the http client
+    def fake_get(url, headers):
+        assert url.endswith("/app/installations/99999")
+        return 200, {"account": {"login": "kkmookhey", "type": "User"}}, {}
+    monkeypatch.setattr(github_app, "_http_get", fake_get)
+    monkeypatch.setattr(github_app, "mint_app_jwt", lambda: "stub.jwt")
+
+    inserts: list[dict] = []
+    def fake_execute(**kw):
+        inserts.append(kw)
+        return {"records": []}
+    # rds_data is the boto3 client mock from the env fixture
+    helpers.rds_data.execute_statement = fake_execute
+
+    event = _event_authed("tenant-1", path="/v1/ai/connections/github/complete",
+                          body={"installation_id": 99999, "state": "stub.state"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 200
+    body = json.loads(out["body"])
+    uuid.UUID(body["connection_id"])  # is a valid UUID
+    # one INSERT happened
+    assert any("INSERT INTO ai_connections" in c["sql"] for c in inserts)
+
+
+def test_complete_rejects_state_for_other_tenant(monkeypatch):
+    import main, helpers, state_jwt
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+    monkeypatch.setattr(state_jwt, "verify",
+                        lambda token: {"tenant_id": "tenant-OTHER", "user_sub": "u1"})
+
+    event = _event_authed("tenant-1", path="/v1/ai/connections/github/complete",
+                          body={"installation_id": 99999, "state": "stub.state"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 403
+
+
+def test_complete_rejects_expired_state(monkeypatch):
+    import main, helpers, state_jwt
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+    def boom(_t): raise ValueError("token expired")
+    monkeypatch.setattr(state_jwt, "verify", boom)
+
+    event = _event_authed("tenant-1", path="/v1/ai/connections/github/complete",
+                          body={"installation_id": 99999, "state": "stub.state"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 400
