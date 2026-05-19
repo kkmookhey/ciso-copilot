@@ -369,6 +369,12 @@ export const api = {
       { method: "POST", body: JSON.stringify({ decision }) },
     ),
   listConnections: ()                         => call<{ connections: Connection[] }>("/connections"),
+  rescanConnection: (connId: string) =>
+    call<{ scan_id: string; status: string }>(`/connections/${connId}/rescan`, {
+      method: "POST", body: "{}",
+    }),
+  deleteConnection: (connId: string) =>
+    call<{ status: string }>(`/connections/${connId}`, { method: "DELETE" }),
   initiateAwsOnboarding: (displayName: string) =>
     call<InitiateAwsResponse>("/onboarding/aws/initiate", {
       method: "POST",

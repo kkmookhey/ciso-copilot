@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AIConnection } from "../lib/api";
+import { api, type AIConnection, type Connection } from "../lib/api";
 
 /// Phase A + B onboarding wizard. AWS = one-click CFN; Azure = Cloud-Shell
 /// curl pipe. Entra and GCP land in Phases C and D respectively.
@@ -11,10 +11,41 @@ export function ConnectClouds() {
   const [pendingGcp,   setPendingGcp]   = useState(false);
   const [pendingGithub, setPendingGithub] = useState(false);
   const [aiConnections, setAiConnections] = useState<AIConnection[]>([]);
+  const [cloudConnections, setCloudConnections] = useState<Connection[]>([]);
+  const [cloudActionMsg,   setCloudActionMsg]   = useState<Record<string, string>>({});
 
   useEffect(() => {
     api.listAIConnections().then((r) => setAiConnections(r.connections)).catch(() => { /* non-fatal */ });
+    api.listConnections().then((r) => setCloudConnections(r.connections)).catch(() => { /* non-fatal */ });
   }, []);
+
+  async function rescanCloud(connId: string) {
+    setCloudActionMsg((m) => ({ ...m, [connId]: "Queuing scan…" }));
+    try {
+      await api.rescanConnection(connId);
+      setCloudActionMsg((m) => ({ ...m, [connId]: "Scan queued ✓" }));
+      window.setTimeout(() => setCloudActionMsg((m) => {
+        const next = { ...m }; delete next[connId]; return next;
+      }), 4000);
+    } catch (e) {
+      setCloudActionMsg((m) => ({ ...m, [connId]: `Failed: ${(e as Error).message}` }));
+    }
+  }
+
+  async function deleteCloud(connId: string, status: Connection["status"]) {
+    if (status === "active") {
+      const ok = window.confirm(
+        "This will revoke the connection. The platform will stop scanning this account and any signals will be ignored. Continue?",
+      );
+      if (!ok) return;
+    }
+    try {
+      await api.deleteConnection(connId);
+      setCloudConnections((cs) => cs.filter((c) => c.conn_id !== connId));
+    } catch (e) {
+      setCloudActionMsg((m) => ({ ...m, [connId]: `Delete failed: ${(e as Error).message}` }));
+    }
+  }
   const [cfnUrl,        setCfnUrl]        = useState<string | null>(null);
   const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
   const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
@@ -89,6 +120,49 @@ export function ConnectClouds() {
                    tagline="AI inventory via the CISO Copilot GitHub App"
                    enabled={true} loading={pendingGithub} onClick={connectGithub} />
       </div>
+
+      {cloudConnections.filter((c) => c.status !== "revoked").length > 0 && (
+        <div className="mt-8 rounded-2xl border border-slate-200 p-5">
+          <h2 className="font-semibold">Connected clouds</h2>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {cloudConnections.filter((c) => c.status !== "revoked").map((c) => (
+              <li key={c.conn_id} className="flex items-center justify-between py-3 text-sm gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium flex items-center gap-2">
+                    <span className="uppercase text-xs text-slate-500 font-mono">{c.cloud_type}</span>
+                    <span className="truncate">{c.display_name}</span>
+                  </div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {c.account_identifier ?? "—"}
+                  </div>
+                  {cloudActionMsg[c.conn_id] && (
+                    <div className="text-xs text-blue-600 mt-1">{cloudActionMsg[c.conn_id]}</div>
+                  )}
+                </div>
+                <CloudStatusPill status={c.status} />
+                <div className="flex items-center gap-2 shrink-0">
+                  {c.status === "active" && (
+                    <button
+                      type="button"
+                      onClick={() => rescanCloud(c.conn_id)}
+                      className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs"
+                    >
+                      Rescan
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => deleteCloud(c.conn_id, c.status)}
+                    className="px-3 py-1.5 rounded-md bg-red-50 hover:bg-red-100 text-red-700 text-xs"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {aiConnections.filter((c) => c.provider === "github" && c.status === "active").length > 0 && (
         <div className="mt-8 rounded-2xl border border-slate-200 p-5">
@@ -226,4 +300,17 @@ function CloudTile({
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+}
+
+function CloudStatusPill({ status }: { status: Connection["status"] }) {
+  const cls =
+    status === "active"  ? "bg-green-100 text-green-700" :
+    status === "pending" ? "bg-amber-100 text-amber-700" :
+    status === "error"   ? "bg-red-100 text-red-700"     :
+                           "bg-slate-100 text-slate-600";
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cls}`}>
+      {status}
+    </span>
+  );
 }
