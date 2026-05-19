@@ -7,6 +7,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -24,6 +25,7 @@ interface ApiStackProps extends cdk.StackProps {
   entraAppId:         string;
   entraScannerSecret: secretsmanager.ISecret;
   openaiApiKeySecret: secretsmanager.ISecret;
+  aiScanQueue:        sqs.IQueue;
   cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
   webRedirectUri:     string;   // e.g. https://<cdn>/callback
 }
@@ -304,6 +306,23 @@ export class ApiStack extends cdk.Stack {
         `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key*`,
       ],
     }));
+
+    // ========================================================================
+    // /v1/ai/scans + /v1/ai/assets — start scans and browse the AI inventory
+    // ========================================================================
+    const aiScanApiFn = new lambda.Function(this, 'AiScanApiFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_scan_api')),
+      timeout:    cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        AI_SCAN_QUEUE_URL: props.aiScanQueue.queueUrl,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(aiScanApiFn);
+    props.aiScanQueue.grantSendMessages(aiScanApiFn);
 
     // ========================================================================
     // REST API + authorizer
@@ -650,6 +669,17 @@ export class ApiStack extends cdk.Stack {
     aiGithub.addResource('complete').addMethod(
       'POST', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
     );
+
+    // /v1/ai/scans + /v1/ai/assets — start scans, browse the inventory.
+    const aiScans   = aiRes.addResource('scans');
+    const aiScanId  = aiScans.addResource('{id}');
+    const aiAssets  = aiRes.addResource('assets');
+    const aiAssetId = aiAssets.addResource('{id}');
+    aiScans.addMethod(  'POST', new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
+    aiScans.addMethod(  'GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
+    aiScanId.addMethod( 'GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
+    aiAssets.addMethod( 'GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
+    aiAssetId.addMethod('GET',  new apigw.LambdaIntegration(aiScanApiFn), authedOpts);
 
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });

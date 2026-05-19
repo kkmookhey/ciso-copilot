@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as lambda_event from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import { config } from './config';
 
@@ -39,6 +40,7 @@ export class ScanStack extends cdk.Stack {
   public readonly entraScannerSecret: secretsmanager.Secret;
   public readonly openaiApiKeySecret: secretsmanager.Secret;
   public readonly aiScanQueue:        sqs.Queue;
+  public readonly aiScanner:          lambda.DockerImageFunction;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -170,6 +172,43 @@ export class ScanStack extends cdk.Stack {
         maxReceiveCount: 3,
       },
     });
+
+    // ========================================================================
+    // ai_scanner Lambda — container image, consumes ai-scan-queue, clones a
+    // customer's GitHub repo via the installation token, runs the 8 detectors
+    // + correlator, writes assets/relationships/findings.
+    // ========================================================================
+    this.aiScanner = new lambda.DockerImageFunction(this, 'AiScanner', {
+      functionName:         'ciso-copilot-ai-scanner',
+      code:                 lambda.DockerImageCode.fromEcr(props.aiScannerRepo, { tagOrDigest: 'latest' }),
+      timeout:              cdk.Duration.seconds(600),
+      memorySize:           2048,
+      ephemeralStorageSize: cdk.Size.gibibytes(4),
+      architecture:         lambda.Architecture.X86_64,
+      environment: {
+        ...dbEnv,
+        GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials*`,
+        SCANNER_VERSION:       '0.1.0',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(this.aiScanner);
+    this.aiScanner.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [
+        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials*`,
+      ],
+    }));
+
+    // Wire SQS as the event source. batchSize:1 because each repo scan is a
+    // long-running unit; maxConcurrency:5 caps blast radius if many scans
+    // are triggered in a burst.
+    this.aiScanner.addEventSource(new lambda_event.SqsEventSource(this.aiScanQueue, {
+      batchSize:      1,
+      maxConcurrency: 5,
+    }));
+
+    new cdk.CfnOutput(this, 'AiScanQueueUrl',  { value: this.aiScanQueue.queueUrl });
+    new cdk.CfnOutput(this, 'AiScannerFnName', { value: this.aiScanner.functionName });
 
     new cdk.CfnOutput(this, 'ShastaRunnerArn',         { value: this.shastaRunner.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerFnName',      { value: this.shastaRunner.functionName });
