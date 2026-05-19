@@ -234,6 +234,39 @@ export interface AdminTenantRow {
   first_user:   string | null;
 }
 
+export interface AIScanSummary {
+  id:                              string;
+  repo_full_name:                  string;
+  status:                          "queued" | "running" | "success" | "failed";
+  started_at:                      string;
+  completed_at:                    string | null;
+  error_message:                   string | null;
+  assets_discovered_count:         number;
+  relationships_discovered_count:  number;
+  findings_generated_count:        number;
+}
+
+export type AIAssetType =
+  | "repository" | "model" | "mcp_server" | "framework"
+  | "vector_db" | "prompt" | "agent" | "embedding" | "tool";
+
+export interface AIAssetSummary {
+  id:            string;
+  asset_type:    AIAssetType;
+  name:          string;
+  source_repo:   { id: string; full_name: string } | null;
+  source_path:   string | null;
+  detector_id:   string;
+  first_seen_at: string;
+  last_seen_at:  string;
+}
+
+export interface AIAssetDetail extends AIAssetSummary {
+  attributes:      Record<string, unknown>;
+  evidence_packet: Record<string, unknown>;
+  connection_id:   string | null;
+}
+
 export interface FindingsSummary {
   by_severity: { critical: number; high: number; medium: number; low: number; info: number };
   by_cloud:    { aws: number; azure: number; gcp: number; entra: number };
@@ -388,4 +421,33 @@ export const api = {
     ),
   revokeAIConnection: (connectionId: string) =>
     call<void>(`/ai/connections/${connectionId}`, { method: "DELETE" }),
+  startAIScan: (connectionId: string, repoFullName: string, defaultBranch?: string) =>
+    call<{ scan_id: string }>("/ai/scans", {
+      method: "POST",
+      body: JSON.stringify({
+        connection_id:  connectionId,
+        repo_full_name: repoFullName,
+        default_branch: defaultBranch ?? "main",
+      }),
+    }),
+  listAIScans: (params?: { connection_id?: string; status?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.connection_id) q.set("connection_id", params.connection_id);
+    if (params?.status)        q.set("status", params.status);
+    const qs = q.toString();
+    return call<{ scans: AIScanSummary[] }>(`/ai/scans${qs ? "?" + qs : ""}`);
+  },
+  getAIScan: (scanId: string) => call<AIScanSummary>(`/ai/scans/${scanId}`),
+  listAIAssets: (params?: { type?: AIAssetType | string; repo?: string; page?: number; per_page?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.type)     q.set("type", params.type);
+    if (params?.repo)     q.set("repo", params.repo);
+    if (params?.page)     q.set("page", String(params.page));
+    if (params?.per_page) q.set("per_page", String(params.per_page));
+    const qs = q.toString();
+    return call<{ assets: AIAssetSummary[]; next_page: number | null }>(
+      `/ai/assets${qs ? "?" + qs : ""}`,
+    );
+  },
+  getAIAsset: (assetId: string) => call<AIAssetDetail>(`/ai/assets/${assetId}`),
 };
