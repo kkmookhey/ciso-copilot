@@ -1,147 +1,237 @@
 {
-  "assets": [
+  "entities": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "mcp_server",
-      "name": "kk-tools",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "mcp/server.py",
-      "attributes": {"runtime": "python"},
+      "kind": "ai_mcp_server",
+      "natural_key": "github.com/fixture/repo::mcp/server.py::kk-tools",
+      "display_name": "kk-tools",
+      "domain": "ai",
+      "attributes": {
+        "runtime": "python"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "mcp_server", "name": "kk-tools"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "mcp_server",
+          "name": "kk-tools"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "mcp/server.py", "snippet_lines": [3, 3],
-           "snippet": "server = Server(\"kk-tools\")"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "mcp/server.py",
+            "snippet_lines": [
+              3,
+              3
+            ],
+            "snippet": "server = Server(\"kk-tools\")"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched Server(\"kk-tools\") at mcp/server.py:3"],
+        "reasoning_chain": [
+          "matched Server(\"kk-tools\") at mcp/server.py:3"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.mcp_server",
-      "detector_version": "0.1.0",
-      "id": null
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "mcp/server.py"
     },
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "tool",
-      "name": "create_pr",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "mcp/server.py",
-      "attributes": {"mcp_server": "kk-tools"},
+      "kind": "ai_tool",
+      "natural_key": "github.com/fixture/repo::mcp/server.py::create_pr",
+      "display_name": "create_pr",
+      "domain": "ai",
+      "attributes": {
+        "mcp_server": "kk-tools"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "tool", "name": "create_pr"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "tool",
+          "name": "create_pr"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "mcp/server.py", "snippet_lines": [9, 9],
-           "snippet": "        {\"name\": \"create_pr\",  \"description\": \"Open a pull request\"},"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "mcp/server.py",
+            "snippet_lines": [
+              9,
+              9
+            ],
+            "snippet": "        {\"name\": \"create_pr\",  \"description\": \"Open a pull request\"},"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched tool name \"create_pr\" in list_tools at mcp/server.py:9"],
+        "reasoning_chain": [
+          "matched tool name \"create_pr\" in list_tools at mcp/server.py:9"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.mcp_server",
-      "detector_version": "0.1.0",
-      "id": null
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "mcp/server.py"
     },
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "tool",
-      "name": "read_file",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "mcp/server.py",
-      "attributes": {"mcp_server": "kk-tools"},
+      "kind": "ai_tool",
+      "natural_key": "github.com/fixture/repo::mcp/server.py::read_file",
+      "display_name": "read_file",
+      "domain": "ai",
+      "attributes": {
+        "mcp_server": "kk-tools"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "tool", "name": "read_file"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "tool",
+          "name": "read_file"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "mcp/server.py", "snippet_lines": [8, 8],
-           "snippet": "        {\"name\": \"read_file\", \"description\": \"Read a file\"},"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "mcp/server.py",
+            "snippet_lines": [
+              8,
+              8
+            ],
+            "snippet": "        {\"name\": \"read_file\", \"description\": \"Read a file\"},"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched tool name \"read_file\" in list_tools at mcp/server.py:8"],
+        "reasoning_chain": [
+          "matched tool name \"read_file\" in list_tools at mcp/server.py:8"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.mcp_server",
-      "detector_version": "0.1.0",
-      "id": null
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "mcp/server.py"
     }
   ],
-  "relationships": [
+  "edges": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
-      "target_asset_ref": "mcp_server::44444444-4444-4444-4444-444444444444::mcp/server.py::kk-tools",
-      "relationship_type": "deploys",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_mcp_server",
+      "target_natural_key": "github.com/fixture/repo::mcp/server.py::kk-tools",
+      "kind": "deploys",
       "attributes": {},
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "deploys", "name": "repo→deploys→kk-tools"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "deploys",
+          "name": "repo\u2192deploys\u2192kk-tools"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["mcp_server detected in repo"],
+        "reasoning_chain": [
+          "mcp_server detected in repo"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.mcp_server",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     },
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "source_asset_ref": "mcp_server::44444444-4444-4444-4444-444444444444::mcp/server.py::kk-tools",
-      "target_asset_ref": "tool::44444444-4444-4444-4444-444444444444::mcp/server.py::create_pr",
-      "relationship_type": "invokes",
+      "source_kind": "ai_mcp_server",
+      "source_natural_key": "github.com/fixture/repo::mcp/server.py::kk-tools",
+      "target_kind": "ai_tool",
+      "target_natural_key": "github.com/fixture/repo::mcp/server.py::create_pr",
+      "kind": "invokes",
       "attributes": {},
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "invokes", "name": "kk-tools→invokes→create_pr"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "invokes",
+          "name": "kk-tools\u2192invokes\u2192create_pr"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["tool declared in mcp_server list_tools"],
+        "reasoning_chain": [
+          "tool declared in mcp_server list_tools"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.mcp_server",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     },
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "source_asset_ref": "mcp_server::44444444-4444-4444-4444-444444444444::mcp/server.py::kk-tools",
-      "target_asset_ref": "tool::44444444-4444-4444-4444-444444444444::mcp/server.py::read_file",
-      "relationship_type": "invokes",
+      "source_kind": "ai_mcp_server",
+      "source_natural_key": "github.com/fixture/repo::mcp/server.py::kk-tools",
+      "target_kind": "ai_tool",
+      "target_natural_key": "github.com/fixture/repo::mcp/server.py::read_file",
+      "kind": "invokes",
       "attributes": {},
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "invokes", "name": "kk-tools→invokes→read_file"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "invokes",
+          "name": "kk-tools\u2192invokes\u2192read_file"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["tool declared in mcp_server list_tools"],
+        "reasoning_chain": [
+          "tool declared in mcp_server list_tools"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.mcp_server",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     }
   ],
   "findings": [
@@ -151,19 +241,38 @@
       "severity": "high",
       "title": "MCP server 'kk-tools' declares write-scope tools",
       "description": "MCP server kk-tools exposes tools with names suggesting write or mutating scope: ['create_pr']. Review whether the host process running this server should have these capabilities.",
-      "subject_type": "ai_asset",
-      "subject_ref": "mcp_server::44444444-4444-4444-4444-444444444444::mcp/server.py::kk-tools",
+      "subject_entity_kind": "ai_mcp_server",
+      "subject_entity_natural_key": "github.com/fixture/repo::mcp/server.py::kk-tools",
+      "subject_type": null,
+      "subject_ref": null,
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
-        "subject": {"kind": "finding", "type": "mcp_with_broad_perms", "name": "kk-tools"},
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "finding",
+          "type": "mcp_with_broad_perms",
+          "name": "kk-tools"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "mcp/server.py", "snippet_lines": [3, 3],
-           "snippet": "server = Server(\"kk-tools\")"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "mcp/server.py",
+            "snippet_lines": [
+              3,
+              3
+            ],
+            "snippet": "server = Server(\"kk-tools\")"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["MCP server kk-tools declares write-scope tools: ['create_pr']"],
+        "reasoning_chain": [
+          "MCP server kk-tools declares write-scope tools: ['create_pr']"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null

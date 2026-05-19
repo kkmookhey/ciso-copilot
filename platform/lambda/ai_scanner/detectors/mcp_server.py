@@ -7,12 +7,18 @@ Two signals:
   2. Config file: ``mcp.json`` or ``claude_desktop_config.json`` with an
      ``mcpServers`` mapping.
 
-Emits one ``mcp_server`` asset per server, one ``tool`` asset per declared
-tool (Python path only — config files don't list tools), a
-``repository→deploys→mcp_server`` relationship per server, an
-``mcp_server→invokes→tool`` relationship per tool, and an
+Emits one ``ai_mcp_server`` entity per server, one ``ai_tool`` entity per
+declared tool (Python path only — config files don't list tools), a
+``github_repo → deploys → ai_mcp_server`` edge per server, an
+``ai_mcp_server → invokes → ai_tool`` edge per tool, and an
 ``mcp_with_broad_perms`` finding (HIGH) when any tool name matches a
 write-scope heuristic (``create_``, ``delete_``, ``write_``, ``update_``).
+
+SP1 natural-key shape (per-file, no cross-file dedup — two repos with the
+same MCP server name are distinct entities, and a repo with two files each
+declaring a server with the same name produces two entities):
+  - ai_mcp_server: ``f"{repo_nk}::{rel_path}::{server_name}"``
+  - ai_tool:       ``f"{repo_nk}::{rel_path}::{tool_name}"``
 """
 from __future__ import annotations
 
@@ -20,20 +26,20 @@ import ast
 import json
 from pathlib import Path
 
-from detectors.base import AssetEmission, RelEmission, FindingEmission, DetectorResult
+from detectors.base import EntityEmission, EdgeEmission, FindingEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.mcp_server"
-detector_version = "0.1.0"
+detector_version = "0.2.0"
 
 WRITE_SCOPE_PREFIXES = ("create_", "delete_", "write_", "update_")
 
 
 def detect(ctx) -> DetectorResult:
-    assets: list[AssetEmission] = []
-    rels:   list[RelEmission] = []
+    entities: list[EntityEmission] = []
+    edges:    list[EdgeEmission] = []
     findings: list[FindingEmission] = []
-    repo_ref = f"repository::::{ctx.repo_asset_id}"
+    repo_nk = f"github.com/{ctx.repo_full_name}"
 
     for py in sorted(ctx.repo_workdir.rglob("*.py")):
         try:
@@ -43,7 +49,7 @@ def detect(ctx) -> DetectorResult:
         if "mcp.server" not in text:
             continue
         rel_path = str(py.relative_to(ctx.repo_workdir))
-        _emit_from_python(ctx, py, text, rel_path, repo_ref, assets, rels, findings)
+        _emit_from_python(ctx, py, text, rel_path, repo_nk, entities, edges, findings)
 
     config_names = ("mcp.json", "claude_desktop_config.json")
     config_files = sorted(
@@ -56,13 +62,13 @@ def detect(ctx) -> DetectorResult:
         except (OSError, json.JSONDecodeError):
             continue
         rel_path = str(cfg.relative_to(ctx.repo_workdir))
-        _emit_from_config(ctx, parsed, rel_path, repo_ref, assets, rels)
+        _emit_from_config(ctx, parsed, rel_path, repo_nk, entities, edges)
 
-    return DetectorResult(assets=assets, relationships=rels, findings=findings)
+    return DetectorResult(entities=entities, edges=edges, findings=findings)
 
 
-def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
-                       assets: list, rels: list, findings: list) -> None:
+def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_nk: str,
+                       entities: list, edges: list, findings: list) -> None:
     try:
         tree = ast.parse(text)
     except SyntaxError:
@@ -89,6 +95,8 @@ def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
     if not server_name:
         return
 
+    server_nk = f"{repo_nk}::{rel_path}::{server_name}"
+
     server_packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
         subject_kind="ai_asset", subject_type="mcp_server", subject_name=server_name,
@@ -101,15 +109,14 @@ def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
         reasoning_chain=[f"matched Server(\"{server_name}\") at {rel_path}:{server_line}"],
         confidence="high",
     )
-    assets.append(AssetEmission(
-        tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-        asset_type="mcp_server", name=server_name,
-        source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+    entities.append(EntityEmission(
+        tenant_id=ctx.tenant_id, kind="ai_mcp_server",
+        natural_key=server_nk, display_name=server_name, domain="ai",
         attributes={"runtime": "python"},
         evidence_packet=server_packet,
         detector_id=detector_id, detector_version=detector_version,
+        connection_id=ctx.connection_id, source_path=rel_path,
     ))
-    server_ref = f"mcp_server::{ctx.repo_asset_id}::{rel_path}::{server_name}"
 
     deploys_packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
@@ -118,17 +125,18 @@ def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
         source_events=[], reasoning_chain=["mcp_server detected in repo"],
         confidence="high",
     )
-    rels.append(RelEmission(
+    edges.append(EdgeEmission(
         tenant_id=ctx.tenant_id,
-        source_asset_ref=repo_ref, target_asset_ref=server_ref,
-        relationship_type="deploys",
-        attributes={}, evidence_packet=deploys_packet,
+        source_kind="github_repo", source_natural_key=repo_nk,
+        target_kind="ai_mcp_server", target_natural_key=server_nk,
+        kind="deploys", attributes={}, evidence_packet=deploys_packet,
         detector_id=detector_id, detector_version=detector_version,
     ))
 
     tool_names = _extract_tool_names(tree, server_var)
     broad_tools: list[str] = []
     for tool_name, tool_line in tool_names:
+        tool_nk = f"{repo_nk}::{rel_path}::{tool_name}"
         tool_packet = ev.build(
             detector_id=detector_id, detector_version=detector_version,
             subject_kind="ai_asset", subject_type="tool", subject_name=tool_name,
@@ -141,13 +149,13 @@ def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
             reasoning_chain=[f"matched tool name \"{tool_name}\" in list_tools at {rel_path}:{tool_line}"],
             confidence="high",
         )
-        assets.append(AssetEmission(
-            tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-            asset_type="tool", name=tool_name,
-            source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+        entities.append(EntityEmission(
+            tenant_id=ctx.tenant_id, kind="ai_tool",
+            natural_key=tool_nk, display_name=tool_name, domain="ai",
             attributes={"mcp_server": server_name},
             evidence_packet=tool_packet,
             detector_id=detector_id, detector_version=detector_version,
+            connection_id=ctx.connection_id, source_path=rel_path,
         ))
         invokes_packet = ev.build(
             detector_id=detector_id, detector_version=detector_version,
@@ -156,12 +164,11 @@ def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
             source_events=[], reasoning_chain=["tool declared in mcp_server list_tools"],
             confidence="high",
         )
-        rels.append(RelEmission(
+        edges.append(EdgeEmission(
             tenant_id=ctx.tenant_id,
-            source_asset_ref=server_ref,
-            target_asset_ref=f"tool::{ctx.repo_asset_id}::{rel_path}::{tool_name}",
-            relationship_type="invokes",
-            attributes={}, evidence_packet=invokes_packet,
+            source_kind="ai_mcp_server", source_natural_key=server_nk,
+            target_kind="ai_tool", target_natural_key=tool_nk,
+            kind="invokes", attributes={}, evidence_packet=invokes_packet,
             detector_id=detector_id, detector_version=detector_version,
         ))
         if tool_name.startswith(WRITE_SCOPE_PREFIXES):
@@ -193,8 +200,10 @@ def _emit_from_python(ctx, py: Path, text: str, rel_path: str, repo_ref: str,
                 f"write or mutating scope: {sorted(broad_tools)}. Review whether "
                 "the host process running this server should have these capabilities."
             ),
-            subject_type="ai_asset",
-            subject_ref=server_ref,
+            subject_entity_kind="ai_mcp_server",
+            subject_entity_natural_key=server_nk,
+            subject_type=None,
+            subject_ref=None,
             evidence_packet=finding_packet,
             confidence="high",
         ))
@@ -235,8 +244,8 @@ def _has_list_tools_decorator(fn: ast.FunctionDef | ast.AsyncFunctionDef,
     return False
 
 
-def _emit_from_config(ctx, parsed: object, rel_path: str, repo_ref: str,
-                      assets: list, rels: list) -> None:
+def _emit_from_config(ctx, parsed: object, rel_path: str, repo_nk: str,
+                      entities: list, edges: list) -> None:
     if not isinstance(parsed, dict):
         return
     servers = parsed.get("mcpServers")
@@ -249,7 +258,7 @@ def _emit_from_config(ctx, parsed: object, rel_path: str, repo_ref: str,
             command = cfg.get("command")
             if isinstance(command, str):
                 attributes["command"] = command
-        server_ref = f"mcp_server::{ctx.repo_asset_id}::{rel_path}::{name}"
+        server_nk = f"{repo_nk}::{rel_path}::{name}"
         server_packet = ev.build(
             detector_id=detector_id, detector_version=detector_version,
             subject_kind="ai_asset", subject_type="mcp_server", subject_name=name,
@@ -262,13 +271,13 @@ def _emit_from_config(ctx, parsed: object, rel_path: str, repo_ref: str,
             reasoning_chain=[f"declared in {rel_path} mcpServers.{name}"],
             confidence="high",
         )
-        assets.append(AssetEmission(
-            tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-            asset_type="mcp_server", name=name,
-            source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+        entities.append(EntityEmission(
+            tenant_id=ctx.tenant_id, kind="ai_mcp_server",
+            natural_key=server_nk, display_name=name, domain="ai",
             attributes=attributes,
             evidence_packet=server_packet,
             detector_id=detector_id, detector_version=detector_version,
+            connection_id=ctx.connection_id, source_path=rel_path,
         ))
         deploys_packet = ev.build(
             detector_id=detector_id, detector_version=detector_version,
@@ -277,10 +286,10 @@ def _emit_from_config(ctx, parsed: object, rel_path: str, repo_ref: str,
             source_events=[], reasoning_chain=["mcp_server declared in config"],
             confidence="high",
         )
-        rels.append(RelEmission(
+        edges.append(EdgeEmission(
             tenant_id=ctx.tenant_id,
-            source_asset_ref=repo_ref, target_asset_ref=server_ref,
-            relationship_type="deploys",
-            attributes={}, evidence_packet=deploys_packet,
+            source_kind="github_repo", source_natural_key=repo_nk,
+            target_kind="ai_mcp_server", target_natural_key=server_nk,
+            kind="deploys", attributes={}, evidence_packet=deploys_packet,
             detector_id=detector_id, detector_version=detector_version,
         ))
