@@ -9,10 +9,14 @@ Inline signals (Python only):
   - multi-line string constants (>200 chars) passed as ``prompt=`` or
     ``system=`` kwargs to a ``.create(...)`` call.
 
-For every detected prompt, emits one ``prompt`` asset + a
-``repository → accesses → prompt`` relationship. If the prompt body matches
-a known secret regex, additionally emits a ``prompt_with_secret_pattern``
-finding (HIGH).
+For every detected prompt, emits one ``ai_prompt`` entity + a
+``github_repo → accesses → ai_prompt`` edge. If the prompt body matches a
+known secret regex, additionally emits a ``prompt_with_secret_pattern``
+finding (HIGH) linked back to the prompt entity.
+
+SP1 natural-key shape (per-file):
+  - file prompt:    name = rel_path,           nk = f"{repo_nk}::{rel_path}::{name}"
+  - inline prompt:  name = f"{kwarg}@{line}",  nk = f"{repo_nk}::{rel_path}::{name}"
 """
 from __future__ import annotations
 
@@ -20,11 +24,11 @@ import ast
 import re
 from pathlib import Path
 
-from detectors.base import AssetEmission, RelEmission, FindingEmission, DetectorResult
+from detectors.base import EntityEmission, EdgeEmission, FindingEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.prompt"
-detector_version = "0.1.0"
+detector_version = "0.2.0"
 
 PROMPT_KWARGS = ("prompt", "system", "instructions")
 INLINE_MIN_CHARS = 200
@@ -38,10 +42,10 @@ SECRET_PATTERNS = [
 
 
 def detect(ctx) -> DetectorResult:
-    assets: list[AssetEmission] = []
-    rels:   list[RelEmission] = []
+    entities: list[EntityEmission] = []
+    edges:    list[EdgeEmission] = []
     findings: list[FindingEmission] = []
-    repo_ref = f"repository::::{ctx.repo_asset_id}"
+    repo_nk = f"github.com/{ctx.repo_full_name}"
 
     for f in _prompt_files(ctx.repo_workdir):
         try:
@@ -50,8 +54,8 @@ def detect(ctx) -> DetectorResult:
             continue
         rel_path = str(f.relative_to(ctx.repo_workdir))
         _emit_prompt(ctx, name=rel_path, body=body, rel_path=rel_path,
-                      line=1, repo_ref=repo_ref,
-                      assets=assets, rels=rels, findings=findings,
+                      line=1, repo_nk=repo_nk,
+                      entities=entities, edges=edges, findings=findings,
                       kind="file")
 
     for py in sorted(ctx.repo_workdir.rglob("*.py")):
@@ -62,13 +66,13 @@ def detect(ctx) -> DetectorResult:
             continue
         rel_path = str(py.relative_to(ctx.repo_workdir))
         for inline in _inline_prompts(tree):
-            name = f"{rel_path}::{inline['kwarg']}@{inline['line']}"
+            name = f"{inline['kwarg']}@{inline['line']}"
             _emit_prompt(ctx, name=name, body=inline["body"], rel_path=rel_path,
-                          line=inline["line"], repo_ref=repo_ref,
-                          assets=assets, rels=rels, findings=findings,
+                          line=inline["line"], repo_nk=repo_nk,
+                          entities=entities, edges=edges, findings=findings,
                           kind="inline")
 
-    return DetectorResult(assets=assets, relationships=rels, findings=findings)
+    return DetectorResult(entities=entities, edges=edges, findings=findings)
 
 
 def _prompt_files(root: Path) -> list[Path]:
@@ -109,8 +113,9 @@ def _inline_prompts(tree: ast.AST) -> list[dict]:
 
 
 def _emit_prompt(ctx, *, name: str, body: str, rel_path: str, line: int,
-                  repo_ref: str, assets: list, rels: list, findings: list,
+                  repo_nk: str, entities: list, edges: list, findings: list,
                   kind: str) -> None:
+    prompt_nk = f"{repo_nk}::{rel_path}::{name}"
     snippet = body[:120].replace("\n", " ")
     packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
@@ -124,16 +129,15 @@ def _emit_prompt(ctx, *, name: str, body: str, rel_path: str, line: int,
         reasoning_chain=[f"detected {kind} prompt at {rel_path}:{line}"],
         confidence="high",
     )
-    assets.append(AssetEmission(
-        tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-        asset_type="prompt", name=name,
-        source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+    entities.append(EntityEmission(
+        tenant_id=ctx.tenant_id, kind="ai_prompt",
+        natural_key=prompt_nk, display_name=name, domain="ai",
         attributes={"kind": kind, "chars": len(body)},
         evidence_packet=packet,
         detector_id=detector_id, detector_version=detector_version,
+        connection_id=ctx.connection_id, source_path=rel_path,
     ))
 
-    target_ref = f"prompt::{ctx.repo_asset_id}::{rel_path}::{name}"
     rel_packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
         subject_kind="ai_relationship", subject_type="accesses",
@@ -141,11 +145,11 @@ def _emit_prompt(ctx, *, name: str, body: str, rel_path: str, line: int,
         source_events=[], reasoning_chain=["prompt detected in repo"],
         confidence="high",
     )
-    rels.append(RelEmission(
+    edges.append(EdgeEmission(
         tenant_id=ctx.tenant_id,
-        source_asset_ref=repo_ref, target_asset_ref=target_ref,
-        relationship_type="accesses",
-        attributes={},
+        source_kind="github_repo", source_natural_key=repo_nk,
+        target_kind="ai_prompt", target_natural_key=prompt_nk,
+        kind="accesses", attributes={},
         evidence_packet=rel_packet,
         detector_id=detector_id, detector_version=detector_version,
     ))
@@ -179,8 +183,10 @@ def _emit_prompt(ctx, *, name: str, body: str, rel_path: str, line: int,
                 "shipping a real key inside a prompt is effectively leaking it. "
                 "Rotate the credential and remove it from the prompt."
             ),
-            subject_type="ai_asset",
-            subject_ref=target_ref,
+            subject_entity_kind="ai_prompt",
+            subject_entity_natural_key=prompt_nk,
+            subject_type=None,
+            subject_ref=None,
             evidence_packet=finding_packet,
             confidence="high",
         ))
