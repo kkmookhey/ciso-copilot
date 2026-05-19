@@ -62,7 +62,8 @@ def _make_ctx(repo_dir: Path):
 def _normalise(result):
     """Convert DetectorResult to a stable dict for golden comparison."""
     def strip_dynamic(p):
-        # Strip packet_id + produced_at — these are non-deterministic.
+        if p is None:
+            return None
         p = {**p}
         p.pop("packet_id", None)
         p.pop("produced_at", None)
@@ -71,17 +72,21 @@ def _normalise(result):
             p["subject"].pop("id", None)
         return p
     return {
-        "assets": [
-            {**asdict(a), "evidence_packet": strip_dynamic(a.evidence_packet)}
-            for a in sorted(result.assets, key=lambda x: (x.asset_type, x.name, x.source_path or ""))
+        "entities": [
+            {**asdict(e), "evidence_packet": strip_dynamic(e.evidence_packet)}
+            for e in sorted(result.entities,
+                            key=lambda x: (x.kind, x.natural_key, x.source_path or ""))
         ],
-        "relationships": [
+        "edges": [
             {**asdict(r), "evidence_packet": strip_dynamic(r.evidence_packet)}
-            for r in sorted(result.relationships, key=lambda x: (x.relationship_type, x.source_asset_ref, x.target_asset_ref))
+            for r in sorted(result.edges,
+                            key=lambda x: (x.kind, x.source_natural_key, x.target_natural_key))
         ],
         "findings": [
             {**asdict(f), "evidence_packet": strip_dynamic(f.evidence_packet)}
-            for f in sorted(result.findings, key=lambda x: (x.finding_type, x.subject_ref))
+            for f in sorted(result.findings,
+                            key=lambda x: (x.finding_type,
+                                            x.subject_ref or x.subject_entity_natural_key or ""))
         ],
     }
 
