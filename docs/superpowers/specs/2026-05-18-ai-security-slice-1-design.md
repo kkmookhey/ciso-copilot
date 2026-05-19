@@ -119,7 +119,7 @@ One SQL migration: `platform/sql/004_phase_ai.sql`.
 
 ```sql
 CREATE TABLE ai_connections (
-  id                      UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                      UUID         PRIMARY KEY,
   tenant_id               UUID         NOT NULL REFERENCES tenants(id),
   provider                TEXT         NOT NULL
                                        CHECK (provider IN ('github', 'openai', 'anthropic')),
@@ -151,7 +151,7 @@ migration.
 
 ```sql
 CREATE TABLE ai_assets (
-  id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                UUID          PRIMARY KEY,
   tenant_id         UUID          NOT NULL REFERENCES tenants(id),
   connection_id     UUID          REFERENCES ai_connections(id),
   asset_type        TEXT          NOT NULL,
@@ -189,7 +189,7 @@ The repository is itself an `ai_asset` with `asset_type='repository'` and
 
 ```sql
 CREATE TABLE ai_relationships (
-  id                  UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                  UUID         PRIMARY KEY,
   tenant_id           UUID         NOT NULL REFERENCES tenants(id),
   source_asset_id     UUID         NOT NULL REFERENCES ai_assets(id) ON DELETE CASCADE,
   target_asset_id     UUID         NOT NULL REFERENCES ai_assets(id) ON DELETE CASCADE,
@@ -215,7 +215,7 @@ CREATE INDEX ai_rel_target_idx ON ai_relationships(target_asset_id);
 
 ```sql
 CREATE TABLE ai_scans (
-  id                                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                                UUID          PRIMARY KEY,
   tenant_id                         UUID          NOT NULL REFERENCES tenants(id),
   connection_id                     UUID          NOT NULL REFERENCES ai_connections(id),
   repo_asset_id                     UUID          NOT NULL REFERENCES ai_assets(id),
