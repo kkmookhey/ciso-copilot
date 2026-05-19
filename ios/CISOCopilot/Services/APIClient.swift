@@ -398,6 +398,29 @@ final class APIClient {
         return try decoder.decode(ComplianceSummaryResponse.self, from: data)
     }
 
+    // MARK: - /ai/assets
+
+    func listAIAssets(type: String? = nil) async throws -> [AIAssetSummary] {
+        var comps = URLComponents(url: Self.baseURL.appending(path: "ai/assets"), resolvingAgainstBaseURL: false)!
+        var qs: [URLQueryItem] = []
+        if let type { qs.append(.init(name: "type", value: type)) }
+        if !qs.isEmpty { comps.queryItems = qs }
+        var req = URLRequest(url: comps.url!)
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        struct Resp: Decodable { let assets: [AIAssetSummary]; let next_page: Int? }
+        return try decoder.decode(Resp.self, from: data).assets
+    }
+
+    func getAIAsset(_ id: String) async throws -> AIAssetDetail {
+        var req = URLRequest(url: Self.baseURL.appending(path: "ai/assets/\(id)"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(AIAssetDetail.self, from: data)
+    }
+
     // MARK: - Helpers
 
     private func authedRequest(method: String, path: String) async throws -> URLRequest {
@@ -738,6 +761,84 @@ struct Finding: Decodable, Identifiable, Hashable {
     let last_seen: String
 
     var id: String { finding_id }
+}
+
+// MARK: - AI inventory DTOs
+
+struct AIAssetRepoRef: Decodable, Hashable {
+    let id: String
+    let full_name: String
+}
+
+struct AIAssetSummary: Decodable, Identifiable, Hashable {
+    let id: String
+    let asset_type: String
+    let name: String
+    let source_repo: AIAssetRepoRef?
+    let source_path: String?
+    let detector_id: String
+    let first_seen_at: String
+    let last_seen_at: String
+}
+
+struct AIAssetDetail: Decodable {
+    let id: String
+    let asset_type: String
+    let name: String
+    let source_repo: AIAssetRepoRef?
+    let source_path: String?
+    let detector_id: String
+    let first_seen_at: String
+    let last_seen_at: String
+    let attributes: AnyJSON
+    let evidence_packet: AnyJSON
+    let connection_id: String?
+}
+
+/// Loosely-typed JSON for fields where the iOS detail view just renders the
+/// raw structure (attributes, evidence_packet).
+enum AnyJSON: Decodable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([AnyJSON])
+    case object([String: AnyJSON])
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null; return }
+        if let b = try? c.decode(Bool.self)            { self = .bool(b); return }
+        if let n = try? c.decode(Double.self)          { self = .number(n); return }
+        if let s = try? c.decode(String.self)          { self = .string(s); return }
+        if let a = try? c.decode([AnyJSON].self)       { self = .array(a); return }
+        if let o = try? c.decode([String: AnyJSON].self) { self = .object(o); return }
+        self = .null
+    }
+
+    func prettyJSON() -> String {
+        let obj = jsonObject()
+        let wrapped: Any = (obj is NSNull) ? ["_": NSNull()] : obj
+        guard JSONSerialization.isValidJSONObject(wrapped),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: wrapped, options: [.prettyPrinted, .sortedKeys]),
+              let s = String(data: data, encoding: .utf8) else { return "" }
+        return s
+    }
+
+    private func jsonObject() -> Any {
+        switch self {
+        case .null:           return NSNull()
+        case .bool(let b):    return b
+        case .number(let n):  return n
+        case .string(let s):  return s
+        case .array(let a):   return a.map { $0.jsonObject() }
+        case .object(let o):
+            var out: [String: Any] = [:]
+            for (k, v) in o { out[k] = v.jsonObject() }
+            return out
+        }
+    }
 }
 
 enum APIError: Error, LocalizedError {
