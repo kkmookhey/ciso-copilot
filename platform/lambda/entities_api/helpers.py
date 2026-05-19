@@ -1,7 +1,7 @@
-"""Shared response + tenant-resolution helpers for the ai_scan_api Lambda.
+"""Shared response + tenant-resolution helpers for the entities_api Lambda.
 
-Mirrors ai_github/helpers.py. Duplicated rather than imported because each
-Lambda is a separate zip.
+Mirrors ai_github/helpers.py and the old ai_scan_api/helpers.py.
+Duplicated rather than imported because each Lambda is a separate zip.
 """
 from __future__ import annotations
 

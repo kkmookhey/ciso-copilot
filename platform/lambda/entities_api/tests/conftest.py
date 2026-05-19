@@ -1,4 +1,4 @@
-"""Make modules inside ai_scan_api/ importable by bare name in tests."""
+"""Make modules inside entities_api/ importable by bare name in tests."""
 import sys
 from pathlib import Path
 
