@@ -29,6 +29,10 @@ def detect(ctx) -> DetectorResult:
         if not matches:
             continue
 
+        # ripgrep order is filesystem-dependent; sort so the canonical
+        # evidence location (and thus the asset's identity via source_path)
+        # is stable across re-scans.
+        matches.sort(key=lambda m: (str(m[0]), m[1]))
         first_path, first_line, first_snippet = matches[0]
         rel_path = str(first_path.relative_to(ctx.repo_workdir))
 
