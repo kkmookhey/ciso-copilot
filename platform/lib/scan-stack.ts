@@ -4,6 +4,7 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 import { config } from './config';
 
@@ -13,6 +14,7 @@ interface ScanStackProps extends cdk.StackProps {
   shastaRunnerAzureRepo: ecr.Repository;
   shastaRunnerEntraRepo: ecr.Repository;
   shastaRunnerGcpRepo:   ecr.Repository;
+  aiScannerRepo:         ecr.Repository;
 }
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
@@ -36,6 +38,7 @@ export class ScanStack extends cdk.Stack {
   public readonly shastaRunnerGcp:    lambda.DockerImageFunction;
   public readonly entraScannerSecret: secretsmanager.Secret;
   public readonly openaiApiKeySecret: secretsmanager.Secret;
+  public readonly aiScanQueue:        sqs.Queue;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -149,6 +152,24 @@ export class ScanStack extends cdk.Stack {
       environment: dbEnv,
     });
     props.dbCluster.grantDataApiAccess(this.shastaRunnerGcp);
+
+    // ========================================================================
+    // ai-scan-queue — SQS work queue for the AI scanner Lambda
+    // ========================================================================
+    const aiScanDlq = new sqs.Queue(this, 'AiScanDlq', {
+      queueName:        'ai-scan-dlq',
+      retentionPeriod:  cdk.Duration.days(14),
+    });
+
+    this.aiScanQueue = new sqs.Queue(this, 'AiScanQueue', {
+      queueName:               'ai-scan-queue',
+      visibilityTimeout:       cdk.Duration.seconds(720),  // > Lambda timeout (600s)
+      retentionPeriod:         cdk.Duration.days(4),
+      deadLetterQueue: {
+        queue:           aiScanDlq,
+        maxReceiveCount: 3,
+      },
+    });
 
     new cdk.CfnOutput(this, 'ShastaRunnerArn',         { value: this.shastaRunner.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerFnName',      { value: this.shastaRunner.functionName });
