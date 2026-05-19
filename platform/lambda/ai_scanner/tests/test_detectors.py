@@ -21,6 +21,13 @@ os.environ.setdefault("GITHUB_APP_SECRET_ARN", "arn:test")
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 
 
+def test_fixtures_root_exists():
+    """Guard against the fixture directory going missing and silently turning
+    the parametrized suite green-by-vacancy."""
+    assert FIXTURE_ROOT.exists(), f"fixtures dir missing: {FIXTURE_ROOT}"
+    assert any(FIXTURE_ROOT.iterdir()), f"no detector fixtures under {FIXTURE_ROOT}"
+
+
 def _scenarios():
     """Yield (detector_module, fixture_dir) pairs from every fixture."""
     for det_dir in FIXTURE_ROOT.iterdir():
