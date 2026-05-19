@@ -1,0 +1,52 @@
+{
+  "entities": [],
+  "edges": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "aws_iam_role",
+      "target_natural_key": "arn:aws:iam::470226123496:role/GitHubActionsDeployRole",
+      "kind": "deploys_to",
+      "attributes": {
+        "role_arn": "arn:aws:iam::470226123496:role/GitHubActionsDeployRole",
+        "workflow_path": ".github/workflows/deploy.yml"
+      },
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.crossdomain",
+          "version": "0.1.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "deploys_to",
+          "name": "repo\u2192deploys_to\u2192arn:aws:iam::470226123496:role/GitHubActionsDeployRole"
+        },
+        "source_events": [
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": ".github/workflows/deploy.yml",
+            "snippet_lines": [
+              13,
+              13
+            ],
+            "snippet": "role-to-assume: arn:aws:iam::470226123496:role/GitHubActionsDeployRole"
+          }
+        ],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "GitHub Actions workflow assumes arn:aws:iam::470226123496:role/GitHubActionsDeployRole"
+        ],
+        "model": null,
+        "confidence": "medium",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.crossdomain",
+      "detector_version": "0.1.0"
+    }
+  ],
+  "findings": []
+}
