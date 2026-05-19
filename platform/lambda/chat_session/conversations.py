@@ -2,6 +2,7 @@
 """Conversation CRUD. All queries tenant+user scoped."""
 from __future__ import annotations
 
+import json
 import uuid
 
 from _db import _q, _claim_value
@@ -54,8 +55,6 @@ def get(tenant_id: str, conversation_id: str) -> dict | None:
         "WHERE conversation_id = :id::uuid ORDER BY created_at",
         {"id": conversation_id},
     )
-    import json
-
     return {
         "id": _claim_value(head[0][0]),
         "title": _claim_value(head[0][1]),
