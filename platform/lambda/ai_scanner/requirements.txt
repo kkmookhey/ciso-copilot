@@ -1,0 +1,6 @@
+# platform/lambda/ai_scanner/requirements.txt
+# Runtime deps for the AI scanner Lambda.
+boto3>=1.35.0
+PyJWT[crypto]==2.10.1
+# ripgrep PyPI package ships a static rg binary; provides `rg` on PATH.
+ripgrep==14.1.0
