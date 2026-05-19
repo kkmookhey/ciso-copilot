@@ -19,7 +19,8 @@ import scan_runner
 import unified_writer
 from detectors import (
     framework, model_usage, mcp_server, agentic_workflow,
-    vector_db, embedding, prompt, secrets_in_ai_code, correlator,
+    vector_db, embedding, prompt, secrets_in_ai_code,
+    crossdomain, correlator,
 )
 from detectors.base import EntityEmission
 
@@ -29,7 +30,7 @@ log.setLevel(logging.INFO)
 
 DETECTORS = [
     framework, model_usage, mcp_server, agentic_workflow,
-    vector_db, embedding, prompt, secrets_in_ai_code,
+    vector_db, embedding, prompt, secrets_in_ai_code, crossdomain,
 ]
 
 
