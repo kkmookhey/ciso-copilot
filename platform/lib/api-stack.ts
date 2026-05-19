@@ -260,6 +260,40 @@ export class ApiStack extends cdk.Stack {
     }));
 
     // ========================================================================
+    // /v1/ai/connections/github/* — GitHub App install + listing
+    // ========================================================================
+    const aiGithubFn = new lambda.Function(this, 'AiGithubFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_github'), {
+        bundling: {
+          image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          command: [
+            'bash', '-c',
+            'pip install --no-cache-dir -r requirements.txt -t /asset-output && cp -au . /asset-output',
+          ],
+        },
+      }),
+      timeout:    cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
+        STATE_JWT_SECRET_ARN:  `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key`,
+        GITHUB_APP_SLUG:       'ciso-copilot',
+        WEB_CALLBACK_URL:      'https://app.settlingforless.com/ai/install/callback',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(aiGithubFn);
+    aiGithubFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [
+        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials*`,
+        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key*`,
+      ],
+    }));
+
+    // ========================================================================
     // REST API + authorizer
     // ========================================================================
     const api = new apigw.RestApi(this, 'RestApi', {
@@ -585,6 +619,24 @@ export class ApiStack extends cdk.Stack {
     const authRes = api.root.addResource('auth');
     authRes.addResource('discover-tenant').addMethod(
       'POST', new apigw.LambdaIntegration(authDiscoverFn),
+    );
+
+    // /v1/ai/connections — GitHub App install + listing
+    const aiRes      = api.root.addResource('ai');
+    const aiConns    = aiRes.addResource('connections');
+    const aiConnId   = aiConns.addResource('{id}');
+    const aiGithub   = aiConns.addResource('github');
+
+    aiConns.addMethod( 'GET',    new apigw.LambdaIntegration(aiGithubFn), authedOpts);
+    aiConnId.addMethod('DELETE', new apigw.LambdaIntegration(aiGithubFn), authedOpts);
+    aiConnId.addResource('repos').addMethod(
+      'GET', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
+    );
+    aiGithub.addResource('install_url').addMethod(
+      'POST', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
+    );
+    aiGithub.addResource('complete').addMethod(
+      'POST', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
     );
 
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
