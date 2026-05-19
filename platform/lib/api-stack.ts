@@ -140,10 +140,29 @@ export class ApiStack extends cdk.Stack {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
       code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'connections_list')),
-      timeout: cdk.Duration.seconds(10),
-      environment: dbEnv,
+      timeout: cdk.Duration.seconds(15),
+      environment: {
+        ...dbEnv,
+        SHASTA_RUNNER_FN: props.shastaRunner.functionName,
+        AZURE_RUNNER_FN:  props.shastaRunnerAzure.functionName,
+        ENTRA_RUNNER_FN:  props.shastaRunnerEntra.functionName,
+        GCP_RUNNER_FN:    props.shastaRunnerGcp.functionName,
+      },
     });
     props.dbCluster.grantDataApiAccess(connectionsListFn);
+    // Rescan dispatches into all four scanner Lambdas + reads/deletes the
+    // per-connection secret.
+    props.shastaRunner.grantInvoke(connectionsListFn);
+    props.shastaRunnerAzure.grantInvoke(connectionsListFn);
+    props.shastaRunnerEntra.grantInvoke(connectionsListFn);
+    props.shastaRunnerGcp.grantInvoke(connectionsListFn);
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'secretsmanager:GetSecretValue',
+        'secretsmanager:DeleteSecret',
+      ],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`],
+    }));
 
     const findingsListFn = new lambda.Function(this, 'FindingsListFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -389,9 +408,13 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(onboardingCompleteFn),
     );
 
-    // GET /connections
-    api.root.addResource('connections').addMethod(
-      'GET', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
+    // /connections — list + per-id rescan + delete (same Lambda dispatches).
+    const connectionsRes  = api.root.addResource('connections');
+    const connectionByIdRes = connectionsRes.addResource('{id}');
+    connectionsRes.addMethod('GET', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
+    connectionByIdRes.addMethod('DELETE', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
+    connectionByIdRes.addResource('rescan').addMethod(
+      'POST', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
     );
 
     // GET /findings
