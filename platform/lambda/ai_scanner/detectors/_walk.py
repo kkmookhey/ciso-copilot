@@ -8,7 +8,7 @@ from pathlib import Path
 def ripgrep(workdir: Path, pattern: str, *, types: list[str] | None = None,
             ignore_case: bool = False) -> list[tuple[Path, int, str]]:
     """Run ripgrep and return (path, line_number, line) tuples."""
-    cmd = ["rg", "--no-heading", "--line-number", "--no-color"]
+    cmd = ["rg", "--no-heading", "--line-number", "--color=never"]
     if ignore_case:
         cmd.append("-i")
     if types:
