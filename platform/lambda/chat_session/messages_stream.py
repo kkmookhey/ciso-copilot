@@ -59,7 +59,7 @@ import conversations as C
 import messages as M
 import prompts
 from anthropic_call import stream_messages
-from _db import _q, _resp, _subject_from_claims
+from _db import _q, _resp, _subject_from_claims, _claim_value
 
 # ---------------------------------------------------------------------------
 # Env vars
@@ -195,8 +195,8 @@ def _resolve_from_claims(claims: dict) -> tuple[str | None, str | None]:
     if not rows:
         return None, None
     r = rows[0]
-    tenant_id = r[0].get("stringValue") if not r[0].get("isNull") else None
-    user_id   = r[1].get("stringValue") if not r[1].get("isNull") else None
+    tenant_id = _claim_value(r[0])
+    user_id   = _claim_value(r[1])
     return tenant_id, user_id
 
 
@@ -285,6 +285,11 @@ def _stream_handler(event: dict, response_stream: Any) -> None:
     except RuntimeError as e:
         print(f"Anthropic stream error: {e}")
         response_stream.write(_sse({"error": "upstream_failed", "detail": str(e)[:200]}))
+        # Persist a placeholder assistant message so the conversation history
+        # stays consistent — the user message is already stored at this point.
+        M.append(cid, "assistant",
+                 {"text": "[Error: the assistant could not complete this response]",
+                  "modality": "text"})
     finally:
         response_stream.close()
 

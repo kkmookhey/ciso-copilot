@@ -75,7 +75,8 @@ def stream_messages(
       {"type": "done"}
 
     Uses urllib + "stream": true — no SDK dependency. Reads the response body
-    line-by-line; Anthropic SSE emits paired `event:` + `data:` lines.
+    line-by-line via readline(); Anthropic SSE emits paired `event:` + `data:`
+    lines.
 
     Raises RuntimeError on non-2xx HTTP responses.
     """
@@ -111,12 +112,13 @@ def stream_messages(
     _tool_blocks: dict[int, dict] = {}  # index -> partial block
 
     try:
-        current_event_type: str | None = None
+        # NOTE: Assumes Anthropic `data:` payloads contain no embedded raw
+        # newlines — a literal \n inside a JSON string value would be mis-split
+        # by readline() into two lines. Anthropic escapes newlines as \n in
+        # JSON, so this holds; revisit if the protocol ever changes.
         for raw_line in resp:
             line = raw_line.decode("utf-8").rstrip("\r\n")
-            if line.startswith("event:"):
-                current_event_type = line[len("event:"):].strip()
-            elif line.startswith("data:"):
+            if line.startswith("data:"):
                 data_str = line[len("data:"):].strip()
                 if not data_str or data_str == "[DONE]":
                     continue

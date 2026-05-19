@@ -11,5 +11,6 @@ TOOL_RULES = (
 )
 
 
-def system_for_text(user_first_name: str = "there") -> str:
-    return f"{PERSONA}\n\n{TOOL_RULES}".replace("{user_first_name}", user_first_name)
+# TODO(4c.3): thread user_first_name into PERSONA
+def system_for_text() -> str:
+    return f"{PERSONA}\n\n{TOOL_RULES}"
