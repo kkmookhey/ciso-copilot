@@ -1,0 +1,87 @@
+{
+  "entities": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "kind": "ai_model",
+      "natural_key": "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+      "display_name": "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+      "domain": "ai",
+      "attributes": {
+        "provider": "bedrock",
+        "model_id": "anthropic.claude-3-sonnet-20240229-v1:0"
+      },
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.model_usage",
+          "version": "0.3.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "model",
+          "name": "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+        },
+        "source_events": [
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "app/bedrock.py",
+            "snippet_lines": [
+              6,
+              6
+            ],
+            "snippet": "modelId=\"anthropic.claude-3-sonnet-20240229-v1:0\","
+          }
+        ],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "matched model_id \"anthropic.claude-3-sonnet-20240229-v1:0\" in bedrock-using file at app/bedrock.py:6"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.model_usage",
+      "detector_version": "0.3.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "app/bedrock.py"
+    }
+  ],
+  "edges": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_model",
+      "target_natural_key": "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+      "kind": "calls",
+      "attributes": {
+        "provider": "bedrock"
+      },
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.model_usage",
+          "version": "0.3.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "calls",
+          "name": "repo\u2192calls\u2192bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+        },
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "model use detected in repo"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.model_usage",
+      "detector_version": "0.3.0"
+    }
+  ],
+  "findings": []
+}

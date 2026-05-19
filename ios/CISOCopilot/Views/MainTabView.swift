@@ -5,7 +5,7 @@ import SwiftUI
 @Observable
 final class AppState {
     enum Tab: Hashable {
-        case brief, risks, register, connect, profile
+        case brief, risks, register, ai, connect, profile
     }
     var selectedTab: Tab = .brief
 }
@@ -28,6 +28,10 @@ struct MainTabView: View {
             NavigationStack { RisksRegisterView() }
                 .tabItem { Label("Register", systemImage: "list.bullet.clipboard.fill") }
                 .tag(AppState.Tab.register)
+
+            NavigationStack { AIInventoryView() }
+                .tabItem { Label("AI", systemImage: "brain.head.profile") }
+                .tag(AppState.Tab.ai)
 
             NavigationStack { ConnectCloudsView() }
                 .tabItem { Label("Connect", systemImage: "plus.circle.fill") }

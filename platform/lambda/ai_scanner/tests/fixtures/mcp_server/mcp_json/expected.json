@@ -1,0 +1,85 @@
+{
+  "entities": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "kind": "ai_mcp_server",
+      "natural_key": "github.com/fixture/repo::mcp.json::filesystem",
+      "display_name": "filesystem",
+      "domain": "ai",
+      "attributes": {
+        "runtime": "config",
+        "command": "npx"
+      },
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "mcp_server",
+          "name": "filesystem"
+        },
+        "source_events": [
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "mcp.json",
+            "snippet_lines": [
+              1,
+              1
+            ],
+            "snippet": "mcpServers.filesystem"
+          }
+        ],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "declared in mcp.json mcpServers.filesystem"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.mcp_server",
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "mcp.json"
+    }
+  ],
+  "edges": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_mcp_server",
+      "target_natural_key": "github.com/fixture/repo::mcp.json::filesystem",
+      "kind": "deploys",
+      "attributes": {},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.mcp_server",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "deploys",
+          "name": "repo\u2192deploys\u2192filesystem"
+        },
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "mcp_server declared in config"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.mcp_server",
+      "detector_version": "0.2.0"
+    }
+  ],
+  "findings": []
+}

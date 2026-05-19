@@ -1,0 +1,85 @@
+{
+  "entities": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "kind": "ai_prompt",
+      "natural_key": "github.com/fixture/repo::prompts/system.md::prompts/system.md",
+      "display_name": "prompts/system.md",
+      "domain": "ai",
+      "attributes": {
+        "kind": "file",
+        "chars": 338
+      },
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.prompt",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "prompt",
+          "name": "prompts/system.md"
+        },
+        "source_events": [
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "prompts/system.md",
+            "snippet_lines": [
+              1,
+              1
+            ],
+            "snippet": "You are a senior SOC analyst. Read each incoming alert and decide whether it warrants paging the on-call. Bias toward fa"
+          }
+        ],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "detected file prompt at prompts/system.md:1"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.prompt",
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "prompts/system.md"
+    }
+  ],
+  "edges": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_prompt",
+      "target_natural_key": "github.com/fixture/repo::prompts/system.md::prompts/system.md",
+      "kind": "accesses",
+      "attributes": {},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.prompt",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "accesses",
+          "name": "repo\u2192accesses\u2192prompts/system.md"
+        },
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "prompt detected in repo"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.prompt",
+      "detector_version": "0.2.0"
+    }
+  ],
+  "findings": []
+}

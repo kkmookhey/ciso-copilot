@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api, type GitHubRepo } from "../lib/api";
+import { api, type GitHubRepo, type AIScanSummary } from "../lib/api";
+
+type ScanState =
+  | { status: "idle" }
+  | { status: "starting" }
+  | { status: "polling"; scan_id: string; snapshot: AIScanSummary | null }
+  | { status: "done";    scan: AIScanSummary }
+  | { status: "error";   message: string };
 
 export function RepoPicker() {
   const { id } = useParams<{ id: string }>();
@@ -9,6 +16,7 @@ export function RepoPicker() {
   const [nextPage, setNextPage] = useState<number | null>(null);
   const [total,    setTotal]    = useState<number | null>(null);
   const [error,    setError]    = useState<string | null>(null);
+  const [scans,    setScans]    = useState<Record<string, ScanState>>({});
 
   useEffect(() => {
     if (!id) return;
@@ -19,6 +27,36 @@ export function RepoPicker() {
   }, [id, page]);
 
   if (!id) return <div>Missing connection id.</div>;
+
+  async function startScan(repo: GitHubRepo) {
+    setScans((s) => ({ ...s, [repo.full_name]: { status: "starting" } }));
+    try {
+      const { scan_id } = await api.startAIScan(id!, repo.full_name, repo.default_branch ?? undefined);
+      setScans((s) => ({ ...s, [repo.full_name]: { status: "polling", scan_id, snapshot: null } }));
+      poll(repo.full_name, scan_id);
+    } catch (e) {
+      setScans((s) => ({ ...s, [repo.full_name]: { status: "error", message: (e as Error).message } }));
+    }
+  }
+
+  function poll(repoFullName: string, scanId: string) {
+    const tick = async () => {
+      try {
+        const snap = await api.getAIScan(scanId);
+        if (snap.status === "queued" || snap.status === "running") {
+          setScans((s) => ({ ...s, [repoFullName]: { status: "polling", scan_id: scanId, snapshot: snap } }));
+          setTimeout(tick, 3000);
+        } else if (snap.status === "success") {
+          setScans((s) => ({ ...s, [repoFullName]: { status: "done", scan: snap } }));
+        } else {
+          setScans((s) => ({ ...s, [repoFullName]: { status: "error", message: snap.error_message ?? "scan failed" } }));
+        }
+      } catch {
+        setTimeout(tick, 5000);
+      }
+    };
+    setTimeout(tick, 1500);
+  }
 
   return (
     <div className="max-w-5xl">
@@ -71,11 +109,7 @@ export function RepoPicker() {
                 <td className="px-4 py-3 text-slate-700">{formatDate(r.last_pushed_at)}</td>
                 <td className="px-4 py-3 text-slate-700">{r.is_private ? "Private" : "Public"}</td>
                 <td className="px-4 py-3 text-right">
-                  <button disabled
-                          title="Scanning will be enabled in the next release."
-                          className="px-3 py-1.5 rounded-md bg-slate-100 text-slate-400 text-xs cursor-not-allowed">
-                    Scan
-                  </button>
+                  <ScanButton state={scans[r.full_name]} onScan={() => startScan(r)} />
                 </td>
               </tr>
             ))}
@@ -98,6 +132,32 @@ export function RepoPicker() {
       </div>
     </div>
   );
+}
+
+function ScanButton({ state, onScan }: { state: ScanState | undefined; onScan: () => void }) {
+  if (!state || state.status === "idle") {
+    return (
+      <button onClick={onScan}
+              className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs">
+        Scan
+      </button>
+    );
+  }
+  if (state.status === "starting") {
+    return <span className="text-xs text-slate-500">Queueing…</span>;
+  }
+  if (state.status === "polling") {
+    const label = state.snapshot?.status === "running" ? "Scanning…" : "Queued…";
+    return <span className="text-xs text-slate-500">{label}</span>;
+  }
+  if (state.status === "done") {
+    return (
+      <span className="text-xs text-emerald-700">
+        ✓ {state.scan.assets_discovered_count} assets, {state.scan.findings_generated_count} findings
+      </span>
+    );
+  }
+  return <span className="text-xs text-rose-700" title={state.message}>Failed</span>;
 }
 
 function formatDate(iso: string | null): string {

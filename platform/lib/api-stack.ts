@@ -7,6 +7,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -24,6 +25,7 @@ interface ApiStackProps extends cdk.StackProps {
   entraAppId:         string;
   entraScannerSecret: secretsmanager.ISecret;
   openaiApiKeySecret: secretsmanager.ISecret;
+  aiScanQueue:        sqs.IQueue;
   cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
   webRedirectUri:     string;   // e.g. https://<cdn>/callback
 }
@@ -138,10 +140,29 @@ export class ApiStack extends cdk.Stack {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
       code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'connections_list')),
-      timeout: cdk.Duration.seconds(10),
-      environment: dbEnv,
+      timeout: cdk.Duration.seconds(15),
+      environment: {
+        ...dbEnv,
+        SHASTA_RUNNER_FN: props.shastaRunner.functionName,
+        AZURE_RUNNER_FN:  props.shastaRunnerAzure.functionName,
+        ENTRA_RUNNER_FN:  props.shastaRunnerEntra.functionName,
+        GCP_RUNNER_FN:    props.shastaRunnerGcp.functionName,
+      },
     });
     props.dbCluster.grantDataApiAccess(connectionsListFn);
+    // Rescan dispatches into all four scanner Lambdas + reads/deletes the
+    // per-connection secret.
+    props.shastaRunner.grantInvoke(connectionsListFn);
+    props.shastaRunnerAzure.grantInvoke(connectionsListFn);
+    props.shastaRunnerEntra.grantInvoke(connectionsListFn);
+    props.shastaRunnerGcp.grantInvoke(connectionsListFn);
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'secretsmanager:GetSecretValue',
+        'secretsmanager:DeleteSecret',
+      ],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`],
+    }));
 
     const findingsListFn = new lambda.Function(this, 'FindingsListFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -306,6 +327,24 @@ export class ApiStack extends cdk.Stack {
     }));
 
     // ========================================================================
+    // /v1/ai/scans + /v1/entities — start scans, browse the unified inventory,
+    // walk the per-entity trust graph. Replaces ai_scan_api (SP1).
+    // ========================================================================
+    const entitiesApiFn = new lambda.Function(this, 'EntitiesApiFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'entities_api')),
+      timeout:    cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        AI_SCAN_QUEUE_URL: props.aiScanQueue.queueUrl,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(entitiesApiFn);
+    props.aiScanQueue.grantSendMessages(entitiesApiFn);
+
+    // ========================================================================
     // REST API + authorizer
     // ========================================================================
     const api = new apigw.RestApi(this, 'RestApi', {
@@ -369,9 +408,13 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(onboardingCompleteFn),
     );
 
-    // GET /connections
-    api.root.addResource('connections').addMethod(
-      'GET', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
+    // /connections — list + per-id rescan + delete (same Lambda dispatches).
+    const connectionsRes  = api.root.addResource('connections');
+    const connectionByIdRes = connectionsRes.addResource('{id}');
+    connectionsRes.addMethod('GET', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
+    connectionByIdRes.addMethod('DELETE', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
+    connectionByIdRes.addResource('rescan').addMethod(
+      'POST', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
     );
 
     // GET /findings
@@ -650,6 +693,23 @@ export class ApiStack extends cdk.Stack {
     aiGithub.addResource('complete').addMethod(
       'POST', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
     );
+
+    // /v1/ai/scans (unchanged) + /v1/entities/* (new) — entities_api Lambda.
+    // /v1/ai/assets and /v1/ai/assets/{id} retired (replaced by /v1/entities*).
+    const aiScans   = aiRes.addResource('scans');
+    const aiScanId  = aiScans.addResource('{id}');
+    aiScans.addMethod( 'POST', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    aiScans.addMethod( 'GET',  new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    aiScanId.addMethod('GET',  new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+
+    const entities     = api.root.addResource('entities');
+    const entityId     = entities.addResource('{id}');
+    const entityGraph  = entityId.addResource('graph');
+    const entityRels   = entityId.addResource('relationships');
+    entities.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    entityId.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    entityGraph.addMethod( 'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
 
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });

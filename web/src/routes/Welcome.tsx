@@ -227,7 +227,29 @@ export function Welcome() {
                     {c.cloud_type.toUpperCase()} · {c.account_identifier ?? "—"}
                   </div>
                 </div>
-                <StatusPill status={c.status} />
+                <div className="flex items-center gap-3">
+                  <StatusPill status={c.status} />
+                  {(c.status === "pending" || c.status === "error") && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!window.confirm(
+                          `Delete this ${c.status} ${c.cloud_type.toUpperCase()} connection? This cannot be undone.`,
+                        )) return;
+                        try {
+                          await api.deleteConnection(c.conn_id);
+                          const r = await api.listConnections();
+                          setConns(r.connections);
+                        } catch (e) {
+                          window.alert(`Delete failed: ${(e as Error).message}`);
+                        }
+                      }}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

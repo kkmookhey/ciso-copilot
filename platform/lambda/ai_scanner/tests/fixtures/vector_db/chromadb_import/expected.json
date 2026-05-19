@@ -1,0 +1,84 @@
+{
+  "entities": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "kind": "ai_vector_db",
+      "natural_key": "chromadb",
+      "display_name": "chromadb",
+      "domain": "ai",
+      "attributes": {
+        "references_seen": 1
+      },
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.vector_db",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "vector_db",
+          "name": "chromadb"
+        },
+        "source_events": [
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "app/store.py",
+            "snippet_lines": [
+              1,
+              1
+            ],
+            "snippet": "import chromadb"
+          }
+        ],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "matched chromadb reference on app/store.py:1"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.vector_db",
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "app/store.py"
+    }
+  ],
+  "edges": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_vector_db",
+      "target_natural_key": "chromadb",
+      "kind": "retrieves",
+      "attributes": {},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {
+          "id": "ai.detectors.vector_db",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "retrieves",
+          "name": "repo\u2192retrieves\u2192chromadb"
+        },
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": [
+          "vector_db detected in repo"
+        ],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.vector_db",
+      "detector_version": "0.2.0"
+    }
+  ],
+  "findings": []
+}

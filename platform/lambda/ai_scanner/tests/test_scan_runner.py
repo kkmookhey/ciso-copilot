@@ -94,3 +94,80 @@ def test_clone_repo_fails_on_oversize(monkeypatch, tmp_path):
     with pytest.raises(scan_runner.RepoTooLarge):
         scan_runner.clone_repo(installation_id=1, repo_full_name="kk/big",
                                 default_branch="main", workdir=tmp_path / "x")
+
+
+def test_handler_runs_full_scan_pipeline(monkeypatch, tmp_path):
+    """End-to-end: SQS record → clone (stubbed) → detectors → unified_writer (stubbed) → success."""
+    import main
+    import scan_runner
+    import unified_writer
+    import shutil
+
+    fixture_root = Path(__file__).parent / "fixtures" / "framework" / "langchain_in_repo" / "repo"
+
+    def fake_clone(installation_id, repo_full_name, default_branch, workdir):
+        if workdir.exists():
+            shutil.rmtree(workdir)
+        shutil.copytree(fixture_root, workdir)
+        return "deadbeef"
+    monkeypatch.setattr(scan_runner, "clone_repo", fake_clone)
+
+    calls = []
+    def fake_commit(ctx, *, entities, edges, findings):
+        calls.append({"entities":  len(entities),
+                      "edges":     len(edges),
+                      "findings":  len(findings)})
+    monkeypatch.setattr(unified_writer, "commit_scan", fake_commit)
+    monkeypatch.setattr(unified_writer, "mark_scan_failed",
+                        lambda ctx, msg: calls.append({"failed": msg}))
+
+    sqs_event = {"Records": [{
+        "body": json.dumps({
+            "scan_id":         "11111111-1111-1111-1111-111111111111",
+            "tenant_id":       "22222222-2222-2222-2222-222222222222",
+            "connection_id":   "33333333-3333-3333-3333-333333333333",
+            "repo_asset_id":   "44444444-4444-4444-4444-444444444444",
+            "repo_full_name":  "kk/foo",
+            "default_branch":  "main",
+            "installation_id": 99999,
+        }),
+    }]}
+
+    main.handler(sqs_event, None)
+
+    assert len(calls) == 1
+    assert "entities" in calls[0]
+    # Expect: github_repo entity + langchain ai_framework entity = at least 2
+    assert calls[0]["entities"] >= 2
+
+
+def test_handler_marks_scan_failed_on_repo_too_large(monkeypatch, tmp_path):
+    """RepoTooLarge is terminal — mark_scan_failed called, no re-raise."""
+    import main
+    import scan_runner
+    import unified_writer
+
+    def fake_clone(installation_id, repo_full_name, default_branch, workdir):
+        raise scan_runner.RepoTooLarge("repo is 5 GB")
+    monkeypatch.setattr(scan_runner, "clone_repo", fake_clone)
+
+    calls = []
+    monkeypatch.setattr(unified_writer, "commit_scan", lambda *a, **kw: calls.append("commit"))
+    monkeypatch.setattr(unified_writer, "mark_scan_failed",
+                        lambda ctx, msg: calls.append({"failed": msg}))
+
+    sqs_event = {"Records": [{
+        "body": json.dumps({
+            "scan_id":         "55555555-5555-5555-5555-555555555555",
+            "tenant_id":       "22222222-2222-2222-2222-222222222222",
+            "connection_id":   "33333333-3333-3333-3333-333333333333",
+            "repo_asset_id":   "44444444-4444-4444-4444-444444444444",
+            "repo_full_name":  "kk/bigrepo",
+            "default_branch":  "main",
+            "installation_id": 99999,
+        }),
+    }]}
+
+    main.handler(sqs_event, None)
+
+    assert calls == [{"failed": "clone_too_large: repo is 5 GB"}]

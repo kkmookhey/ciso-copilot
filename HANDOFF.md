@@ -4,7 +4,89 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-18 (end of Phase E + Day-1 testing session + autonomous feature push).
+> Last updated: 2026-05-19 (Slice 1b shipped — AI scanner + 8 detectors + ai_scan_api + AI Inventory on web & iOS).
+
+## 🚀 Slice 1b shipped — what's new since the last update
+
+End-to-end on 2026-05-19 against `kkmookhey/ciso-copilot`:
+KK clicks **Scan** on a repo → 3 real AI assets (framework `langchain`,
+models `openai/gpt-realtime` + `openai/whisper-1`) discovered, evidence
+packet visible on web + iOS.
+
+**What landed:**
+
+- **ai_scanner container Lambda** (`ciso-copilot-ai-scanner`). x86_64, 2048
+  MB, 600 s, 4 GB ephemeral. Triggered by SQS `ai-scan-queue` (DLQ:
+  `ai-scan-dlq`, maxReceiveCount=3, batchSize=1, maxConcurrency=5).
+  Clones repo via GitHub App installation token; runs 8 deterministic
+  detectors + a cross-detector correlator; writes assets/relationships/
+  findings transactionally to Aurora.
+- **8 detectors** (`detectors/{framework, model_usage, mcp_server,
+  agentic_workflow, vector_db, embedding, prompt, secrets_in_ai_code}.py`)
+  plus `correlator.py`. All deterministic. Each emission carries a Trust
+  Evidence Packet per the §7 spec.
+- **`ai_scan_api` Lambda** with 5 routes wired to API Gateway:
+  `POST /v1/ai/scans`, `GET /v1/ai/scans`, `GET /v1/ai/scans/{id}`,
+  `GET /v1/ai/assets`, `GET /v1/ai/assets/{id}`.
+- **Web**: `/ai/inventory` (grouped-by-repo asset table with type filter
+  chips), `/ai/inventory/:asset_id` (detail + collapsible evidence packet
+  + GitHub deep-link), RepoPicker now has working Scan button with 3s
+  status polling, sidebar has an **AI inventory** link, Connect page
+  shows existing GitHub installations with "Manage repos →" so customers
+  don't have to remember connection-id URLs.
+- **iOS**: 5th-→6th tab **AI** (`brain.head.profile` icon) between
+  Register and Connect. `AIInventoryView` (List grouped by repo, pull-to-
+  refresh) + `AIAssetDetailView` (Form with attributes + DisclosureGroup
+  for the raw evidence packet).
+- **DB**: `ai_scans`, `ai_assets`, `ai_relationships` populated by the
+  scanner. Repository nodes upserted by the API on scan trigger.
+
+**Gotchas paid in debugging time today** (real ones — read these before
+touching the scanner Lambda):
+
+1. **`logging.basicConfig` is a no-op inside Lambda.** AWS Lambda's
+   Python runtime sets up the root logger BEFORE user code runs, so
+   `basicConfig` silently doesn't change levels. Use `basicConfig(...,
+   force=True)` or `log.setLevel(...)` directly on the named logger. The
+   scanner ended up using `print()` for the per-detector counts because
+   that bypasses the logger entirely and always lands in CloudWatch.
+
+2. **`'*'` is invalid in a Secrets Manager `SecretId`.** IAM resource
+   ARNs use `*` as a wildcard, but `secretsmanager:GetSecretValue` rejects
+   it with `ValidationException`. Drop the `*` in the env var (`scan-
+   stack.ts` line setting `GITHUB_APP_SECRET_ARN`). The IAM policy may
+   still use `secret:.../credentials*` (resource-level glob is fine).
+
+3. **`--no-color` is not a real ripgrep flag.** Original `_walk.py` used
+   it; ripgrep rejects with "unrecognized flag" and every detector test
+   would have failed silently. The correct flag is `--color=never`.
+   Fixed before the demo.
+
+4. **`model_usage` was too SDK-centric in v0.1.0.** Originally only
+   detected files with `from openai`/`from anthropic`/`bedrock-runtime`
+   imports + kwarg-style `model="..."`. Missed the raw-HTTPS-to-API
+   pattern that's actually common (our own `anthropic_call.py` uses
+   `urllib.request` + `json.dumps({"model": MODEL, ...})`). Broadened
+   in v0.2.0 to also accept API URL substrings (`api.openai.com`,
+   `api.anthropic.com`) as provider signals AND match JSON-style
+   `"model": "..."` literals in addition to kwargs.
+
+5. **Container Lambdas can't hotswap.** `cdk deploy --hotswap` swaps
+   env vars but won't redeploy a new image. After `./build.sh` (which
+   pushes to ECR), call `aws lambda update-function-code --image-uri
+   ...:latest` + `aws lambda wait function-updated`.
+
+6. **GitHub mirrors only have what's pushed.** Local main was 39 commits
+   ahead of `origin/main` (`419c7cc..b226821`) — meaning Slice 1a, the
+   whole F-phase work, and the Slice 1b platform commits weren't visible
+   to the scanner. The scanner only sees what's on GitHub. Pushed on
+   2026-05-19; the demo only worked after that.
+
+7. **Connection URLs are fragile.** A revoked/replaced GitHub install
+   leaves a stale connection_id in the user's browser bookmark/URL bar
+   and `/ai/connections/{stale-id}/repos` returns 404. Fixed by listing
+   active installations on `/connect` with "Manage repos →" links so
+   users always reach a live ID.
 
 ## 🆕 Expanding scope: Cloud → Cloud + AI Security platform (2026-05-18)
 

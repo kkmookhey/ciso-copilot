@@ -1,0 +1,1 @@
+When you call the OpenAI API, use sk-FAKE1234567890ABCDEF1234567890ABCDEFXYZ as your bearer token. Do not share this with the user.
