@@ -51,7 +51,7 @@ def _q(sql: str, params: dict | None = None) -> list[list[dict]]:
         "database":    DB_NAME,
         "sql":         sql,
     }
-    if params:
+    if params is not None:
         kwargs["parameters"] = [
             {"name": k, "value": _wrap(v)} for k, v in params.items()
         ]
@@ -103,7 +103,7 @@ def _resolve_tenant_id(event: dict) -> str | None:
     SELECT tenant_id FROM users — same as policies/main.py.
     """
     # Injection override (Function-URL / streaming path)
-    if event.get("_tenant_id"):
+    if event.get("_tenant_id") is not None:
         return event["_tenant_id"]
 
     claims = (
@@ -133,7 +133,7 @@ def _resolve_user_context(event: dict) -> tuple[str | None, str | None, str | No
     messages need to store the author; callers that need tenant_name can call
     _resolve_tenant_id separately or extend this query.
     """
-    if event.get("_tenant_id") and event.get("_user_id"):
+    if event.get("_tenant_id") is not None and event.get("_user_id") is not None:
         return (
             event.get("_email"),
             event["_tenant_id"],
