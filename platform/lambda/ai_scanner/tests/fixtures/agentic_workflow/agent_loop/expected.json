@@ -1,34 +1,53 @@
 {
-  "assets": [
+  "entities": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "agent",
-      "name": "run_agent",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "agent.py",
-      "attributes": {"function": "run_agent"},
+      "kind": "ai_agent",
+      "natural_key": "github.com/fixture/repo::agent.py::run_agent",
+      "display_name": "run_agent",
+      "domain": "ai",
+      "attributes": {
+        "function": "run_agent"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.agentic_workflow", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "agent", "name": "run_agent"},
+        "detector": {
+          "id": "ai.detectors.agentic_workflow",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "agent",
+          "name": "run_agent"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "agent.py", "snippet_lines": [7, 7],
-           "snippet": "def run_agent(prompt):"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "agent.py",
+            "snippet_lines": [
+              7,
+              7
+            ],
+            "snippet": "def run_agent(prompt):"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["function run_agent contains loop + LLM call + tool dispatch at agent.py:7"],
+        "reasoning_chain": [
+          "function run_agent contains loop + LLM call + tool dispatch at agent.py:7"
+        ],
         "model": null,
         "confidence": "medium",
         "signature": null
       },
       "detector_id": "ai.detectors.agentic_workflow",
-      "detector_version": "0.1.0",
-      "id": null
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "agent.py"
     }
   ],
-  "relationships": [],
+  "edges": [],
   "findings": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
@@ -36,19 +55,38 @@
       "severity": "medium",
       "title": "Agent 'run_agent' runs an autonomous LLM loop without human-in-the-loop",
       "description": "Function run_agent in agent.py contains a loop, an LLM call, and tool dispatch. The pattern is consistent with an autonomous agent with no explicit pause for human review between iterations. Confirm whether this matches the intended behavior.",
-      "subject_type": "ai_asset",
-      "subject_ref": "agent::44444444-4444-4444-4444-444444444444::agent.py::run_agent",
+      "subject_entity_kind": "ai_agent",
+      "subject_entity_natural_key": "github.com/fixture/repo::agent.py::run_agent",
+      "subject_type": null,
+      "subject_ref": null,
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.agentic_workflow", "version": "0.1.0"},
-        "subject": {"kind": "finding", "type": "autonomous_loop_no_human_in_loop", "name": "run_agent"},
+        "detector": {
+          "id": "ai.detectors.agentic_workflow",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "finding",
+          "type": "autonomous_loop_no_human_in_loop",
+          "name": "run_agent"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "agent.py", "snippet_lines": [7, 7],
-           "snippet": "def run_agent(prompt):"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "agent.py",
+            "snippet_lines": [
+              7,
+              7
+            ],
+            "snippet": "def run_agent(prompt):"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["function run_agent runs an LLM in a loop with tool dispatch — no explicit human-in-the-loop pause"],
+        "reasoning_chain": [
+          "function run_agent runs an LLM in a loop with tool dispatch \u2014 no explicit human-in-the-loop pause"
+        ],
         "model": null,
         "confidence": "medium",
         "signature": null

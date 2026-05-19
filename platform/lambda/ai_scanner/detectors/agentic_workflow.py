@@ -1,7 +1,7 @@
 """Heuristic detector for agent-shaped functions.
 
-Emits an ``agent`` asset for any function that exhibits ALL three signals
-in its body:
+Emits an ``ai_agent`` entity for any function that exhibits ALL three
+signals in its body:
 
   1. A ``while`` loop, OR a recursive self-call.
   2. An LLM SDK call — ``.create(...)`` or ``.invoke_model(...)`` reachable
@@ -11,18 +11,25 @@ in its body:
 
 Heuristic — false positives are expected, hence ``confidence='medium'``.
 Each detected function also emits an ``autonomous_loop_no_human_in_loop``
-finding (severity: medium, confidence: medium).
+finding (severity: medium, confidence: medium) linked back to the agent
+entity.
+
+SP1 natural-key shape (per-file):
+  - ai_agent: ``f"{repo_nk}::{rel_path}::{fn_name}"``
+
+No agent→model edge is emitted here — the correlator (T12) emits that as
+a colocation pattern.
 """
 from __future__ import annotations
 
 import ast
 from pathlib import Path
 
-from detectors.base import AssetEmission, FindingEmission, DetectorResult
+from detectors.base import EntityEmission, FindingEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.agentic_workflow"
-detector_version = "0.1.0"
+detector_version = "0.2.0"
 
 SDK_MARKERS = (
     "from openai", "import openai",
@@ -34,8 +41,9 @@ TOOL_DISPATCH_TOKENS = ("tool_calls", "tool_call", "function_call")
 
 
 def detect(ctx) -> DetectorResult:
-    assets: list[AssetEmission] = []
+    entities: list[EntityEmission] = []
     findings: list[FindingEmission] = []
+    repo_nk = f"github.com/{ctx.repo_full_name}"
 
     for py in sorted(ctx.repo_workdir.rglob("*.py")):
         try:
@@ -59,9 +67,9 @@ def detect(ctx) -> DetectorResult:
                 continue
             if not _has_tool_dispatch(node):
                 continue
-            _emit_agent(ctx, node, rel_path, text, assets, findings)
+            _emit_agent(ctx, node, rel_path, text, repo_nk, entities, findings)
 
-    return DetectorResult(assets=assets, relationships=[], findings=findings)
+    return DetectorResult(entities=entities, edges=[], findings=findings)
 
 
 def _has_loop_or_recursion(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -93,10 +101,11 @@ def _has_tool_dispatch(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 
 
 def _emit_agent(ctx, fn: ast.FunctionDef | ast.AsyncFunctionDef, rel_path: str,
-                 text: str, assets: list, findings: list) -> None:
+                 text: str, repo_nk: str, entities: list, findings: list) -> None:
     name = fn.name
     line = fn.lineno
     snippet = text.splitlines()[line - 1] if 0 < line <= len(text.splitlines()) else ""
+    agent_nk = f"{repo_nk}::{rel_path}::{name}"
     packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
         subject_kind="ai_asset", subject_type="agent", subject_name=name,
@@ -111,13 +120,13 @@ def _emit_agent(ctx, fn: ast.FunctionDef | ast.AsyncFunctionDef, rel_path: str,
         ],
         confidence="medium",
     )
-    assets.append(AssetEmission(
-        tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-        asset_type="agent", name=name,
-        source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+    entities.append(EntityEmission(
+        tenant_id=ctx.tenant_id, kind="ai_agent",
+        natural_key=agent_nk, display_name=name, domain="ai",
         attributes={"function": name},
         evidence_packet=packet,
         detector_id=detector_id, detector_version=detector_version,
+        connection_id=ctx.connection_id, source_path=rel_path,
     ))
 
     finding_packet = ev.build(
@@ -146,8 +155,10 @@ def _emit_agent(ctx, fn: ast.FunctionDef | ast.AsyncFunctionDef, rel_path: str,
             "with no explicit pause for human review between iterations. "
             "Confirm whether this matches the intended behavior."
         ),
-        subject_type="ai_asset",
-        subject_ref=f"agent::{ctx.repo_asset_id}::{rel_path}::{name}",
+        subject_entity_kind="ai_agent",
+        subject_entity_natural_key=agent_nk,
+        subject_type=None,
+        subject_ref=None,
         evidence_packet=finding_packet,
         confidence="medium",
     ))
