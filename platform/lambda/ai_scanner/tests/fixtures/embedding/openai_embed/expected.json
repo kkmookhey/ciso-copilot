@@ -1,0 +1,54 @@
+{
+  "assets": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "asset_type": "embedding",
+      "name": "openai/text-embedding-3-small",
+      "source_repo_id": "44444444-4444-4444-4444-444444444444",
+      "source_path": "app/emb.py",
+      "attributes": {"provider": "openai", "model_id": "text-embedding-3-small"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.embedding", "version": "0.1.0"},
+        "subject": {"kind": "ai_asset", "type": "embedding", "name": "openai/text-embedding-3-small"},
+        "source_events": [
+          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
+           "path": "app/emb.py", "snippet_lines": [5, 5],
+           "snippet": "model=\"text-embedding-3-small\","}
+        ],
+        "graph_trace": [],
+        "reasoning_chain": ["matched openai embedding signal at app/emb.py:5"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.embedding",
+      "detector_version": "0.1.0",
+      "id": null
+    }
+  ],
+  "relationships": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
+      "target_asset_ref": "embedding::44444444-4444-4444-4444-444444444444::app/emb.py::openai/text-embedding-3-small",
+      "relationship_type": "generates",
+      "attributes": {"provider": "openai"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.embedding", "version": "0.1.0"},
+        "subject": {"kind": "ai_relationship", "type": "generates", "name": "repo→generates→openai/text-embedding-3-small"},
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": ["embedding use detected in repo"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.embedding",
+      "detector_version": "0.1.0"
+    }
+  ],
+  "findings": []
+}
