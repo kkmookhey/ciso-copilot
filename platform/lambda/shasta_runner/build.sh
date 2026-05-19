@@ -31,6 +31,17 @@ rsync -a \
   --exclude='.pytest_cache' --exclude='.ruff_cache' \
   "$SHASTA_SRC/" .build/shasta/
 
+# 1b. Copy shared modules from sibling ai_scanner Lambda (detectors/base.py
+#     + unified_writer.py). These are imported by app/main.py at runtime;
+#     they live in ai_scanner so they don't fork. .gitignore excludes the
+#     copies so they don't get committed.
+echo "==> copying shared modules from ../ai_scanner"
+rm -rf app/detectors app/unified_writer.py
+mkdir -p app/detectors
+cp ../ai_scanner/detectors/base.py app/detectors/base.py
+touch                              app/detectors/__init__.py
+cp ../ai_scanner/unified_writer.py app/unified_writer.py
+
 # 2. Authenticate to ECR.
 echo "==> authenticating to ECR"
 aws ecr get-login-password --region "$REGION" \

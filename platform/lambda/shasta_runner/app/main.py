@@ -14,12 +14,12 @@ Invoked by Step Functions (or direct test invoke) with:
 Lifecycle:
   1. UPDATE scans SET status='running'.
   2. STS AssumeRole into the customer's account.
-  3. Run Shasta's global modules (IAM, Organizations) once.
-  4. For each region: run regional modules (compute, storage, networking,
-     databases, encryption, KMS, CloudWatch logs, backup, VPC endpoints,
-     CloudFront, serverless, vulnerabilities, data warehouse).
-  5. Batch-insert findings into Aurora via rds-data Data API.
-  6. UPDATE scans SET status='completed' WITH stats.
+  3. Build boto3 clients off the assumed-role credentials.
+  4. Run global enums (IAM, S3) once.
+  5. For each region: run regional enums (compute, network) + Shasta modules.
+  6. Convert Shasta findings → FindingEmission, derive entity FKs via ARN.
+  7. Single transactional write via unified_writer.commit_scan.
+  8. UPDATE scans SET status='completed' WITH stats.
 
 Per-module failures are caught and logged — one bad module doesn't kill the
 whole scan. The scan completes with whichever findings it could produce.
@@ -29,13 +29,13 @@ from __future__ import annotations
 import json
 import os
 import traceback
-import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import boto3
 
 # === Shasta imports ===
-from shasta.aws.client import AWSClient, AWSAccountInfo
+from shasta.aws.client import AWSAccountInfo, AWSClient
 from shasta.aws import (
     backup           as shasta_backup,
     cloudfront       as shasta_cloudfront,
@@ -55,10 +55,24 @@ from shasta.aws import (
     vulnerabilities  as shasta_vulns,
 )
 
+# === Entity-emission helpers (this module) ===
+from arn_to_entity     import parse_arn
+from enumerate_compute import enumerate_compute
+from enumerate_iam     import enumerate_iam
+from enumerate_network import enumerate_network
+from enumerate_storage import enumerate_storage
+
+# === Shared writer + emission types (copied in by build.sh) ===
+from detectors.base import EdgeEmission, EntityEmission, FindingEmission
+from unified_writer import commit_scan, mark_scan_failed
+
 # === Config ===
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
+
+_SCANNER_VERSION  = "shasta_runner.0.2.0"
+_DETECTOR_ID_BASE = "shasta_runner"
 
 rds_data = boto3.client("rds-data")
 sts      = boto3.client("sts")
@@ -86,6 +100,15 @@ REGIONAL_MODULES = [
     ("serverless",     shasta_serverless.run_all_aws_serverless_checks),
     ("vulnerabilities", shasta_vulns.run_all_vulnerability_checks),
 ]
+
+
+@dataclass(frozen=True)
+class CloudScanContext:
+    """Minimal ScanContext for unified_writer (reads these fields by attr)."""
+    scan_id:         str
+    tenant_id:       str
+    connection_id:   str
+    scanner_version: str = _SCANNER_VERSION
 
 
 class AssumedRoleAWSClient(AWSClient):
@@ -132,61 +155,151 @@ def handler(event: dict, context) -> dict:
     regions     = event.get("regions") or ["us-east-1"]
 
     print(f"scan start: scan={scan_id} account={account_id} regions={regions}")
+    ctx = CloudScanContext(scan_id=scan_id, tenant_id=tenant_id, connection_id=conn_id)
     _update_scan(scan_id, status="running")
 
     try:
         credentials = _assume_role(role_arn, external_id)
-        all_findings: list[Any] = []
+        boto_session = _make_session(credentials, "us-east-1")
+
+        # Always emit the account entity itself.
+        entities: list[EntityEmission] = [_account_entity(account_id, tenant_id)]
+        edges:    list[EdgeEmission]   = []
+        all_shasta_findings: list[Any] = []
         module_stats: dict[str, dict[str, int]] = {}
 
-        # Global modules — one pass each (region 'us-east-1' for the session)
+        # --- Global enums (IAM + S3, single pass) -------------------------
+        try:
+            iam_out = enumerate_iam(
+                boto_session.client("iam"),
+                account_id=account_id, tenant_id=tenant_id,
+            )
+            entities.extend(iam_out["entities"])
+            edges.extend(iam_out["edges"])
+            module_stats["enum/iam"] = {
+                "entities": len(iam_out["entities"]),
+                "edges":    len(iam_out["edges"]),
+            }
+        except Exception as e:
+            print(f"enum/iam FAILED: {e}\n{traceback.format_exc()}")
+            module_stats["enum/iam"] = {"error": str(e)[:200]}
+
+        try:
+            s3_out = enumerate_storage(
+                boto_session.client("s3"),
+                account_id=account_id, tenant_id=tenant_id,
+            )
+            entities.extend(s3_out["entities"])
+            edges.extend(s3_out["edges"])
+            module_stats["enum/s3"] = {
+                "entities": len(s3_out["entities"]),
+                "edges":    len(s3_out["edges"]),
+            }
+        except Exception as e:
+            print(f"enum/s3 FAILED: {e}\n{traceback.format_exc()}")
+            module_stats["enum/s3"] = {"error": str(e)[:200]}
+
+        # --- Global Shasta modules (region 'us-east-1' for the session) ---
         for name, run_fn in GLOBAL_MODULES:
             try:
                 client = AssumedRoleAWSClient(credentials, "us-east-1", account_id)
                 findings = run_fn(client)
-                all_findings.extend(findings)
+                all_shasta_findings.extend(findings)
                 module_stats[name] = {"findings": len(findings)}
                 print(f"global/{name}: {len(findings)} findings")
             except Exception as e:
                 print(f"global/{name} FAILED: {e}\n{traceback.format_exc()}")
                 module_stats[name] = {"error": str(e)[:200]}
 
-        # Per-region modules
+        # --- Per-region enums + Shasta modules ---------------------------
         for region in regions:
+            region_session = _make_session(credentials, region)
+
+            # Compute enum
+            try:
+                comp_out = enumerate_compute(
+                    region_session.client("ec2"),
+                    region_session.client("lambda"),
+                    account_id=account_id, tenant_id=tenant_id, region=region,
+                )
+                entities.extend(comp_out["entities"])
+                edges.extend(comp_out["edges"])
+                module_stats[f"{region}/enum/compute"] = {
+                    "entities": len(comp_out["entities"]),
+                    "edges":    len(comp_out["edges"]),
+                }
+            except Exception as e:
+                print(f"{region}/enum/compute FAILED: {e}\n{traceback.format_exc()}")
+                module_stats[f"{region}/enum/compute"] = {"error": str(e)[:200]}
+
+            # Network enum
+            try:
+                net_out = enumerate_network(
+                    region_session.client("ec2"),
+                    account_id=account_id, tenant_id=tenant_id, region=region,
+                )
+                entities.extend(net_out["entities"])
+                edges.extend(net_out["edges"])
+                module_stats[f"{region}/enum/network"] = {
+                    "entities": len(net_out["entities"]),
+                    "edges":    len(net_out["edges"]),
+                }
+            except Exception as e:
+                print(f"{region}/enum/network FAILED: {e}\n{traceback.format_exc()}")
+                module_stats[f"{region}/enum/network"] = {"error": str(e)[:200]}
+
+            # Shasta regional checks
             for name, run_fn in REGIONAL_MODULES:
                 key = f"{region}/{name}"
                 try:
                     client = AssumedRoleAWSClient(credentials, region, account_id)
                     findings = run_fn(client)
-                    all_findings.extend(findings)
+                    all_shasta_findings.extend(findings)
                     module_stats[key] = {"findings": len(findings)}
                     print(f"{key}: {len(findings)} findings")
                 except Exception as e:
                     print(f"{key} FAILED: {e}\n{traceback.format_exc()}")
                     module_stats[key] = {"error": str(e)[:200]}
 
-        # Batch-insert
-        written = _insert_findings(all_findings, scan_id, tenant_id, conn_id)
+        # --- Convert Shasta findings to FindingEmission, derive ARN→entity FKs
+        finding_emissions = _convert_findings(
+            all_shasta_findings, tenant_id, account_id, entities, edges,
+        )
+
+        # --- Single transactional write
+        commit_scan(ctx, entities=entities, edges=edges, findings=finding_emissions)
 
         _update_scan(scan_id, status="completed", stats={
-            "findings":      written,
+            "entities":      len(entities),
+            "edges":         len(edges),
+            "findings":      len(finding_emissions),
             "modules":       module_stats,
             "regions":       regions,
             "global_runs":   len(GLOBAL_MODULES),
             "regional_runs": len(REGIONAL_MODULES) * len(regions),
         })
-        print(f"scan complete: {written} findings written")
-        return {"scan_id": scan_id, "findings_written": written}
+        print(f"scan complete: {len(entities)} entities, {len(edges)} edges, "
+              f"{len(finding_emissions)} findings")
+        return {
+            "scan_id":          scan_id,
+            "entities_written": len(entities),
+            "edges_written":    len(edges),
+            "findings_written": len(finding_emissions),
+        }
 
     except Exception as e:
         err = f"{e}: {traceback.format_exc()}"[:1000]
         print(f"SCAN FAILED: {err}")
+        try:
+            mark_scan_failed(ctx, err)
+        except Exception:
+            pass  # ai_scans table not relevant for cloud scans yet
         _update_scan(scan_id, status="failed", error=err)
         raise
 
 
 # ============================================================================
-# STS assume role
+# STS assume role + session helper
 # ============================================================================
 
 def _assume_role(role_arn: str, external_id: str) -> dict[str, str]:
@@ -199,46 +312,101 @@ def _assume_role(role_arn: str, external_id: str) -> dict[str, str]:
     return resp["Credentials"]
 
 
+def _make_session(credentials: dict[str, str], region: str) -> boto3.Session:
+    return boto3.Session(
+        aws_access_key_id     = credentials["AccessKeyId"],
+        aws_secret_access_key = credentials["SecretAccessKey"],
+        aws_session_token     = credentials["SessionToken"],
+        region_name           = region,
+    )
+
+
 # ============================================================================
-# Aurora writes (Data API)
+# Entity helpers
 # ============================================================================
 
-_FINDING_INSERT_SQL = """
-INSERT INTO findings (
-    finding_id, tenant_id, conn_id, scan_id, check_id, title, description,
-    severity, status, resource_arn, resource_type, region, domain,
-    frameworks, remediation, first_seen, last_seen
-) VALUES (
-    CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), CAST(:sid AS UUID),
-    :check_id, :title, :description, :severity, :status, :resource_arn,
-    :resource_type, :region, :domain,
-    CAST(:frameworks AS JSONB), :remediation, now(), now()
-)
-"""
-
-_BATCH_SIZE = 25  # Data API batch-execute limit
+def _account_entity(account_id: str, tenant_id: str) -> EntityEmission:
+    return EntityEmission(
+        tenant_id=tenant_id,
+        kind="aws_account",
+        natural_key=account_id,
+        display_name=account_id,
+        domain="cloud",
+        attributes={"service": "aws", "account": account_id},
+        evidence_packet=None,
+        detector_id=f"{_DETECTOR_ID_BASE}.account",
+        detector_version="0.1.0",
+    )
 
 
-def _insert_findings(findings: list[Any], scan_id: str, tenant_id: str, conn_id: str) -> int:
-    if not findings:
-        return 0
+def _convert_findings(
+    shasta_findings: list[Any],
+    tenant_id:       str,
+    account_id:      str,
+    entities:        list[EntityEmission],
+    edges:           list[EdgeEmission],
+) -> list[FindingEmission]:
+    """Turn Shasta `Finding` objects into FindingEmission, deriving the
+    `subject_entity_*` FK from `resource_id` when ARN parsing succeeds.
 
-    written = 0
-    for i in range(0, len(findings), _BATCH_SIZE):
-        batch = findings[i : i + _BATCH_SIZE]
-        param_sets = [_finding_to_params(f, scan_id, tenant_id, conn_id) for f in batch]
-        rds_data.batch_execute_statement(
-            resourceArn=DB_CLUSTER_ARN,
-            secretArn=DB_SECRET_ARN,
-            database=DB_NAME,
-            sql=_FINDING_INSERT_SQL,
-            parameterSets=param_sets,
-        )
-        written += len(batch)
-    return written
+    Side-effect: for every ARN that resolves to a kind, we ALSO append a
+    (best-effort) entity row for that resource + an `aws_account → contains`
+    edge. unified_writer dedupes on (tenant_id, kind, natural_key), so it's
+    safe if the enum already emitted the same entity.
+    """
+    out: list[FindingEmission] = []
+    seen_entity_keys: set[tuple[str, str]] = {(e.kind, e.natural_key) for e in entities}
+
+    for f in shasta_findings:
+        arn = (getattr(f, "resource_id", "") or "").strip()
+        subj_kind: str | None = None
+        subj_nk:   str | None = None
+
+        parsed = parse_arn(arn) if arn else None
+        if parsed:
+            subj_kind = parsed["kind"]
+            subj_nk   = parsed["natural_key"]
+            key = (subj_kind, subj_nk)
+            if key not in seen_entity_keys:
+                # Append a minimal entity for the finding's subject. If the
+                # enum already emitted a richer row for the same key, the
+                # writer's ON CONFLICT keeps the richer attributes (display
+                # name from EXCLUDED, but evidence_packet/attributes only
+                # overwrite when non-null/non-empty per writer SQL).
+                entities.append(EntityEmission(
+                    tenant_id=tenant_id,
+                    kind=subj_kind,
+                    natural_key=subj_nk,
+                    display_name=parsed["display_name"],
+                    domain="cloud",
+                    attributes=parsed["attributes"],
+                    evidence_packet=None,
+                    detector_id=f"{_DETECTOR_ID_BASE}.finding_arn",
+                    detector_version="0.1.0",
+                ))
+                edges.append(EdgeEmission(
+                    tenant_id=tenant_id,
+                    source_kind="aws_account",
+                    source_natural_key=account_id,
+                    target_kind=subj_kind,
+                    target_natural_key=subj_nk,
+                    kind="contains",
+                    attributes={},
+                    evidence_packet={"version": "0.1",
+                                     "via": "finding.resource_id"},
+                    detector_id=f"{_DETECTOR_ID_BASE}.finding_arn",
+                    detector_version="0.1.0",
+                ))
+                seen_entity_keys.add(key)
+
+        out.append(_shasta_to_emission(f, tenant_id, subj_kind, subj_nk))
+
+    return out
 
 
-def _finding_to_params(f, scan_id: str, tenant_id: str, conn_id: str) -> list[dict]:
+def _shasta_to_emission(
+    f, tenant_id: str, subj_kind: str | None, subj_nk: str | None,
+) -> FindingEmission:
     frameworks = {
         "soc2":      f.soc2_controls,
         "cis_aws":   f.cis_aws_controls,
@@ -250,26 +418,52 @@ def _finding_to_params(f, scan_id: str, tenant_id: str, conn_id: str) -> list[di
     }
     frameworks = {k: v for k, v in frameworks.items() if v}
 
-    return [
-        {"name": "fid",           "value": {"stringValue": str(uuid.uuid4())}},
-        {"name": "tid",           "value": {"stringValue": tenant_id}},
-        {"name": "cid",           "value": {"stringValue": conn_id}},
-        {"name": "sid",           "value": {"stringValue": scan_id}},
-        {"name": "check_id",      "value": {"stringValue": f.check_id}},
-        {"name": "title",         "value": {"stringValue": f.title[:500]}},
-        {"name": "description",   "value": {"stringValue": (f.description or "")[:2000]}},
-        {"name": "severity",      "value": {"stringValue": f.severity.value.lower()}},
-        {"name": "status",        "value": {"stringValue": f.status.value.lower()}},
-        {"name": "resource_arn",  "value": {"stringValue": (f.resource_id or "")[:500]}},
-        {"name": "resource_type", "value": {"stringValue": f.resource_type[:200]}},
-        {"name": "region",        "value": {"stringValue": f.region[:50]}},
-        {"name": "domain",        "value": {"stringValue": f.domain.value.lower()}},
-        {"name": "frameworks",    "value": {"stringValue": json.dumps(frameworks)}},
-        {"name": "remediation",   "value": {"stringValue": (f.remediation or "")[:2000]}},
-    ]
+    evidence = {
+        "version":     "0.1",
+        "shasta": {
+            "check_id":      f.check_id,
+            "status":        f.status.value.lower(),
+            "domain":        f.domain.value.lower(),
+            "region":        f.region,
+            "resource_type": f.resource_type,
+            "resource_id":   f.resource_id,
+            "remediation":   (f.remediation or "")[:2000],
+            "frameworks":    frameworks,
+            "details":       _safe_details(getattr(f, "details", None)),
+        },
+    }
+    return FindingEmission(
+        tenant_id=tenant_id,
+        finding_type=f.check_id,
+        severity=f.severity.value.lower(),
+        title=f.title[:500],
+        description=(f.description or "")[:2000],
+        subject_entity_kind=subj_kind,
+        subject_entity_natural_key=subj_nk,
+        subject_type=f.resource_type[:200] if f.resource_type else None,
+        subject_ref=(f.resource_id or "")[:500] if f.resource_id else None,
+        evidence_packet=evidence,
+        confidence="high",
+    )
 
 
-def _update_scan(scan_id: str, status: str, stats: dict | None = None, error: str | None = None) -> None:
+def _safe_details(details) -> dict:
+    """Coerce Shasta finding details into a JSON-safe dict (best effort)."""
+    if not details:
+        return {}
+    try:
+        json.dumps(details)
+        return details
+    except TypeError:
+        return {"_repr": str(details)[:1000]}
+
+
+# ============================================================================
+# Legacy `scans` table updates (kept — separate from ai_scans / commit_scan)
+# ============================================================================
+
+def _update_scan(scan_id: str, status: str, stats: dict | None = None,
+                  error: str | None = None) -> None:
     sql_parts = ["UPDATE scans SET status = :status"]
     params = [
         {"name": "sid",    "value": {"stringValue": scan_id}},
