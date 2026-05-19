@@ -1,53 +1,83 @@
 {
-  "assets": [
+  "entities": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "vector_db",
-      "name": "pgvector",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "migrations/001_init.sql",
-      "attributes": {"references_seen": 1},
+      "kind": "ai_vector_db",
+      "natural_key": "pgvector",
+      "display_name": "pgvector",
+      "domain": "ai",
+      "attributes": {
+        "references_seen": 1
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.vector_db", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "vector_db", "name": "pgvector"},
+        "detector": {
+          "id": "ai.detectors.vector_db",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "vector_db",
+          "name": "pgvector"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "migrations/001_init.sql", "snippet_lines": [3, 3],
-           "snippet": "CREATE EXTENSION IF NOT EXISTS vector;"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "migrations/001_init.sql",
+            "snippet_lines": [
+              3,
+              3
+            ],
+            "snippet": "CREATE EXTENSION IF NOT EXISTS vector;"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched pgvector reference on migrations/001_init.sql:3"],
+        "reasoning_chain": [
+          "matched pgvector reference on migrations/001_init.sql:3"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.vector_db",
-      "detector_version": "0.1.0",
-      "id": null
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "migrations/001_init.sql"
     }
   ],
-  "relationships": [
+  "edges": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
-      "target_asset_ref": "vector_db::44444444-4444-4444-4444-444444444444::migrations/001_init.sql::pgvector",
-      "relationship_type": "retrieves",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_vector_db",
+      "target_natural_key": "pgvector",
+      "kind": "retrieves",
       "attributes": {},
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.vector_db", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "retrieves", "name": "repo→retrieves→pgvector"},
+        "detector": {
+          "id": "ai.detectors.vector_db",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "retrieves",
+          "name": "repo\u2192retrieves\u2192pgvector"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["vector_db detected in repo"],
+        "reasoning_chain": [
+          "vector_db detected in repo"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.vector_db",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     }
   ],
   "findings": []

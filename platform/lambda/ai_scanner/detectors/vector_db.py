@@ -2,6 +2,10 @@
 
 Python SDKs: chromadb, pinecone, weaviate, qdrant_client, faiss, llama_index.
 SQL: pgvector (``CREATE EXTENSION vector`` in any .sql file).
+
+SP1 shape: emits ``ai_vector_db`` entities with bare-name natural keys
+(``"chromadb"``, ``"pgvector"``, …) deduped across files/repos, plus a
+``github_repo → retrieves → ai_vector_db`` edge per (repo, vector_db) pair.
 """
 from __future__ import annotations
 
@@ -9,11 +13,11 @@ import re
 from pathlib import Path
 
 from detectors._walk import ripgrep
-from detectors.base import AssetEmission, RelEmission, DetectorResult
+from detectors.base import EntityEmission, EdgeEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.vector_db"
-detector_version = "0.1.0"
+detector_version = "0.2.0"
 
 PY_VECTOR_DBS = [
     "chromadb",
@@ -25,10 +29,9 @@ PY_VECTOR_DBS = [
 
 
 def detect(ctx) -> DetectorResult:
-    assets: list[AssetEmission] = []
-    rels:   list[RelEmission] = []
-
-    repo_ref = f"repository::::{ctx.repo_asset_id}"
+    entities: list[EntityEmission] = []
+    edges:    list[EdgeEmission] = []
+    repo_nk = f"github.com/{ctx.repo_full_name}"
 
     for vdb in PY_VECTOR_DBS:
         pattern = rf"^\s*(from|import)\s+{vdb}(\b|\.)"
@@ -36,17 +39,17 @@ def detect(ctx) -> DetectorResult:
         if not matches:
             continue
         matches.sort(key=lambda m: (str(m[0]), m[1]))
-        _emit(ctx, vdb, matches, repo_ref, assets, rels)
+        _emit(ctx, vdb, matches, repo_nk, entities, edges)
 
     pg_matches = _ripgrep_sql_pgvector(ctx.repo_workdir)
     if pg_matches:
-        _emit(ctx, "pgvector", pg_matches, repo_ref, assets, rels)
+        _emit(ctx, "pgvector", pg_matches, repo_nk, entities, edges)
 
-    return DetectorResult(assets=assets, relationships=rels, findings=[])
+    return DetectorResult(entities=entities, edges=edges, findings=[])
 
 
 def _emit(ctx, name: str, matches: list[tuple[Path, int, str]],
-           repo_ref: str, assets: list, rels: list) -> None:
+           repo_nk: str, entities: list, edges: list) -> None:
     first_path, first_line, first_snippet = matches[0]
     rel_path = str(first_path.relative_to(ctx.repo_workdir))
     packet = ev.build(
@@ -61,13 +64,13 @@ def _emit(ctx, name: str, matches: list[tuple[Path, int, str]],
         reasoning_chain=[f"matched {name} reference on {rel_path}:{first_line}"],
         confidence="high",
     )
-    assets.append(AssetEmission(
-        tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
-        asset_type="vector_db", name=name,
-        source_repo_id=ctx.repo_asset_id, source_path=rel_path,
+    entities.append(EntityEmission(
+        tenant_id=ctx.tenant_id, kind="ai_vector_db",
+        natural_key=name, display_name=name, domain="ai",
         attributes={"references_seen": len(matches)},
         evidence_packet=packet,
         detector_id=detector_id, detector_version=detector_version,
+        connection_id=ctx.connection_id, source_path=rel_path,
     ))
     rel_packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
@@ -76,12 +79,11 @@ def _emit(ctx, name: str, matches: list[tuple[Path, int, str]],
         source_events=[], reasoning_chain=["vector_db detected in repo"],
         confidence="high",
     )
-    rels.append(RelEmission(
+    edges.append(EdgeEmission(
         tenant_id=ctx.tenant_id,
-        source_asset_ref=repo_ref,
-        target_asset_ref=f"vector_db::{ctx.repo_asset_id}::{rel_path}::{name}",
-        relationship_type="retrieves",
-        attributes={},
+        source_kind="github_repo", source_natural_key=repo_nk,
+        target_kind="ai_vector_db", target_natural_key=name,
+        kind="retrieves", attributes={},
         evidence_packet=rel_packet,
         detector_id=detector_id, detector_version=detector_version,
     ))
