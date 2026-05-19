@@ -1,9 +1,11 @@
 """SQS-triggered handler for the AI scanner Lambda.
 
-Orchestrates: parse SQS body → clone repo → run all 8 detectors →
-correlator → commit transactionally. On error, marks the scan failed and
-re-raises so SQS retries (max 3, then DLQ). RepoTooLarge is terminal —
-no retry will help.
+Orchestrates: parse SQS body → clone repo → emit github_repo entity →
+run all 8 detectors → correlator → commit transactionally via
+unified_writer. On error, marks the scan failed and re-raises so SQS
+retries (max 3, then DLQ). RepoTooLarge is terminal.
+
+Spec: docs/superpowers/specs/2026-05-19-sp1-unified-entity-model-design.md §9.
 """
 from __future__ import annotations
 
@@ -14,18 +16,16 @@ import tempfile
 from pathlib import Path
 
 import scan_runner
-import writer
+import unified_writer
 from detectors import (
     framework, model_usage, mcp_server, agentic_workflow,
     vector_db, embedding, prompt, secrets_in_ai_code, correlator,
 )
+from detectors.base import EntityEmission
 
 logging.basicConfig(level=logging.INFO, force=True)
 log = logging.getLogger("ai_scanner")
 log.setLevel(logging.INFO)
-# Lambda's Python runtime preconfigures the root logger before user code runs,
-# so basicConfig is a no-op without force=True. Use print() too as a belt-and-
-# suspenders bypass so we can always see what the scanner did.
 
 DETECTORS = [
     framework, model_usage, mcp_server, agentic_workflow,
@@ -68,27 +68,49 @@ def _run_one(body: dict) -> None:
         for det in DETECTORS:
             r = det.detect(ctx)
             print(f"[ai_scanner]   {det.detector_id}: "
-                  f"{len(r.assets)} assets, {len(r.relationships)} rels, {len(r.findings)} findings")
+                  f"{len(r.entities)} entities, {len(r.edges)} edges, "
+                  f"{len(r.findings)} findings")
             results.append(r)
 
         corr_result = correlator.correlate(ctx, results)
+        print(f"[ai_scanner]   {correlator.detector_id}: "
+              f"{len(corr_result.entities)} entities, {len(corr_result.edges)} edges")
 
-        all_assets        = [a for r in results for a in r.assets] + corr_result.assets
-        all_relationships = [r for res in results for r in res.relationships] + corr_result.relationships
-        all_findings      = [f for r in results for f in r.findings] + corr_result.findings
-        writer.commit_scan(ctx, all_assets, all_relationships, all_findings)
+        # Always emit the github_repo entity for this scan — it's the root of
+        # every per-repo edge. Detectors reference it by natural_key but don't
+        # emit it themselves.
+        repo_entity = EntityEmission(
+            tenant_id=ctx.tenant_id, kind="github_repo",
+            natural_key=f"github.com/{ctx.repo_full_name}",
+            display_name=ctx.repo_full_name, domain="repo",
+            attributes={"default_branch": ctx.default_branch,
+                         "head_commit_sha": ctx.head_commit_sha},
+            evidence_packet=None,
+            detector_id="manual.repo_attach", detector_version="0.1.0",
+            connection_id=ctx.connection_id,
+        )
+
+        all_entities = [repo_entity] + [e for r in results for e in r.entities] + corr_result.entities
+        all_edges    = [e for r in results for e in r.edges] + corr_result.edges
+        all_findings = [f for r in results for f in r.findings] + corr_result.findings
+
+        unified_writer.commit_scan(ctx,
+                                    entities=all_entities,
+                                    edges=all_edges,
+                                    findings=all_findings)
         print(f"[ai_scanner] scan {scan_id} committed: "
-              f"{len(all_assets)} assets, {len(all_relationships)} rels, {len(all_findings)} findings")
+              f"{len(all_entities)} entities, {len(all_edges)} edges, "
+              f"{len(all_findings)} findings")
 
     except scan_runner.RepoTooLarge as e:
-        log.warning("scan %s aborted: repo too large", scan_id)
+        print(f"[ai_scanner] scan {scan_id} aborted: repo too large")
         if ctx is None:
             ctx = scan_runner.ScanContext.from_message(body, workdir, head_commit_sha="")
-        writer.mark_scan_failed(ctx, f"clone_too_large: {e}")
+        unified_writer.mark_scan_failed(ctx, f"clone_too_large: {e}")
     except Exception as e:
-        log.exception("scan %s failed", scan_id)
+        log.exception(f"scan {scan_id} failed")
         if ctx is not None:
-            writer.mark_scan_failed(ctx, f"{type(e).__name__}: {e}")
+            unified_writer.mark_scan_failed(ctx, f"{type(e).__name__}: {e}")
         raise
     finally:
         if workdir.exists():
