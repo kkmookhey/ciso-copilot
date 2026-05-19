@@ -173,3 +173,29 @@ def test_repos_404_when_connection_not_owned_by_tenant(monkeypatch):
                           path_params={"id": "11111111-1111-1111-1111-111111111111"})
     out = main.handler(event, None)
     assert out["statusCode"] == 404
+
+
+def test_delete_connection_flips_status_and_revokes_token(monkeypatch):
+    import main, helpers, github_app
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+
+    updates: list[dict] = []
+    def fake_execute(**kw):
+        updates.append(kw)
+        if "SELECT github_installation_id" in kw["sql"]:
+            return {"records": [[{"longValue": 99999}]]}
+        return {"records": []}
+    helpers.rds_data.execute_statement = fake_execute
+
+    revoked: list[int] = []
+    monkeypatch.setattr(github_app, "revoke_installation_token",
+                        lambda iid: revoked.append(iid))
+
+    event = _event_authed("tenant-1", method="DELETE",
+                          path="/v1/ai/connections/cid-1",
+                          path_params={"id": "11111111-1111-1111-1111-111111111111"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 204
+    assert revoked == [99999]
+    # at least one UPDATE happened
+    assert any("UPDATE ai_connections" in u["sql"] for u in updates)

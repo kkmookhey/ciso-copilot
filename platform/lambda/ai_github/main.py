@@ -37,6 +37,8 @@ def handler(event: dict, context) -> dict:
         # Path with {id} parameter
         if method == "GET" and path.startswith("/v1/ai/connections/") and path.endswith("/repos"):
             return _list_repos(event)
+        if method == "DELETE" and path.startswith("/v1/ai/connections/") and not path.endswith("/repos"):
+            return _delete_connection(event)
         return helpers.resp(404, {"error": "not_found", "path": path, "method": method})
     except Exception as e:  # noqa: BLE001 — top-level fence
         # Surface message; production observability already logs to CloudWatch.
@@ -234,3 +236,53 @@ def _mark_revoked(conn_id: str) -> None:
              "WHERE id = CAST(:id AS UUID)"),
         parameters=[{"name": "id", "value": {"stringValue": conn_id}}],
     )
+
+
+# ----------------------------------------------------------------------------
+# DELETE /v1/ai/connections/{id}
+# ----------------------------------------------------------------------------
+
+def _delete_connection(event: dict) -> dict:
+    tenant_id = helpers.resolve_tenant_id(event)
+    if not tenant_id:
+        return helpers.resp(401, {"error": "no_tenant"})
+    conn_id = (event.get("pathParameters") or {}).get("id")
+    if not conn_id:
+        return helpers.resp(400, {"error": "missing_id"})
+
+    rs = helpers.rds_data.execute_statement(
+        resourceArn=helpers.DB_CLUSTER_ARN,
+        secretArn=helpers.DB_SECRET_ARN,
+        database=helpers.DB_NAME,
+        sql=(
+            "SELECT github_installation_id FROM ai_connections "
+            "WHERE id = CAST(:id AS UUID) AND tenant_id = CAST(:tid AS UUID) "
+            "  AND provider = 'github'"
+        ),
+        parameters=[
+            {"name": "id",  "value": {"stringValue": conn_id}},
+            {"name": "tid", "value": {"stringValue": tenant_id}},
+        ],
+    )
+    rows = rs.get("records", [])
+    if not rows:
+        return helpers.resp(404, {"error": "not_found"})
+    installation_id = rows[0][0].get("longValue")
+
+    # Best-effort token revocation; ignore errors so DELETE always proceeds.
+    try:
+        github_app.revoke_installation_token(installation_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+    helpers.rds_data.execute_statement(
+        resourceArn=helpers.DB_CLUSTER_ARN,
+        secretArn=helpers.DB_SECRET_ARN,
+        database=helpers.DB_NAME,
+        sql=("UPDATE ai_connections SET status='revoked', updated_at=NOW() "
+             "WHERE id = CAST(:id AS UUID)"),
+        parameters=[{"name": "id", "value": {"stringValue": conn_id}}],
+    )
+    return {"statusCode": 204,
+            "headers": {"access-control-allow-origin": "*"},
+            "body": ""}
