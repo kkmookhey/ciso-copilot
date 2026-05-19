@@ -13,7 +13,6 @@ export function ConnectClouds() {
   const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
   const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
   const [gcpCmd,        setGcpCmd]        = useState<string | null>(null);
-  const [githubUrl,     setGithubUrl]     = useState<string | null>(null);
   const [error,         setError]         = useState<string | null>(null);
 
   async function connectAws() {
@@ -56,7 +55,6 @@ export function ConnectClouds() {
     setPendingGithub(true); setError(null);
     try {
       const r = await api.getGithubInstallUrl();
-      setGithubUrl(r.install_url);
       // Send the user straight to GitHub — no intermediate panel for now.
       window.location.href = r.install_url;
     } catch (e) { setError((e as Error).message); }
