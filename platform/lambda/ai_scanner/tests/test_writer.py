@@ -98,3 +98,46 @@ def test_commit_scan_rolls_back_on_error(monkeypatch):
 
     fake_client.rollback_transaction.assert_called_once()
     fake_client.commit_transaction.assert_not_called()
+
+
+def test_repo_rooted_relationships_resolve_against_pre_seeded_repo_node(monkeypatch):
+    """Regression: writer must resolve repo-rooted edges (source_asset_ref
+    starts with "repository::::") against the pre-existing repo node, even
+    though the detector never emitted that node in this scan."""
+    import writer
+    upsert_rel_calls: list[dict] = []
+
+    fake_client = MagicMock()
+    fake_client.begin_transaction = lambda **kw: {"transactionId": "tx"}
+    fake_client.commit_transaction = MagicMock()
+    fake_client.rollback_transaction = MagicMock()
+    def fake_execute(**kw):
+        # Capture _upsert_relationship calls by sniffing the SQL.
+        if "INSERT INTO ai_relationships" in (kw.get("sql") or ""):
+            upsert_rel_calls.append(kw)
+        return {"records": []}
+    fake_client.execute_statement = fake_execute
+    monkeypatch.setattr(writer, "_rds", fake_client)
+
+    ctx = _ctx()
+    from detectors.base import AssetEmission, RelEmission
+    asset = AssetEmission(
+        tenant_id=ctx.tenant_id, connection_id=ctx.connection_id,
+        asset_type="framework", name="langchain",
+        source_repo_id=ctx.repo_asset_id, source_path="app/agent.py",
+        attributes={"imports_seen": 2}, evidence_packet={"version": "0.1"},
+        detector_id="ai.detectors.framework", detector_version="0.1.0",
+    )
+    rel = RelEmission(
+        tenant_id=ctx.tenant_id,
+        source_asset_ref=f"repository::::{ctx.repo_asset_id}",
+        target_asset_ref=f"framework::{ctx.repo_asset_id}::app/agent.py::langchain",
+        relationship_type="uses", attributes={},
+        evidence_packet={"version": "0.1"},
+        detector_id="ai.detectors.framework", detector_version="0.1.0",
+    )
+
+    writer.commit_scan(ctx, assets=[asset], relationships=[rel], findings=[])
+    assert len(upsert_rel_calls) == 1, (
+        "repo-rooted relationship was silently dropped — pre-seed bug regressed"
+    )

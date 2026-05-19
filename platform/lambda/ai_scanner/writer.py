@@ -25,20 +25,29 @@ def commit_scan(ctx, assets: list[AssetEmission],
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
     )["transactionId"]
     try:
-        # Map asset emission → assigned UUID for later relationship resolution
-        asset_id_by_ref: dict[str, str] = {}
+        # Map asset emission → assigned UUID for later relationship resolution.
+        # The repository node is created by the API before the scan starts (it
+        # lives in Aurora but is never emitted by a detector), so pre-seed the
+        # map with its ref. Detectors emit edges as
+        # `repository::::<repo_uuid>` → `<asset_type>::<repo_uuid>::<path>::<name>`
+        # and without this seed every repo-rooted edge would be silently
+        # dropped by the "skip if not in map" guard below.
+        asset_id_by_ref: dict[str, str] = {
+            f"repository::::{ctx.repo_asset_id}": ctx.repo_asset_id,
+        }
         for a in assets:
             assigned_id = a.id or str(uuid.uuid4())
-            asset_id_by_ref[_asset_ref(a)] = assigned_id
-            _upsert_asset(tx, a, assigned_id, scan_id=ctx.scan_id)
+            persisted_id = _upsert_asset(tx, a, assigned_id, scan_id=ctx.scan_id)
+            asset_id_by_ref[_asset_ref(a)] = persisted_id
 
         for r in relationships:
             source_id = asset_id_by_ref.get(r.source_asset_ref)
             target_id = asset_id_by_ref.get(r.target_asset_ref)
             if not source_id or not target_id:
                 # Detector emitted a relationship pointing at an asset that
-                # wasn't emitted in the same scan — skip silently rather than
-                # rolling back. This is benign for cross-repo edges.
+                # wasn't emitted in the same scan AND isn't the repo root —
+                # skip silently rather than rolling back (benign for
+                # cross-repo edges).
                 continue
             _upsert_relationship(tx, r, source_id, target_id, scan_id=ctx.scan_id)
 
@@ -79,8 +88,12 @@ def _asset_ref(a: AssetEmission) -> str:
     return f"{a.asset_type}::{a.source_repo_id or ''}::{a.source_path or ''}::{a.name}"
 
 
-def _upsert_asset(tx: str, a: AssetEmission, assigned_id: str, scan_id: str) -> None:
-    _rds.execute_statement(
+def _upsert_asset(tx: str, a: AssetEmission, assigned_id: str, scan_id: str) -> str:
+    """Insert-or-update an asset; returns the id of the row that ended up in
+    the table. On ON CONFLICT, that's the EXISTING row's id (not the freshly
+    generated assigned_id) — relationships in this scan must reference that
+    persisted id or the FK on ai_relationships will reject them."""
+    result = _rds.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         transactionId=tx,
         sql=(
@@ -94,7 +107,8 @@ def _upsert_asset(tx: str, a: AssetEmission, assigned_id: str, scan_id: str) -> 
             "        :did, :dver, CAST(:sid AS UUID)) "
             "ON CONFLICT (tenant_id, asset_type, source_repo_id, source_path, name) "
             "  DO UPDATE SET last_seen_at=NOW(), evidence_packet=EXCLUDED.evidence_packet, "
-            "                attributes=EXCLUDED.attributes"
+            "                attributes=EXCLUDED.attributes "
+            "RETURNING id::text"
         ),
         parameters=[
             {"name": "id",    "value": {"stringValue": assigned_id}},
@@ -111,6 +125,10 @@ def _upsert_asset(tx: str, a: AssetEmission, assigned_id: str, scan_id: str) -> 
             {"name": "sid",   "value": {"stringValue": scan_id}},
         ],
     )
+    rows = result.get("records", [])
+    if rows and rows[0] and "stringValue" in rows[0][0]:
+        return rows[0][0]["stringValue"]
+    return assigned_id  # fallback (shouldn't happen with RETURNING)
 
 
 def _upsert_relationship(tx: str, r: RelEmission, source_id: str, target_id: str,
