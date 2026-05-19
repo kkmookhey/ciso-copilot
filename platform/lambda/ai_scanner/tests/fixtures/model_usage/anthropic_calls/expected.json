@@ -7,24 +7,44 @@
       "name": "anthropic/claude-sonnet-4-6",
       "source_repo_id": "44444444-4444-4444-4444-444444444444",
       "source_path": "app/claude.py",
-      "attributes": {"provider": "anthropic", "model_id": "claude-sonnet-4-6"},
+      "attributes": {
+        "provider": "anthropic",
+        "model_id": "claude-sonnet-4-6"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "model", "name": "anthropic/claude-sonnet-4-6"},
+        "detector": {
+          "id": "ai.detectors.model_usage",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "model",
+          "name": "anthropic/claude-sonnet-4-6"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "app/claude.py", "snippet_lines": [5, 5],
-           "snippet": "    model=\"claude-sonnet-4-6\","}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "app/claude.py",
+            "snippet_lines": [
+              5,
+              5
+            ],
+            "snippet": "model=\"claude-sonnet-4-6\","
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched model=\"claude-sonnet-4-6\" in anthropic SDK call at app/claude.py:5"],
+        "reasoning_chain": [
+          "matched model_id \"claude-sonnet-4-6\" in anthropic-using file at app/claude.py:5"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.model_usage",
-      "detector_version": "0.1.0",
+      "detector_version": "0.2.0",
       "id": null
     }
   ],
@@ -34,20 +54,31 @@
       "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
       "target_asset_ref": "model::44444444-4444-4444-4444-444444444444::app/claude.py::anthropic/claude-sonnet-4-6",
       "relationship_type": "calls",
-      "attributes": {"provider": "anthropic"},
+      "attributes": {
+        "provider": "anthropic"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "calls", "name": "repo→calls→anthropic/claude-sonnet-4-6"},
+        "detector": {
+          "id": "ai.detectors.model_usage",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "calls",
+          "name": "repo\u2192calls\u2192anthropic/claude-sonnet-4-6"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["model use detected in repo"],
+        "reasoning_chain": [
+          "model use detected in repo"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.model_usage",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     }
   ],
   "findings": []

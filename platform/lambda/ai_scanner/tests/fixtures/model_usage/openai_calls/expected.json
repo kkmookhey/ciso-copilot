@@ -7,24 +7,44 @@
       "name": "openai/gpt-4o-mini",
       "source_repo_id": "44444444-4444-4444-4444-444444444444",
       "source_path": "app/llm.py",
-      "attributes": {"provider": "openai", "model_id": "gpt-4o-mini"},
+      "attributes": {
+        "provider": "openai",
+        "model_id": "gpt-4o-mini"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "model", "name": "openai/gpt-4o-mini"},
+        "detector": {
+          "id": "ai.detectors.model_usage",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "model",
+          "name": "openai/gpt-4o-mini"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "app/llm.py", "snippet_lines": [5, 5],
-           "snippet": "    model=\"gpt-4o-mini\","}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "app/llm.py",
+            "snippet_lines": [
+              5,
+              5
+            ],
+            "snippet": "model=\"gpt-4o-mini\","
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched model=\"gpt-4o-mini\" in openai SDK call at app/llm.py:5"],
+        "reasoning_chain": [
+          "matched model_id \"gpt-4o-mini\" in openai-using file at app/llm.py:5"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.model_usage",
-      "detector_version": "0.1.0",
+      "detector_version": "0.2.0",
       "id": null
     }
   ],
@@ -34,20 +54,31 @@
       "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
       "target_asset_ref": "model::44444444-4444-4444-4444-444444444444::app/llm.py::openai/gpt-4o-mini",
       "relationship_type": "calls",
-      "attributes": {"provider": "openai"},
+      "attributes": {
+        "provider": "openai"
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "calls", "name": "repo→calls→openai/gpt-4o-mini"},
+        "detector": {
+          "id": "ai.detectors.model_usage",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "calls",
+          "name": "repo\u2192calls\u2192openai/gpt-4o-mini"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["model use detected in repo"],
+        "reasoning_chain": [
+          "model use detected in repo"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.model_usage",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     }
   ],
   "findings": []

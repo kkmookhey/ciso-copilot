@@ -20,8 +20,12 @@ from detectors import (
     vector_db, embedding, prompt, secrets_in_ai_code, correlator,
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, force=True)
 log = logging.getLogger("ai_scanner")
+log.setLevel(logging.INFO)
+# Lambda's Python runtime preconfigures the root logger before user code runs,
+# so basicConfig is a no-op without force=True. Use print() too as a belt-and-
+# suspenders bypass so we can always see what the scanner did.
 
 DETECTORS = [
     framework, model_usage, mcp_server, agentic_workflow,
@@ -31,7 +35,7 @@ DETECTORS = [
 
 def handler(event: dict, context) -> dict:
     records = event.get("Records") or []
-    log.info("ai_scanner invoked with %d record(s)", len(records))
+    print(f"[ai_scanner] invoked with {len(records)} record(s)")
     for r in records:
         body = json.loads(r.get("body") or "{}")
         _run_one(body)
@@ -41,6 +45,8 @@ def handler(event: dict, context) -> dict:
 def _run_one(body: dict) -> None:
     scan_id = body["scan_id"]
     workdir = Path(tempfile.gettempdir()) / f"scan-{scan_id}"
+    print(f"[ai_scanner] scan {scan_id} repo={body.get('repo_full_name')} "
+          f"branch={body.get('default_branch')} workdir={workdir}")
     if workdir.exists():
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -53,12 +59,17 @@ def _run_one(body: dict) -> None:
             workdir=workdir,
         )
         ctx = scan_runner.ScanContext.from_message(body, workdir, sha)
-        log.info("cloned %s@%s into %s", ctx.repo_full_name, sha, workdir)
+        py_count = sum(1 for _ in workdir.rglob("*.py"))
+        sql_count = sum(1 for _ in workdir.rglob("*.sql"))
+        print(f"[ai_scanner] cloned {ctx.repo_full_name}@{sha} into {workdir} "
+              f"({py_count} .py files, {sql_count} .sql files)")
 
         results = []
         for det in DETECTORS:
-            log.info("running %s", det.detector_id)
-            results.append(det.detect(ctx))
+            r = det.detect(ctx)
+            print(f"[ai_scanner]   {det.detector_id}: "
+                  f"{len(r.assets)} assets, {len(r.relationships)} rels, {len(r.findings)} findings")
+            results.append(r)
 
         corr_result = correlator.correlate(ctx, results)
 
@@ -66,8 +77,8 @@ def _run_one(body: dict) -> None:
         all_relationships = [r for res in results for r in res.relationships] + corr_result.relationships
         all_findings      = [f for r in results for f in r.findings] + corr_result.findings
         writer.commit_scan(ctx, all_assets, all_relationships, all_findings)
-        log.info("scan %s committed: %d assets, %d rels, %d findings",
-                 scan_id, len(all_assets), len(all_relationships), len(all_findings))
+        print(f"[ai_scanner] scan {scan_id} committed: "
+              f"{len(all_assets)} assets, {len(all_relationships)} rels, {len(all_findings)} findings")
 
     except scan_runner.RepoTooLarge as e:
         log.warning("scan %s aborted: repo too large", scan_id)

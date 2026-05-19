@@ -187,7 +187,7 @@ export class ScanStack extends cdk.Stack {
       architecture:         lambda.Architecture.X86_64,
       environment: {
         ...dbEnv,
-        GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials*`,
+        GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
         SCANNER_VERSION:       '0.1.0',
       },
     });
