@@ -1,0 +1,54 @@
+{
+  "assets": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "asset_type": "model",
+      "name": "anthropic/claude-sonnet-4-6",
+      "source_repo_id": "44444444-4444-4444-4444-444444444444",
+      "source_path": "app/claude.py",
+      "attributes": {"provider": "anthropic", "model_id": "claude-sonnet-4-6"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
+        "subject": {"kind": "ai_asset", "type": "model", "name": "anthropic/claude-sonnet-4-6"},
+        "source_events": [
+          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
+           "path": "app/claude.py", "snippet_lines": [5, 5],
+           "snippet": "    model=\"claude-sonnet-4-6\","}
+        ],
+        "graph_trace": [],
+        "reasoning_chain": ["matched model=\"claude-sonnet-4-6\" in anthropic SDK call at app/claude.py:5"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.model_usage",
+      "detector_version": "0.1.0",
+      "id": null
+    }
+  ],
+  "relationships": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
+      "target_asset_ref": "model::44444444-4444-4444-4444-444444444444::app/claude.py::anthropic/claude-sonnet-4-6",
+      "relationship_type": "calls",
+      "attributes": {"provider": "anthropic"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
+        "subject": {"kind": "ai_relationship", "type": "calls", "name": "repo→calls→anthropic/claude-sonnet-4-6"},
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": ["model use detected in repo"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.model_usage",
+      "detector_version": "0.1.0"
+    }
+  ],
+  "findings": []
+}

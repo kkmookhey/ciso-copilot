@@ -1,0 +1,54 @@
+{
+  "assets": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "asset_type": "model",
+      "name": "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+      "source_repo_id": "44444444-4444-4444-4444-444444444444",
+      "source_path": "app/bedrock.py",
+      "attributes": {"provider": "bedrock", "model_id": "anthropic.claude-3-sonnet-20240229-v1:0"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
+        "subject": {"kind": "ai_asset", "type": "model", "name": "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"},
+        "source_events": [
+          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
+           "path": "app/bedrock.py", "snippet_lines": [6, 6],
+           "snippet": "    modelId=\"anthropic.claude-3-sonnet-20240229-v1:0\","}
+        ],
+        "graph_trace": [],
+        "reasoning_chain": ["matched modelId=\"anthropic.claude-3-sonnet-20240229-v1:0\" in bedrock SDK call at app/bedrock.py:6"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.model_usage",
+      "detector_version": "0.1.0",
+      "id": null
+    }
+  ],
+  "relationships": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
+      "target_asset_ref": "model::44444444-4444-4444-4444-444444444444::app/bedrock.py::bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+      "relationship_type": "calls",
+      "attributes": {"provider": "bedrock"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.model_usage", "version": "0.1.0"},
+        "subject": {"kind": "ai_relationship", "type": "calls", "name": "repo→calls→bedrock/anthropic.claude-3-sonnet-20240229-v1:0"},
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": ["model use detected in repo"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.model_usage",
+      "detector_version": "0.1.0"
+    }
+  ],
+  "findings": []
+}
