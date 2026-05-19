@@ -37,6 +37,7 @@ echo "==> docker build (linux/amd64) → $REPO:$TAG"
 docker build \
   --platform linux/amd64 \
   --provenance=false \
+  ${NO_CACHE:+--no-cache} \
   -t "shasta-runner-azure:$TAG" \
   -t "$REPO:$TAG" \
   -t "$REPO:latest" \

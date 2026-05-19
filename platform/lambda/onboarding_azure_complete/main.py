@@ -82,22 +82,27 @@ def handler(event: dict, context) -> dict:
 
     print(f"azure connection {conn['conn_id']} active — {len(subscription_ids)} subscription(s)")
 
-    # Kick an initial scan for the first subscription. Additional subscriptions
-    # picked up by the next scheduled run; for now: 1 scan/connection per onboard.
-    initial_scan_id = _enqueue_initial_scan(
-        tenant_id        = conn["tenant_id"],
-        conn_id          = conn["conn_id"],
-        azure_tenant_id  = azure_tenant_id,
-        client_id        = client_id,
-        secret_arn       = secret_arn,
-        subscription_id  = subscription_ids[0],
-    )
+    # Kick an initial scan per subscription. Each scan is independent so the
+    # scanner code stays single-sub; the connection's full posture is the union
+    # of all scans tied to it.
+    scan_ids = [
+        _enqueue_initial_scan(
+            tenant_id        = conn["tenant_id"],
+            conn_id          = conn["conn_id"],
+            azure_tenant_id  = azure_tenant_id,
+            client_id        = client_id,
+            secret_arn       = secret_arn,
+            subscription_id  = sub_id,
+        )
+        for sub_id in subscription_ids
+    ]
+    scan_ids = [s for s in scan_ids if s]
 
     return _resp(200, {
         "status":              "active",
         "connection_id":       conn["conn_id"],
         "subscriptions_count": len(subscription_ids),
-        "initial_scan_id":     initial_scan_id,
+        "initial_scan_ids":    scan_ids,
     })
 
 
@@ -190,6 +195,6 @@ def _enqueue_initial_scan(*, tenant_id: str, conn_id: str, azure_tenant_id: str,
 def _resp(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers":    {"content-type": "application/json"},
+        "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }

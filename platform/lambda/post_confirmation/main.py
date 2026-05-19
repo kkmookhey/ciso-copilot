@@ -34,6 +34,9 @@ DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
 APPROVAL_RECIPIENT          = os.environ["APPROVAL_RECIPIENT"]
 DOMAIN                      = os.environ["DOMAIN"]
+# Base URL for the Approve/Reject email links. Falls back to api.<DOMAIN> for
+# the eventual DNS state; in dev we override to the API Gateway invoke URL.
+API_BASE_URL                = os.environ.get("API_BASE_URL", f"https://api.{DOMAIN}/v1")
 APPROVAL_TOKEN_SECRET_NAME  = os.environ["APPROVAL_TOKEN_SECRET_NAME"]
 
 rds_data = boto3.client("rds-data")
@@ -46,6 +49,41 @@ _signing_key_cache: bytes | None = None
 # Microsoft consumer-account tenant ID. The /organizations OIDC issuer rejects
 # these at the IdP layer; this is a backup check.
 MS_PERSONAL_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
+
+# Personal email providers. Users at these domains get a per-user tenant
+# (keyed on full email) instead of sharing one with everyone else at the same
+# domain. Corporate domains keep the shared-tenant behavior so colleagues at
+# acme.com land in the same workspace.
+#
+# Why this matters: tenants.email_domain was UNIQUE — without this split, the
+# first kkmookhey@gmail.com to sign up created a tenant; every subsequent
+# gmail.com user auto-joined as a 'member' with full read access. This is the
+# classic multi-tenant SaaS leak when keying on domain.
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com", "googlemail.com",
+    "outlook.com", "hotmail.com", "live.com", "msn.com",
+    "yahoo.com", "yahoo.co.uk", "yahoo.co.in", "ymail.com",
+    "icloud.com", "me.com", "mac.com",
+    "aol.com",
+    "proton.me", "protonmail.com", "pm.me",
+    "zoho.com",
+    "fastmail.com",
+    "duck.com",
+    "tutanota.com", "tuta.io",
+    "gmx.com", "gmx.net", "mail.com",
+}
+
+
+def _tenant_key(email: str, email_domain: str) -> tuple[str, str]:
+    """Returns (tenant_key, display_name) — the unique identifier used to
+    find/create a tenant.
+
+    For corporate domains: key = domain, display = domain.
+    For personal-email domains: key = full email, display = full email.
+    """
+    if email_domain in PERSONAL_EMAIL_DOMAINS:
+        return (email, email)
+    return (email_domain, email_domain)
 
 
 def handler(event: dict, context) -> dict:
@@ -67,18 +105,19 @@ def handler(event: dict, context) -> dict:
         print(f"skip: personal Microsoft account ({email})")
         return event
 
-    tenant = _find_tenant_by_domain(email_domain)
+    tenant_key, tenant_display = _tenant_key(email, email_domain)
+    tenant = _find_tenant_by_key(tenant_key)
     if tenant is None:
         tenant_id = str(uuid.uuid4())
-        _create_tenant(tenant_id, email_domain)
+        _create_tenant(tenant_id, tenant_key, tenant_display)
         _upsert_user(tenant_id, email, sso_provider, sso_subject, role="admin")
         # Email failure must not block sign-in (DNS-pending, SES-throttled, etc.).
         # The admin can also approve via the AWS console; we log loudly here.
         try:
-            _send_approval_email(tenant_id, email_domain, email)
+            _send_approval_email(tenant_id, tenant_display, email)
         except Exception as ses_err:
             print(f"WARN: approval email send failed for tenant {tenant_id}: {ses_err}")
-        print(f"created pending tenant {tenant_id} for {email_domain}")
+        print(f"created pending tenant {tenant_id} for {tenant_key}")
     else:
         _upsert_user(tenant["tenant_id"], email, sso_provider, sso_subject, role="member")
         print(f"linked {email} to existing tenant {tenant['tenant_id']} (status={tenant['status']})")
@@ -108,7 +147,10 @@ def _resolve_identity(attrs: dict) -> tuple[str, str | None]:
     first = ids[0]
     provider_name = (first.get("providerName") or "").lower()
     subject = first.get("userId")
-    if "microsoft" in provider_name:
+    # Per-tenant Microsoft IdPs we lazy-create are named "MS-<29hex>"; the
+    # base Microsoft IdP is just "microsoft". Normalize both to "microsoft"
+    # so downstream filters don't have to know about every per-tenant alias.
+    if "microsoft" in provider_name or provider_name.startswith("ms-"):
         return ("microsoft", subject)
     if "google" in provider_name:
         return ("google", subject)
@@ -129,10 +171,14 @@ def _execute(sql: str, params: list | None = None) -> dict:
     )
 
 
-def _find_tenant_by_domain(email_domain: str) -> dict[str, Any] | None:
+def _find_tenant_by_key(tenant_key: str) -> dict[str, Any] | None:
+    """Lookup is keyed on tenants.email_domain — which for personal-email
+    domains we use to store the *full email*, not just the domain part. The
+    column name is legacy; semantically it's now the tenant identity key.
+    """
     rs = _execute(
-        "SELECT tenant_id::text, status FROM tenants WHERE email_domain = :d",
-        [{"name": "d", "value": {"stringValue": email_domain}}],
+        "SELECT tenant_id::text, status FROM tenants WHERE email_domain = :k",
+        [{"name": "k", "value": {"stringValue": tenant_key}}],
     )
     rows = rs.get("records", [])
     if not rows:
@@ -141,14 +187,14 @@ def _find_tenant_by_domain(email_domain: str) -> dict[str, Any] | None:
     return {"tenant_id": r[0].get("stringValue"), "status": r[1].get("stringValue")}
 
 
-def _create_tenant(tenant_id: str, email_domain: str) -> None:
+def _create_tenant(tenant_id: str, tenant_key: str, display_name: str) -> None:
     _execute(
         """INSERT INTO tenants (tenant_id, display_name, email_domain, status)
-           VALUES (CAST(:id AS UUID), :name, :domain, 'pending')""",
+           VALUES (CAST(:id AS UUID), :name, :key, 'pending')""",
         [
-            {"name": "id",     "value": {"stringValue": tenant_id}},
-            {"name": "name",   "value": {"stringValue": email_domain}},
-            {"name": "domain", "value": {"stringValue": email_domain}},
+            {"name": "id",   "value": {"stringValue": tenant_id}},
+            {"name": "name", "value": {"stringValue": display_name}},
+            {"name": "key",  "value": {"stringValue": tenant_key}},
         ],
     )
 
@@ -194,8 +240,12 @@ def _send_approval_email(tenant_id: str, email_domain: str, requester_email: str
     </div>
     """
 
+    # Send FROM the verified domain so Gmail-side DKIM/SPF/DMARC checks pass.
+    # Until 2026-05-18 we were sending Source=kkmookhey@gmail.com → Gmail
+    # silently spam-foldered or dropped because a Gmail From: coming via AWS
+    # IPs looks like spoofing. DNS for settlingforless.com is now verified.
     ses.send_email(
-        Source=f"no-reply@{DOMAIN}",
+        Source=f"CISO Copilot <no-reply@{DOMAIN}>",
         Destination={"ToAddresses": [APPROVAL_RECIPIENT]},
         Message={
             "Subject": {"Data": f"[CISO Copilot] Access request: {email_domain}"},
@@ -212,7 +262,7 @@ def _decision_url(tenant_id: str, decision: str) -> str:
         "nonce":    secrets.token_urlsafe(16),
         "exp":      int(time.time()) + 7 * 24 * 60 * 60,
     })
-    return f"https://api.{DOMAIN}/v1/admin/tenants/{tenant_id}/decision?token={token}"
+    return f"{API_BASE_URL}/admin/tenants/{tenant_id}/decision?token={token}"
 
 
 # ============================================================================

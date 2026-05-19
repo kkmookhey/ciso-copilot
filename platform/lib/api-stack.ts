@@ -6,20 +6,26 @@ import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
 interface ApiStackProps extends cdk.StackProps {
-  userPool:          cognito.UserPool;
-  userPoolClient:    cognito.UserPoolClient;
-  dbCluster:         rds.DatabaseCluster;
-  eventBus:          events.EventBus;
-  cdnDistribution:   cloudfront.Distribution;
-  shastaRunner:      lambda.IFunction;
-  shastaRunnerAzure: lambda.IFunction;
-  shastaRunnerEntra: lambda.IFunction;
-  shastaRunnerGcp:   lambda.IFunction;
-  entraAppId:        string;
+  userPool:           cognito.UserPool;
+  userPoolClient:     cognito.UserPoolClient;   // iOS
+  webClient:          cognito.UserPoolClient;
+  dbCluster:          rds.DatabaseCluster;
+  eventBus:           events.EventBus;
+  cdnDistribution:    cloudfront.Distribution;
+  shastaRunner:       lambda.IFunction;
+  shastaRunnerAzure:  lambda.IFunction;
+  shastaRunnerEntra:  lambda.IFunction;
+  shastaRunnerGcp:    lambda.IFunction;
+  entraAppId:         string;
+  entraScannerSecret: secretsmanager.ISecret;
+  openaiApiKeySecret: secretsmanager.ISecret;
+  cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
+  webRedirectUri:     string;   // e.g. https://<cdn>/callback
 }
 
 export class ApiStack extends cdk.Stack {
@@ -71,7 +77,11 @@ export class ApiStack extends cdk.Stack {
     // Phase A endpoints
     // ========================================================================
 
-    const cfnTemplateUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/aws-onboard.yaml`;
+    // CFN Console requires an S3 URL (not CloudFront). We presign a short-lived
+    // S3 GET in the Lambda instead; here we just pass bucket+key.
+    const cfnTemplateBucket = `ciso-copilot-cdn-${this.account}`;
+    const cfnTemplateKey    = 'cfn/aws-onboard.yaml';
+    const cfnTemplateUrl    = `https://${props.cdnDistribution.distributionDomainName}/cfn/aws-onboard.yaml`;
     // Built using the v1 prefix from the existing API stage. We use a self-referential
     // string for the complete-webhook because we don't have the API URL until after
     // synth — accepting the indirection.
@@ -84,13 +94,18 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       environment: {
         ...dbEnv,
-        CFN_TEMPLATE_URL:      cfnTemplateUrl,
+        CFN_TEMPLATE_BUCKET:   cfnTemplateBucket,
+        CFN_TEMPLATE_KEY:      cfnTemplateKey,
         COMPLETE_WEBHOOK_URL:  completeWebhookUrl,
         OUR_ACCOUNT_ID:        this.account,
         CENTRAL_EVENT_BUS_ARN: props.eventBus.eventBusArn,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingInitiateFn);
+    onboardingInitiateFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['s3:GetObject'],
+      resources: [`arn:aws:s3:::${cfnTemplateBucket}/${cfnTemplateKey}`],
+    }));
 
     const onboardingCompleteFn = new lambda.Function(this, 'OnboardingAwsCompleteFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -138,6 +153,112 @@ export class ApiStack extends cdk.Stack {
     });
     props.dbCluster.grantDataApiAccess(findingsListFn);
 
+    const eventsListFn = new lambda.Function(this, 'EventsListFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'events_list')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(eventsListFn);
+
+    const complianceSummaryFn = new lambda.Function(this, 'ComplianceSummaryFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'compliance_summary')),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(complianceSummaryFn);
+
+    const findingsSummaryFn = new lambda.Function(this, 'FindingsSummaryFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'findings_summary')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(findingsSummaryFn);
+
+    const findingsRollupFn = new lambda.Function(this, 'FindingsRollupFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'findings_rollup')),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 1024,    // aggregates ~500 rows in-memory; headroom for growth
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(findingsRollupFn);
+
+    const risksFn = new lambda.Function(this, 'RisksFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'risks')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(risksFn);
+
+    const policiesFn = new lambda.Function(this, 'PoliciesFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'policies')),
+      timeout: cdk.Duration.minutes(5),      // generate-all enriches 8 policies in parallel
+      memorySize: 1024,                      // ThreadPoolExecutor + 8 HTTPS connections
+      environment: { ...dbEnv, ANTHROPIC_SECRET_NAME: 'ciso-copilot/anthropic-api-key' },
+    });
+    props.dbCluster.grantDataApiAccess(policiesFn);
+    policiesFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/anthropic-api-key*`],
+    }));
+
+    const questionnairesFn = new lambda.Function(this, 'QuestionnairesFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'questionnaires')),
+      timeout: cdk.Duration.seconds(45),     // Anthropic suggest can take ~5-15s
+      memorySize: 512,
+      environment: { ...dbEnv, ANTHROPIC_SECRET_NAME: 'ciso-copilot/anthropic-api-key' },
+    });
+    props.dbCluster.grantDataApiAccess(questionnairesFn);
+    questionnairesFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/anthropic-api-key*`],
+    }));
+
+    const trustFn = new lambda.Function(this, 'TrustFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'trust')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(trustFn);
+
+    const adminTenantsFn = new lambda.Function(this, 'AdminTenantsFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'admin_tenants')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        ADMIN_EMAILS: 'kkmookhey@gmail.com,kkmookhey@transilience.ai,kkmookhey@networkintelligence.ai',
+        DOMAIN:       'settlingforless.com',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(adminTenantsFn);
+    adminTenantsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ses:SendEmail', 'ses:SendRawEmail'],
+      resources: ['*'],
+    }));
+
     // ========================================================================
     // REST API + authorizer
     // ========================================================================
@@ -154,6 +275,20 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
+    // Gateway-level rejections (e.g., 401 from the Cognito authorizer on expired
+    // tokens) don't reach our Lambdas, so they don't pick up the CORS header
+    // those Lambdas now emit. Add them at the gateway response layer too,
+    // otherwise the browser dies on CORS preflight before showing the real
+    // error and the user just sees a generic bounce.
+    const corsHeaders = {
+      'Access-Control-Allow-Origin':  "'*'",
+      'Access-Control-Allow-Headers': "'Content-Type,Authorization'",
+    };
+    api.addGatewayResponse('Default4xx',   { type: apigw.ResponseType.DEFAULT_4XX,   responseHeaders: corsHeaders });
+    api.addGatewayResponse('Default5xx',   { type: apigw.ResponseType.DEFAULT_5XX,   responseHeaders: corsHeaders });
+    api.addGatewayResponse('Unauthorized', { type: apigw.ResponseType.UNAUTHORIZED,  responseHeaders: corsHeaders, statusCode: '401' });
+    api.addGatewayResponse('AccessDenied', { type: apigw.ResponseType.ACCESS_DENIED, responseHeaders: corsHeaders });
+
     const cognitoAuth = new apigw.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
       cognitoUserPools: [props.userPool],
     });
@@ -165,11 +300,15 @@ export class ApiStack extends cdk.Stack {
     // GET /me  — JWT-authed
     api.root.addResource('me').addMethod('GET', new apigw.LambdaIntegration(meFn), authedOpts);
 
-    // GET /admin/tenants/{id}/decision  — token-authed via query string
-    api.root
-      .addResource('admin')
-      .addResource('tenants')
-      .addResource('{id}')
+    // /admin namespace — shared between the email-link decision endpoint
+    // (token-authed via query string, no Cognito) and the in-app admin
+    // endpoints (Cognito-authed, gated to ADMIN_EMAILS).
+    const adminRes     = api.root.addResource('admin');
+    const adminTenants = adminRes.addResource('tenants');
+    const adminTenantById = adminTenants.addResource('{id}');
+
+    // GET /admin/tenants/{id}/decision  — token-authed via query string (email link)
+    adminTenantById
       .addResource('decision')
       .addMethod('GET', new apigw.LambdaIntegration(adminDecisionFn));
 
@@ -190,7 +329,69 @@ export class ApiStack extends cdk.Stack {
     );
 
     // GET /findings
-    api.root.addResource('findings').addMethod(
+    api.root.addResource('events').addMethod(
+      'GET', new apigw.LambdaIntegration(eventsListFn), authedOpts,
+    );
+
+    api.root.addResource('compliance').addResource('summary').addMethod(
+      'GET', new apigw.LambdaIntegration(complianceSummaryFn), authedOpts,
+    );
+
+
+    const findingsRes = api.root.addResource('findings');
+    // GET /admin/tenants            — list pending/all tenants (Cognito-authed)
+    // POST /admin/tenants/{id}/action — body {decision:"approve"|"reject"}
+    adminTenants.addMethod('GET', new apigw.LambdaIntegration(adminTenantsFn), authedOpts);
+    adminTenantById.addResource('action').addMethod(
+      'POST', new apigw.LambdaIntegration(adminTenantsFn), authedOpts,
+    );
+
+    // /risks — risk register CRUD
+    const risksRes = api.root.addResource('risks');
+    risksRes.addMethod('GET',  new apigw.LambdaIntegration(risksFn), authedOpts);
+    risksRes.addMethod('POST', new apigw.LambdaIntegration(risksFn), authedOpts);
+    const risksId = risksRes.addResource('{id}');
+    risksId.addMethod('PATCH', new apigw.LambdaIntegration(risksFn), authedOpts);
+
+    // /policies — policy templates + drafts (lifted from Shasta policies/)
+    const policiesRes = api.root.addResource('policies');
+    policiesRes.addMethod('GET',  new apigw.LambdaIntegration(policiesFn), authedOpts);
+    policiesRes.addMethod('POST', new apigw.LambdaIntegration(policiesFn), authedOpts);
+    policiesRes.addResource('templates').addMethod('GET', new apigw.LambdaIntegration(policiesFn), authedOpts);
+    policiesRes.addResource('generate-all').addMethod('POST', new apigw.LambdaIntegration(policiesFn), authedOpts);
+    const policyId = policiesRes.addResource('{id}');
+    policyId.addMethod('GET',   new apigw.LambdaIntegration(policiesFn), authedOpts);
+    policyId.addMethod('PATCH', new apigw.LambdaIntegration(policiesFn), authedOpts);
+    policyId.addResource('enrich').addMethod('POST', new apigw.LambdaIntegration(policiesFn), authedOpts);
+
+    // /trust (authed) + /public/trust/{slug} (UNAUTHED) — public posture page.
+    const trustRes = api.root.addResource('trust');
+    trustRes.addMethod('GET', new apigw.LambdaIntegration(trustFn), authedOpts);
+    trustRes.addMethod('PUT', new apigw.LambdaIntegration(trustFn), authedOpts);
+    const publicRes = api.root.addResource('public');
+    publicRes.addResource('trust').addResource('{slug}').addMethod(
+      'GET', new apigw.LambdaIntegration(trustFn),  // NO authedOpts — public
+    );
+
+    // /questionnaires — questionnaire banks + auto-fill from findings (Shasta questionnaire/ lift)
+    const qsRes = api.root.addResource('questionnaires');
+    qsRes.addMethod('GET',  new apigw.LambdaIntegration(questionnairesFn), authedOpts);
+    qsRes.addMethod('POST', new apigw.LambdaIntegration(questionnairesFn), authedOpts);
+    qsRes.addResource('templates').addMethod('GET', new apigw.LambdaIntegration(questionnairesFn), authedOpts);
+    qsRes.addResource('from-excel').addMethod('POST', new apigw.LambdaIntegration(questionnairesFn), authedOpts);
+    const qsId = qsRes.addResource('{id}');
+    qsId.addMethod('GET', new apigw.LambdaIntegration(questionnairesFn), authedOpts);
+    const qsItem = qsId.addResource('items').addResource('{iid}');
+    qsItem.addMethod('PATCH', new apigw.LambdaIntegration(questionnairesFn), authedOpts);
+    qsItem.addMethod('POST',  new apigw.LambdaIntegration(questionnairesFn), authedOpts);  // AI suggest
+
+    findingsRes.addResource('summary').addMethod(
+      'GET', new apigw.LambdaIntegration(findingsSummaryFn), authedOpts,
+    );
+    findingsRes.addResource('rollup').addMethod(
+      'GET', new apigw.LambdaIntegration(findingsRollupFn), authedOpts,
+    );
+    findingsRes.addMethod(
       'GET', new apigw.LambdaIntegration(findingsListFn), authedOpts,
     );
 
@@ -325,6 +526,65 @@ export class ApiStack extends cdk.Stack {
     );
     onboardingGcp.addResource('complete').addMethod(
       'POST', new apigw.LambdaIntegration(onboardingGcpCompleteFn),
+    );
+
+    // ========================================================================
+    // Phase E — Voice session (OpenAI Realtime ephemeral key mint)
+    // ========================================================================
+
+    const voiceSessionFn = new lambda.Function(this, 'VoiceSessionFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'voice_session')),
+      timeout: cdk.Duration.seconds(15),
+      environment: {
+        ...dbEnv,
+        OPENAI_SECRET_NAME: props.openaiApiKeySecret.secretName,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(voiceSessionFn);
+    props.openaiApiKeySecret.grantRead(voiceSessionFn);
+
+    api.root.addResource('voice').addResource('session').addMethod(
+      'POST', new apigw.LambdaIntegration(voiceSessionFn), authedOpts,
+    );
+
+    // ========================================================================
+    // /auth/discover-tenant — email → Cognito IdP routing (UNAUTHED, pre-login)
+    // ========================================================================
+    // Lazily creates per-tenant Microsoft IdPs in Cognito so we can federate
+    // multi-tenant Microsoft (Cognito validates id_token issuer strictly, so
+    // each customer's tenant needs its own IdP entry).
+
+    const authDiscoverFn = new lambda.Function(this, 'AuthDiscoverFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'auth_discover')),
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        USER_POOL_ID:                props.userPool.userPoolId,
+        USER_POOL_CLIENT_ID:         props.userPoolClient.userPoolClientId,  // iOS
+        WEB_POOL_CLIENT_ID:          props.webClient.userPoolClientId,
+        COGNITO_DOMAIN:              props.cognitoDomain,
+        MICROSOFT_CLIENT_ID:         props.entraAppId,
+        MICROSOFT_CLIENT_SECRET_ARN: props.entraScannerSecret.secretArn,
+        WEB_REDIRECT_URI:            props.webRedirectUri,
+      },
+    });
+    props.entraScannerSecret.grantRead(authDiscoverFn);
+    authDiscoverFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'cognito-idp:DescribeIdentityProvider',
+        'cognito-idp:CreateIdentityProvider',
+        'cognito-idp:DescribeUserPoolClient',
+        'cognito-idp:UpdateUserPoolClient',
+      ],
+      resources: [props.userPool.userPoolArn],
+    }));
+
+    const authRes = api.root.addResource('auth');
+    authRes.addResource('discover-tenant').addMethod(
+      'POST', new apigw.LambdaIntegration(authDiscoverFn),
     );
 
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });

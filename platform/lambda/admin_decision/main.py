@@ -65,11 +65,21 @@ def handler(event: dict, context) -> dict:
     new_status = "approved" if decision == "approve" else "rejected"
     _update_tenant_decision(tenant_id, new_status, nonce)
 
+    # The DB flip above is the source of truth. The user-notification email is
+    # best-effort — SES sandbox rejects any recipient that isn't pre-verified,
+    # and an SES failure must not 500 the approval page after the tenant has
+    # already been flipped.
     requester_email = _get_admin_user_email(tenant_id)
+    email_status = "skipped"
     if requester_email:
-        _send_user_email(requester_email, new_status)
+        try:
+            _send_user_email(requester_email, new_status)
+            email_status = "sent"
+        except Exception as e:
+            print(f"WARN: user-notification email to {requester_email} failed: {e}")
+            email_status = "failed (likely SES sandbox — recipient not verified)"
 
-    notified = f" {requester_email} has been notified." if requester_email else ""
+    notified = f" Notification to {requester_email}: {email_status}." if requester_email else ""
     return _html(
         200,
         f"Decision recorded: <strong>{new_status}</strong>.{notified}",
@@ -166,7 +176,7 @@ def _send_user_email(to_email: str, status: str) -> None:
         )
 
     ses.send_email(
-        Source=f"no-reply@{DOMAIN}",
+        Source=f"CISO Copilot <no-reply@{DOMAIN}>",
         Destination={"ToAddresses": [to_email]},
         Message={
             "Subject": {"Data": subject},
@@ -217,6 +227,6 @@ def _html(status: int, message: str, *, title: str = "CISO Copilot") -> dict:
     )
     return {
         "statusCode": status,
-        "headers":    {"content-type": "text/html; charset=utf-8"},
+        "headers":    {"content-type": "text/html; charset=utf-8", "access-control-allow-origin": "*"},
         "body":       body,
     }

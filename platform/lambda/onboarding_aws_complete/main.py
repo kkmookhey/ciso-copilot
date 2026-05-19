@@ -218,6 +218,6 @@ def _grant_eventbus_putevents(account_id: str, conn_id: str) -> None:
 def _resp(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers":    {"content-type": "application/json"},
+        "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }

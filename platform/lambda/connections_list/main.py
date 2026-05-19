@@ -72,6 +72,8 @@ def _resolve_tenant_id(event: dict) -> str | None:
     if raw:
         try:
             ids = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(ids, dict):
+                ids = [ids]
             if ids:
                 sso_subject = ids[0].get("userId") or claims.get("sub")
         except (TypeError, ValueError):
@@ -94,6 +96,6 @@ def _resolve_tenant_id(event: dict) -> str | None:
 def _resp(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers":    {"content-type": "application/json"},
+        "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }

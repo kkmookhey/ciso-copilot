@@ -25,12 +25,14 @@ import boto3
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
-CFN_TEMPLATE_URL = os.environ["CFN_TEMPLATE_URL"]
+CFN_TEMPLATE_BUCKET  = os.environ["CFN_TEMPLATE_BUCKET"]
+CFN_TEMPLATE_KEY     = os.environ["CFN_TEMPLATE_KEY"]
 COMPLETE_WEBHOOK_URL = os.environ["COMPLETE_WEBHOOK_URL"]
 OUR_ACCOUNT_ID = os.environ["OUR_ACCOUNT_ID"]
 CENTRAL_EVENT_BUS_ARN = os.environ["CENTRAL_EVENT_BUS_ARN"]
 
 rds_data = boto3.client("rds-data")
+s3       = boto3.client("s3", config=__import__("botocore").client.Config(signature_version="s3v4"))
 
 
 def handler(event: dict, context) -> dict:
@@ -76,27 +78,42 @@ def handler(event: dict, context) -> dict:
         ],
     )
 
-    cfn_url = _build_cfn_deep_link(conn_id, external_id)
+    # CloudFormation Console rejects non-S3 templateURLs. Our CDN URL won't
+    # work; the S3 bucket itself is private. Presign a short-lived S3 GET so
+    # Console can fetch it without granting the customer's IAM principal
+    # access to our bucket.
+    template_url = s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": CFN_TEMPLATE_BUCKET, "Key": CFN_TEMPLATE_KEY},
+        ExpiresIn=3600,  # 1 hour — enough time to click through CFN review
+    )
+
+    cfn_url = _build_cfn_deep_link(conn_id, external_id, template_url)
 
     return _resp(200, {
         "connection_id": conn_id,
         "external_id":   external_id,
         "cfn_url":       cfn_url,
-        "template_url":  CFN_TEMPLATE_URL,
+        "template_url":  template_url,
     })
 
 
-def _build_cfn_deep_link(conn_id: str, external_id: str) -> str:
+def _build_cfn_deep_link(conn_id: str, external_id: str, template_url: str) -> str:
     """One-click CloudFormation console deep link with our template + params pre-filled."""
     params = {
         "stackName":   f"ciso-copilot-{conn_id[:8]}",
-        "templateURL": CFN_TEMPLATE_URL,
+        "templateURL": template_url,
         "param_CisoCopilotAccountId": OUR_ACCOUNT_ID,
         "param_ExternalId":           external_id,
         "param_CentralEventBusArn":   CENTRAL_EVENT_BUS_ARN,
         "param_CompleteWebhookUrl":   COMPLETE_WEBHOOK_URL,
         "param_ConnectionId":         conn_id,
-        "param_EnableAwsConfig":      "true",
+        # Default to false — most production AWS accounts already have a
+        # Config delivery channel (limit: 1 per account/region). We still
+        # receive Config item changes via the EventBridge forwarding rule,
+        # which is created unconditionally. Customer can flip this to true
+        # in the CFN review step if their account has no Config recorder yet.
+        "param_EnableAwsConfig":      "false",
     }
     query = urllib.parse.urlencode(params)
     return f"https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?{query}"
@@ -123,6 +140,8 @@ def _subject_from_claims(claims: dict) -> str | None:
     if raw:
         try:
             ids = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(ids, dict):
+                ids = [ids]
             if ids:
                 return ids[0].get("userId") or claims.get("sub")
         except (TypeError, ValueError):
@@ -133,6 +152,6 @@ def _subject_from_claims(claims: dict) -> str | None:
 def _resp(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers":    {"content-type": "application/json"},
+        "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }

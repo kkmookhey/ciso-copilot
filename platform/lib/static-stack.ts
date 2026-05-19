@@ -3,8 +3,14 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Construct } from 'constructs';
 import * as path from 'path';
+
+// Pre-issued ACM cert for app.settlingforless.com (DNS-validated 2026-05-18).
+// Lives in us-east-1 by necessity (CloudFront only accepts certs from us-east-1).
+const APP_CERT_ARN = 'arn:aws:acm:us-east-1:470226123496:certificate/83a22317-a1b9-498d-861a-253deaaff973';
+const APP_DOMAIN   = 'app.settlingforless.com';
 
 /// Static hosting for:
 ///  • cdn.settlingforless.com — public CloudFormation templates customers
@@ -70,6 +76,8 @@ export class StaticStack extends cdk.Stack {
       removalPolicy:     cdk.RemovalPolicy.RETAIN,
     });
 
+    const appCert = acm.Certificate.fromCertificateArn(this, 'AppCert', APP_CERT_ARN);
+
     this.appDistribution = new cloudfront.Distribution(this, 'AppDist', {
       comment: 'CISO Copilot web SPA',
       defaultBehavior: {
@@ -85,7 +93,9 @@ export class StaticStack extends cdk.Stack {
         { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html', ttl: cdk.Duration.seconds(0) },
         { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html', ttl: cdk.Duration.seconds(0) },
       ],
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
+      priceClass:  cloudfront.PriceClass.PRICE_CLASS_100,
+      domainNames: [APP_DOMAIN],
+      certificate: appCert,
     });
 
     new cdk.CfnOutput(this, 'CdnDomain', { value: this.cdnDistribution.distributionDomainName });

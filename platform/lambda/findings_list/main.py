@@ -45,6 +45,7 @@ def handler(event: dict, context) -> dict:
     cloud      = (qp.get("cloud") or "").lower() if qp.get("cloud") else None
     if cloud and cloud not in ALLOWED_CLOUDS:
         return _resp(400, {"error": "invalid_cloud"})
+    check_id   = (qp.get("check_id") or "").strip() or None
     limit  = min(int(qp.get("limit",  "50") or 50), 200)
     offset = max(int(qp.get("offset", "0")  or 0),  0)
 
@@ -58,6 +59,7 @@ def handler(event: dict, context) -> dict:
         + "WHERE f.tenant_id = CAST(:tid AS UUID) "
         + f"  AND f.severity IN ({_in_clause('sev', severities)}) "
         + f"  AND f.status   IN ({_in_clause('st',  statuses)}) "
+        + ("  AND f.check_id = :chk " if check_id else "")
         + "ORDER BY "
           "  CASE f.severity "
           "    WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 "
@@ -73,6 +75,8 @@ def handler(event: dict, context) -> dict:
         params.append({"name": f"sev{i}", "value": {"stringValue": s}})
     for i, s in enumerate(statuses):
         params.append({"name": f"st{i}", "value": {"stringValue": s}})
+    if check_id:
+        params.append({"name": "chk", "value": {"stringValue": check_id}})
     params.append({"name": "limit",  "value": {"longValue": limit}})
     params.append({"name": "offset", "value": {"longValue": offset}})
 
@@ -80,6 +84,24 @@ def handler(event: dict, context) -> dict:
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=sql, parameters=params,
     )
+
+    # Total count under the same filters (ignoring limit/offset) so the UI can
+    # show "N open findings" without paging through all rows.
+    count_sql = (
+        "SELECT COUNT(*) FROM findings f "
+        + ("JOIN cloud_connections c ON c.conn_id = f.conn_id AND c.cloud_type = :cloud "
+           if cloud else "")
+        + "WHERE f.tenant_id = CAST(:tid AS UUID) "
+        + f"  AND f.severity IN ({_in_clause('sev', severities)}) "
+        + f"  AND f.status   IN ({_in_clause('st',  statuses)})"
+        + ("  AND f.check_id = :chk" if check_id else "")
+    )
+    count_params = [p for p in params if p["name"] not in ("limit", "offset")]
+    count_rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=count_sql, parameters=count_params,
+    )
+    total = int(count_rs["records"][0][0].get("longValue", 0))
 
     findings = []
     for r in rs.get("records", []):
@@ -100,7 +122,13 @@ def handler(event: dict, context) -> dict:
             "last_seen":     r[13].get("stringValue"),
         })
 
-    return _resp(200, {"findings": findings, "limit": limit, "offset": offset, "count": len(findings)})
+    return _resp(200, {
+        "findings": findings,
+        "limit":    limit,
+        "offset":   offset,
+        "count":    len(findings),  # this page
+        "total":    total,           # all matches under the filters
+    })
 
 
 def _parse_set(raw: str | None, allowed: set[str]) -> list[str]:
@@ -120,6 +148,8 @@ def _resolve_tenant_id(event: dict) -> str | None:
     if raw:
         try:
             ids = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(ids, dict):
+                ids = [ids]
             if ids:
                 sso_subject = ids[0].get("userId") or claims.get("sub")
         except (TypeError, ValueError):
@@ -139,6 +169,6 @@ def _resolve_tenant_id(event: dict) -> str | None:
 def _resp(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers":    {"content-type": "application/json"},
+        "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }

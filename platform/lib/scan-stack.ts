@@ -30,11 +30,12 @@ interface ScanStackProps extends cdk.StackProps {
 ///   - secretsmanager:GetSecretValue on ciso-copilot/connections/* (in
 ///     case we move credential pickup into the Lambda later)
 export class ScanStack extends cdk.Stack {
-  public readonly shastaRunner:      lambda.DockerImageFunction;
-  public readonly shastaRunnerAzure: lambda.DockerImageFunction;
-  public readonly shastaRunnerEntra: lambda.DockerImageFunction;
-  public readonly shastaRunnerGcp:   lambda.DockerImageFunction;
+  public readonly shastaRunner:       lambda.DockerImageFunction;
+  public readonly shastaRunnerAzure:  lambda.DockerImageFunction;
+  public readonly shastaRunnerEntra:  lambda.DockerImageFunction;
+  public readonly shastaRunnerGcp:    lambda.DockerImageFunction;
   public readonly entraScannerSecret: secretsmanager.Secret;
+  public readonly openaiApiKeySecret: secretsmanager.Secret;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -93,6 +94,20 @@ export class ScanStack extends cdk.Stack {
       secretObjectValue: {
         client_id:     cdk.SecretValue.unsafePlainText(config.entraClientId),
         client_secret: cdk.SecretValue.unsafePlainText(config.entraClientSecret),
+      },
+    });
+
+    // ===== OpenAI API key (Phase E voice) =====
+    // Empty placeholder — populate post-deploy with:
+    //   aws secretsmanager put-secret-value --secret-id ciso-copilot/openai-api-key \
+    //     --secret-string '{"api_key":"sk-..."}'
+    // /voice/session returns 503 with instructions until populated.
+    this.openaiApiKeySecret = new secretsmanager.Secret(this, 'OpenAiApiKey', {
+      secretName: 'ciso-copilot/openai-api-key',
+      description: 'OpenAI API key for Realtime voice + future LLM features.',
+      generateSecretString: {
+        secretStringTemplate: '{"api_key": ""}',
+        generateStringKey:    'placeholder',
       },
     });
 

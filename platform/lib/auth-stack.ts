@@ -13,7 +13,8 @@ interface AuthStackProps extends cdk.StackProps {
 
 export class AuthStack extends cdk.Stack {
   public readonly userPool: cognito.UserPool;
-  public readonly userPoolClient: cognito.UserPoolClient;
+  public readonly userPoolClient: cognito.UserPoolClient;  // iOS client
+  public readonly webClient: cognito.UserPoolClient;
 
   constructor(scope: Construct, id: string, props: AuthStackProps) {
     super(scope, id, props);
@@ -30,6 +31,10 @@ export class AuthStack extends cdk.Stack {
         DB_NAME:            'ciso_copilot',
         APPROVAL_RECIPIENT: config.approvalRecipient,
         DOMAIN:             config.domain,
+        // Approve/Reject email links target the API Gateway invoke URL until
+        // DNS for api.<DOMAIN> resolves. Flip to https://api.<DOMAIN>/v1 once
+        // DNS lands.
+        API_BASE_URL:       'https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1',
         // Token signing key referenced from Secrets Manager once provisioned.
         // For now, default to a fixed name; create the secret separately.
         APPROVAL_TOKEN_SECRET_NAME: 'ciso-copilot/approval-signing-key',
@@ -46,12 +51,16 @@ export class AuthStack extends cdk.Stack {
     }));
 
     // ===== User Pool =====
-    this.userPool = new cognito.UserPool(this, 'UserPool', {
+    // 'UserPoolV2' — renamed from 'UserPool' on 2026-05-18 to force CFN to create a
+    // new resource. The original pool had email mutable: false (Cognito's
+    // UpdateUserPool API rejects changing an existing standard attribute's mutability),
+    // so the only way to enable email sync on re-sign-in was a new pool.
+    this.userPool = new cognito.UserPool(this, 'UserPoolV2', {
       userPoolName:    'ciso-copilot',
       signInAliases:   { email: true },
       autoVerify:      { email: true },
       standardAttributes: {
-        email:      { required: true, mutable: false },
+        email:      { required: true, mutable: true },  // mutable so Cognito can sync email on federated re-sign-in; immutable triggered "user.email: Attribute cannot be updated" on every 2nd sign-in
         givenName:  { required: false, mutable: true },
         familyName: { required: false, mutable: true },
       },
@@ -59,7 +68,7 @@ export class AuthStack extends cdk.Stack {
       mfaSecondFactor: { sms: false, otp: true },
       passwordPolicy: { minLength: 12, requireDigits: true, requireSymbols: true },
       lambdaTriggers:  { postConfirmation },
-      removalPolicy:   cdk.RemovalPolicy.RETAIN,
+      removalPolicy:   cdk.RemovalPolicy.DESTROY,
     });
 
     // ===== Microsoft Entra OIDC (multi-tenant) =====
@@ -124,7 +133,7 @@ export class AuthStack extends cdk.Stack {
     this.userPoolClient.node.addDependency(google);
 
     // ===== Web app client — used by the SPA at app.settlingforless.com =====
-    const webClient = this.userPool.addClient('WebClient', {
+    this.webClient = this.userPool.addClient('WebClient', {
       generateSecret: false,                    // public client (browser)
       supportedIdentityProviders: [
         cognito.UserPoolClientIdentityProvider.custom('Microsoft'),
@@ -134,9 +143,9 @@ export class AuthStack extends cdk.Stack {
         flows:  { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [
-          `https://app.${config.domain}/callback`,
-          'https://dil1ztnjosz43.cloudfront.net/callback', // CloudFront default until DNS lands
-          'http://localhost:5173/callback',                 // Vite dev server
+          `https://app.${config.domain}/callback`,           // production custom domain
+          'https://dil1ztnjosz43.cloudfront.net/callback',   // CloudFront default (kept as backup)
+          'http://localhost:5173/callback',                  // Vite dev server
         ],
         logoutUrls: [
           `https://app.${config.domain}/`,
@@ -148,12 +157,12 @@ export class AuthStack extends cdk.Stack {
       idTokenValidity:      cdk.Duration.minutes(60),
       refreshTokenValidity: cdk.Duration.days(30),
     });
-    webClient.node.addDependency(microsoft);
-    webClient.node.addDependency(google);
+    this.webClient.node.addDependency(microsoft);
+    this.webClient.node.addDependency(google);
 
     new cdk.CfnOutput(this, 'UserPoolId',       { value: this.userPool.userPoolId });
     new cdk.CfnOutput(this, 'UserPoolClientId', { value: this.userPoolClient.userPoolClientId });
-    new cdk.CfnOutput(this, 'WebClientId',      { value: webClient.userPoolClientId });
+    new cdk.CfnOutput(this, 'WebClientId',      { value: this.webClient.userPoolClientId });
     new cdk.CfnOutput(this, 'CognitoDomain',    { value: `ciso-copilot.auth.${config.awsRegion}.amazoncognito.com` });
   }
 }

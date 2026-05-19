@@ -163,6 +163,6 @@ def _html_redirect(message: str, *, success: bool) -> dict:
     )
     return {
         "statusCode": 200 if success else 400,
-        "headers":    {"content-type": "text/html; charset=utf-8"},
+        "headers":    {"content-type": "text/html; charset=utf-8", "access-control-allow-origin": "*"},
         "body":       body,
     }
