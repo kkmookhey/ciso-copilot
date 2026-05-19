@@ -13,6 +13,7 @@ import { Questionnaires } from "./routes/Questionnaires";
 import { TrustAdmin }   from "./routes/TrustAdmin";
 import { TrustPublic }  from "./routes/TrustPublic";
 import { InstallCallback } from "./routes/InstallCallback";
+import { RepoPicker } from "./routes/RepoPicker";
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/trust"          element={<TrustAdmin />} />
           <Route path="/admin"     element={<Admin />} />
           <Route path="/ai/install/callback" element={<InstallCallback />} />
+          <Route path="/ai/connections/:id/repos" element={<RepoPicker />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
