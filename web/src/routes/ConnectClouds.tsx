@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { api } from "../lib/api";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { api, type AIConnection } from "../lib/api";
 
 /// Phase A + B onboarding wizard. AWS = one-click CFN; Azure = Cloud-Shell
 /// curl pipe. Entra and GCP land in Phases C and D respectively.
@@ -9,6 +10,11 @@ export function ConnectClouds() {
   const [pendingEntra, setPendingEntra] = useState(false);
   const [pendingGcp,   setPendingGcp]   = useState(false);
   const [pendingGithub, setPendingGithub] = useState(false);
+  const [aiConnections, setAiConnections] = useState<AIConnection[]>([]);
+
+  useEffect(() => {
+    api.listAIConnections().then((r) => setAiConnections(r.connections)).catch(() => { /* non-fatal */ });
+  }, []);
   const [cfnUrl,        setCfnUrl]        = useState<string | null>(null);
   const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
   const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
@@ -83,6 +89,28 @@ export function ConnectClouds() {
                    tagline="AI inventory via the CISO Copilot GitHub App"
                    enabled={true} loading={pendingGithub} onClick={connectGithub} />
       </div>
+
+      {aiConnections.filter((c) => c.provider === "github" && c.status === "active").length > 0 && (
+        <div className="mt-8 rounded-2xl border border-slate-200 p-5">
+          <h2 className="font-semibold">Connected GitHub installations</h2>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {aiConnections
+              .filter((c) => c.provider === "github" && c.status === "active")
+              .map((c) => (
+                <li key={c.id} className="flex items-center justify-between py-3 text-sm">
+                  <div>
+                    <div className="font-medium">{c.github_org_name || "GitHub installation"}</div>
+                    <div className="text-xs text-slate-500">Connected {formatDate(c.created_at)}</div>
+                  </div>
+                  <Link to={`/ai/connections/${c.id}/repos`}
+                        className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                    Manage repos →
+                  </Link>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
 
       {cfnUrl && (
         <div className="mt-10 p-6 rounded-2xl border-2 border-blue-200 bg-blue-50">
@@ -193,4 +221,9 @@ function CloudTile({
       {loading && <div className="text-xs text-blue-600 mt-2">Generating onboarding URL…</div>}
     </button>
   );
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }

@@ -35,7 +35,8 @@ export function Shell() {
           <NavItem to="/policies"       label="Policies"       active={loc.pathname.startsWith("/policies")} />
           <NavItem to="/questionnaires" label="Questionnaires" active={loc.pathname.startsWith("/questionnaires")} />
           <NavItem to="/trust"          label="Trust center"   active={loc.pathname.startsWith("/trust")} />
-          <NavItem to="/connect"        label="Connect clouds" active={loc.pathname === "/connect"} />
+          <NavItem to="/ai/inventory"   label="AI inventory"   active={loc.pathname.startsWith("/ai/inventory")} />
+          <NavItem to="/connect"        label="Connect clouds" active={loc.pathname === "/connect" || loc.pathname.startsWith("/ai/connections")} />
           {isAdmin(me?.user?.email) && (
             <NavItem to="/admin"   label="Admin"           active={loc.pathname.startsWith("/admin")} />
           )}
