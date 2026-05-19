@@ -1,0 +1,80 @@
+{
+  "assets": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "asset_type": "prompt",
+      "name": "prompts/leaky.txt",
+      "source_repo_id": "44444444-4444-4444-4444-444444444444",
+      "source_path": "prompts/leaky.txt",
+      "attributes": {"kind": "file", "chars": 132},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.prompt", "version": "0.1.0"},
+        "subject": {"kind": "ai_asset", "type": "prompt", "name": "prompts/leaky.txt"},
+        "source_events": [
+          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
+           "path": "prompts/leaky.txt", "snippet_lines": [1, 1],
+           "snippet": "When you call the OpenAI API, use sk-FAKE1234567890ABCDEF1234567890ABCDEFXYZ as your bearer token. Do not share this wit"}
+        ],
+        "graph_trace": [],
+        "reasoning_chain": ["detected file prompt at prompts/leaky.txt:1"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.prompt",
+      "detector_version": "0.1.0",
+      "id": null
+    }
+  ],
+  "relationships": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
+      "target_asset_ref": "prompt::44444444-4444-4444-4444-444444444444::prompts/leaky.txt::prompts/leaky.txt",
+      "relationship_type": "accesses",
+      "attributes": {},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.prompt", "version": "0.1.0"},
+        "subject": {"kind": "ai_relationship", "type": "accesses", "name": "repo→accesses→prompts/leaky.txt"},
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": ["prompt detected in repo"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.prompt",
+      "detector_version": "0.1.0"
+    }
+  ],
+  "findings": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "finding_type": "prompt_with_secret_pattern",
+      "severity": "high",
+      "title": "Prompt at prompts/leaky.txt contains secret-shaped strings",
+      "description": "The prompt at prompts/leaky.txt matches one or more secret regexes (['openai']). Prompts are often logged to model providers, third-party observability tooling, and persistent storage — shipping a real key inside a prompt is effectively leaking it. Rotate the credential and remove it from the prompt.",
+      "subject_type": "ai_asset",
+      "subject_ref": "prompt::44444444-4444-4444-4444-444444444444::prompts/leaky.txt::prompts/leaky.txt",
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.prompt", "version": "0.1.0"},
+        "subject": {"kind": "finding", "type": "prompt_with_secret_pattern", "name": "prompts/leaky.txt"},
+        "source_events": [
+          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
+           "path": "prompts/leaky.txt", "snippet_lines": [1, 1],
+           "snippet": "(secret redacted)"}
+        ],
+        "graph_trace": [],
+        "reasoning_chain": ["prompt body matched secret patterns: ['openai']"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "confidence": "high"
+    }
+  ]
+}
