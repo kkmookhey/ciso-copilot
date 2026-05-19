@@ -1,0 +1,54 @@
+{
+  "assets": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "asset_type": "mcp_server",
+      "name": "filesystem",
+      "source_repo_id": "44444444-4444-4444-4444-444444444444",
+      "source_path": "mcp.json",
+      "attributes": {"runtime": "config", "command": "npx"},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
+        "subject": {"kind": "ai_asset", "type": "mcp_server", "name": "filesystem"},
+        "source_events": [
+          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
+           "path": "mcp.json", "snippet_lines": [1, 1],
+           "snippet": "mcpServers.filesystem"}
+        ],
+        "graph_trace": [],
+        "reasoning_chain": ["declared in mcp.json mcpServers.filesystem"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.mcp_server",
+      "detector_version": "0.1.0",
+      "id": null
+    }
+  ],
+  "relationships": [
+    {
+      "tenant_id": "22222222-2222-2222-2222-222222222222",
+      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
+      "target_asset_ref": "mcp_server::44444444-4444-4444-4444-444444444444::mcp.json::filesystem",
+      "relationship_type": "deploys",
+      "attributes": {},
+      "evidence_packet": {
+        "version": "0.1",
+        "detector": {"id": "ai.detectors.mcp_server", "version": "0.1.0"},
+        "subject": {"kind": "ai_relationship", "type": "deploys", "name": "repo→deploys→filesystem"},
+        "source_events": [],
+        "graph_trace": [],
+        "reasoning_chain": ["mcp_server declared in config"],
+        "model": null,
+        "confidence": "high",
+        "signature": null
+      },
+      "detector_id": "ai.detectors.mcp_server",
+      "detector_version": "0.1.0"
+    }
+  ],
+  "findings": []
+}
