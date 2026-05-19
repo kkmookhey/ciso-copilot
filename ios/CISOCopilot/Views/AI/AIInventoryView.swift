@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// AI assets discovered by the scanner, grouped by repository. Read-only
-/// in Slice 1b — relationships and per-asset graph land in 1c.
+/// AI entities discovered by the scanner, grouped by kind. Read-only in SP1 —
+/// cross-domain relationships and per-entity graph land in SP2 via the
+/// /v1/entities/{id}/graph and /relationships endpoints.
 struct AIInventoryView: View {
     @Environment(APIClient.self) private var api
-    @State private var assets: [AIAssetSummary] = []
+    @State private var entities: [EntitySummary] = []
     @State private var loading = true
     @State private var errorMessage: String?
 
@@ -15,17 +16,17 @@ struct AIInventoryView: View {
                                         description: Text(errorMessage))
             } else if loading {
                 ProgressView("Loading AI inventory…")
-            } else if assets.isEmpty {
-                ContentUnavailableView("No AI assets yet",
+            } else if entities.isEmpty {
+                ContentUnavailableView("No AI entities yet",
                                         systemImage: "brain.head.profile",
                                         description: Text("Connect GitHub and run a scan from the web app to populate this view."))
             } else {
                 List {
-                    ForEach(groupedByRepo(), id: \.repo) { group in
-                        Section(group.repo ?? "Unattached") {
-                            ForEach(group.items) { asset in
-                                NavigationLink(value: asset) {
-                                    AIAssetRow(asset: asset)
+                    ForEach(groupedByKind(), id: \.kind) { group in
+                        Section(prettyKind(group.kind)) {
+                            ForEach(group.items) { entity in
+                                NavigationLink(value: entity) {
+                                    EntityRow(entity: entity)
                                 }
                             }
                         }
@@ -36,8 +37,8 @@ struct AIInventoryView: View {
         }
         .navigationTitle("AI Inventory")
         .task { await load() }
-        .navigationDestination(for: AIAssetSummary.self) { asset in
-            AIAssetDetailView(assetId: asset.id, fallback: asset)
+        .navigationDestination(for: EntitySummary.self) { entity in
+            AIAssetDetailView(assetId: entity.id, fallback: entity)
         }
     }
 
@@ -45,44 +46,44 @@ struct AIInventoryView: View {
         loading = true
         defer { loading = false }
         do {
-            assets = try await api.listAIAssets()
+            entities = try await api.listEntities(domain: "ai")
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func groupedByRepo() -> [RepoGroup] {
-        var buckets: [String?: [AIAssetSummary]] = [:]
-        for a in assets {
-            buckets[a.source_repo?.full_name, default: []].append(a)
+    private func groupedByKind() -> [KindGroup] {
+        var buckets: [String: [EntitySummary]] = [:]
+        for e in entities {
+            buckets[e.kind, default: []].append(e)
         }
         return buckets
-            .map { RepoGroup(repo: $0.key, items: $0.value) }
-            .sorted { ($0.repo ?? "") < ($1.repo ?? "") }
+            .map { KindGroup(kind: $0.key, items: $0.value) }
+            .sorted { $0.kind < $1.kind }
     }
 
-    private struct RepoGroup: Hashable {
-        let repo: String?
-        let items: [AIAssetSummary]
+    private struct KindGroup: Hashable {
+        let kind: String
+        let items: [EntitySummary]
     }
 }
 
-private struct AIAssetRow: View {
-    let asset: AIAssetSummary
+private struct EntityRow: View {
+    let entity: EntitySummary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(asset.asset_type)
+                Text(prettyKind(entity.kind))
                     .font(.caption2)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.gray.opacity(0.15), in: Capsule())
-                Text(asset.name)
+                Text(entity.display_name)
                     .font(.body)
                     .lineLimit(1)
             }
-            if let path = asset.source_path {
+            if let path = entity.source_path {
                 Text(path)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -90,4 +91,9 @@ private struct AIAssetRow: View {
             }
         }
     }
+}
+
+/// Strip the "ai_" prefix for prettier display (e.g. "ai_framework" → "framework").
+private func prettyKind(_ kind: String) -> String {
+    kind.hasPrefix("ai_") ? String(kind.dropFirst(3)) : kind
 }

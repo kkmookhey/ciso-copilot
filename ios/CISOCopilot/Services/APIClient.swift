@@ -398,27 +398,28 @@ final class APIClient {
         return try decoder.decode(ComplianceSummaryResponse.self, from: data)
     }
 
-    // MARK: - /ai/assets
+    // MARK: - /entities
 
-    func listAIAssets(type: String? = nil) async throws -> [AIAssetSummary] {
-        var comps = URLComponents(url: Self.baseURL.appending(path: "ai/assets"), resolvingAgainstBaseURL: false)!
+    func listEntities(domain: String? = nil, kind: String? = nil) async throws -> [EntitySummary] {
+        var comps = URLComponents(url: Self.baseURL.appending(path: "entities"), resolvingAgainstBaseURL: false)!
         var qs: [URLQueryItem] = []
-        if let type { qs.append(.init(name: "type", value: type)) }
+        if let domain { qs.append(.init(name: "domain", value: domain)) }
+        if let kind   { qs.append(.init(name: "kind",   value: kind)) }
         if !qs.isEmpty { comps.queryItems = qs }
         var req = URLRequest(url: comps.url!)
         try await attachAuthHeader(&req)
         let (data, response) = try await session.data(for: req)
         try Self.assertOK(response)
-        struct Resp: Decodable { let assets: [AIAssetSummary]; let next_page: Int? }
-        return try decoder.decode(Resp.self, from: data).assets
+        struct Resp: Decodable { let entities: [EntitySummary]; let next_page: Int? }
+        return try decoder.decode(Resp.self, from: data).entities
     }
 
-    func getAIAsset(_ id: String) async throws -> AIAssetDetail {
-        var req = URLRequest(url: Self.baseURL.appending(path: "ai/assets/\(id)"))
+    func getEntity(_ id: String) async throws -> EntityDetail {
+        var req = URLRequest(url: Self.baseURL.appending(path: "entities/\(id)"))
         try await attachAuthHeader(&req)
         let (data, response) = try await session.data(for: req)
         try Self.assertOK(response)
-        return try decoder.decode(AIAssetDetail.self, from: data)
+        return try decoder.decode(EntityDetail.self, from: data)
     }
 
     // MARK: - Helpers
@@ -763,29 +764,31 @@ struct Finding: Decodable, Identifiable, Hashable {
     var id: String { finding_id }
 }
 
-// MARK: - AI inventory DTOs
+// MARK: - Entity DTOs (unified inventory — SP1)
 
-struct AIAssetRepoRef: Decodable, Hashable {
+struct EntitySummary: Decodable, Identifiable, Hashable {
     let id: String
-    let full_name: String
-}
-
-struct AIAssetSummary: Decodable, Identifiable, Hashable {
-    let id: String
-    let asset_type: String
-    let name: String
-    let source_repo: AIAssetRepoRef?
+    let kind: String
+    let natural_key: String
+    let display_name: String
+    let domain: String
     let source_path: String?
     let detector_id: String
     let first_seen_at: String
     let last_seen_at: String
+    let attributes: AnyJSON
+
+    // Manual Hashable/Equatable — entity id is unique, AnyJSON isn't Hashable.
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    static func == (lhs: EntitySummary, rhs: EntitySummary) -> Bool { lhs.id == rhs.id }
 }
 
-struct AIAssetDetail: Decodable {
+struct EntityDetail: Decodable {
     let id: String
-    let asset_type: String
-    let name: String
-    let source_repo: AIAssetRepoRef?
+    let kind: String
+    let natural_key: String
+    let display_name: String
+    let domain: String
     let source_path: String?
     let detector_id: String
     let first_seen_at: String
