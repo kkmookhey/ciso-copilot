@@ -1,53 +1,83 @@
 {
-  "assets": [
+  "entities": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "connection_id": "33333333-3333-3333-3333-333333333333",
-      "asset_type": "framework",
-      "name": "langchain",
-      "source_repo_id": "44444444-4444-4444-4444-444444444444",
-      "source_path": "app/agent.py",
-      "attributes": {"imports_seen": 2},
+      "kind": "ai_framework",
+      "natural_key": "langchain",
+      "display_name": "langchain",
+      "domain": "ai",
+      "attributes": {
+        "imports_seen": 2
+      },
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.framework", "version": "0.1.0"},
-        "subject": {"kind": "ai_asset", "type": "framework", "name": "langchain"},
+        "detector": {
+          "id": "ai.detectors.framework",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_asset",
+          "type": "ai_framework",
+          "name": "langchain"
+        },
         "source_events": [
-          {"kind": "file", "repo": "fixture/repo", "commit_sha": "fixture-sha",
-           "path": "app/agent.py", "snippet_lines": [1, 1],
-           "snippet": "from langchain.chains import LLMChain"}
+          {
+            "kind": "file",
+            "repo": "fixture/repo",
+            "commit_sha": "fixture-sha",
+            "path": "app/agent.py",
+            "snippet_lines": [
+              1,
+              1
+            ],
+            "snippet": "from langchain.chains import LLMChain"
+          }
         ],
         "graph_trace": [],
-        "reasoning_chain": ["matched langchain import on app/agent.py:1"],
+        "reasoning_chain": [
+          "matched langchain import on app/agent.py:1"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.framework",
-      "detector_version": "0.1.0",
-      "id": null
+      "detector_version": "0.2.0",
+      "connection_id": "33333333-3333-3333-3333-333333333333",
+      "source_path": "app/agent.py"
     }
   ],
-  "relationships": [
+  "edges": [
     {
       "tenant_id": "22222222-2222-2222-2222-222222222222",
-      "source_asset_ref": "repository::::44444444-4444-4444-4444-444444444444",
-      "target_asset_ref": "framework::44444444-4444-4444-4444-444444444444::app/agent.py::langchain",
-      "relationship_type": "uses",
+      "source_kind": "github_repo",
+      "source_natural_key": "github.com/fixture/repo",
+      "target_kind": "ai_framework",
+      "target_natural_key": "langchain",
+      "kind": "uses",
       "attributes": {},
       "evidence_packet": {
         "version": "0.1",
-        "detector": {"id": "ai.detectors.framework", "version": "0.1.0"},
-        "subject": {"kind": "ai_relationship", "type": "uses", "name": "repo→uses→langchain"},
+        "detector": {
+          "id": "ai.detectors.framework",
+          "version": "0.2.0"
+        },
+        "subject": {
+          "kind": "ai_relationship",
+          "type": "uses",
+          "name": "repo\u2192uses\u2192langchain"
+        },
         "source_events": [],
         "graph_trace": [],
-        "reasoning_chain": ["framework detected in repo"],
+        "reasoning_chain": [
+          "framework detected in repo"
+        ],
         "model": null,
         "confidence": "high",
         "signature": null
       },
       "detector_id": "ai.detectors.framework",
-      "detector_version": "0.1.0"
+      "detector_version": "0.2.0"
     }
   ],
   "findings": []
