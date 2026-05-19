@@ -6,6 +6,11 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    from: 130.0.0
+
 settings:
   base:
     DEVELOPMENT_TEAM: 2G875YX5NV
@@ -18,6 +23,7 @@ settings:
     INFOPLIST_KEY_UIRequiredDeviceCapabilities: arm64
     INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
     INFOPLIST_KEY_UIBackgroundModes: remote-notification
+    INFOPLIST_KEY_NSMicrophoneUsageDescription: "CISO Copilot uses the microphone for voice chat with the security assistant."
 
 targets:
   CISOCopilot:
@@ -25,6 +31,9 @@ targets:
     platform: iOS
     sources:
       - path: CISOCopilot
+    dependencies:
+      - package: WebRTC
+        product: WebRTC
     entitlements:
       path: CISOCopilot/CISOCopilot.entitlements
       properties:

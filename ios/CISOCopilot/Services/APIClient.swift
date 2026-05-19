@@ -76,6 +76,43 @@ final class APIClient {
         return try decoder.decode(InitiateGcpResponse.self, from: data)
     }
 
+    // MARK: - /auth/discover-tenant (UNAUTHED — pre-login)
+
+    /// Email-based IdP routing. Returns the Cognito authorize URL with the
+    /// correct per-tenant identity_provider hint so the sign-in flow bypasses
+    /// the Cognito Hosted UI picker and lands directly on the user's Microsoft
+    /// tenant (or Google).
+    func discoverTenant(email: String) async throws -> DiscoverTenantResponse {
+        var req = URLRequest(url: Self.baseURL.appending(path: "auth/discover-tenant"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode([
+            "email":    email,
+            "platform": "ios",
+        ])
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIError.badResponse }
+        if !(200..<300).contains(http.statusCode) {
+            // Surface server-supplied message if any.
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw APIError.discoveryFailed(http.statusCode, body)
+        }
+        return try decoder.decode(DiscoverTenantResponse.self, from: data)
+    }
+
+    // MARK: - /voice/session
+
+    /// Mints an OpenAI Realtime ephemeral session for the iOS client.
+    /// Returns the client_secret which is used as Bearer to open the WebSocket
+    /// directly to OpenAI — our backend is not on the audio path.
+    func voiceSession() async throws -> VoiceSessionResponse {
+        let req = try await authedRequest(method: "POST", path: "voice/session")
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(VoiceSessionResponse.self, from: data)
+    }
+
     // MARK: - /findings
 
     func listFindings(severity: String? = nil, cloud: String? = nil, limit: Int = 50) async throws -> [Finding] {
@@ -94,6 +131,271 @@ final class APIClient {
         let (data, response) = try await session.data(for: req)
         try Self.assertOK(response)
         return try decoder.decode(FindingsResponse.self, from: data).findings
+    }
+
+    /// Total open findings matching the filters, without fetching the rows.
+    /// Backed by the response's `total` field.
+    func findingsTotal(severity: String? = nil, cloud: String? = nil) async throws -> Int {
+        var components = URLComponents(
+            url: Self.baseURL.appending(path: "findings"),
+            resolvingAgainstBaseURL: false
+        )!
+        var qs: [URLQueryItem] = [URLQueryItem(name: "limit", value: "1")]
+        if let s = severity { qs.append(URLQueryItem(name: "severity", value: s)) }
+        if let c = cloud    { qs.append(URLQueryItem(name: "cloud",    value: c)) }
+        components.queryItems = qs
+
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(FindingsResponse.self, from: data).total
+    }
+
+    // MARK: - /events
+
+    func listEvents(kind: String? = nil, severity: String? = nil, limit: Int = 50) async throws -> [AlertEvent] {
+        var components = URLComponents(
+            url: Self.baseURL.appending(path: "events"),
+            resolvingAgainstBaseURL: false
+        )!
+        var qs: [URLQueryItem] = [URLQueryItem(name: "limit", value: String(limit))]
+        if let k = kind     { qs.append(URLQueryItem(name: "kind",     value: k)) }
+        if let s = severity { qs.append(URLQueryItem(name: "severity", value: s)) }
+        components.queryItems = qs
+
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(EventsResponse.self, from: data).events
+    }
+
+    func eventsTotal(kind: String? = nil, severity: String? = nil) async throws -> Int {
+        var components = URLComponents(
+            url: Self.baseURL.appending(path: "events"),
+            resolvingAgainstBaseURL: false
+        )!
+        var qs: [URLQueryItem] = [URLQueryItem(name: "limit", value: "1")]
+        if let k = kind     { qs.append(URLQueryItem(name: "kind",     value: k)) }
+        if let s = severity { qs.append(URLQueryItem(name: "severity", value: s)) }
+        components.queryItems = qs
+
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(EventsResponse.self, from: data).total
+    }
+
+    // MARK: - /policies
+
+    func listPolicies(status: String? = nil) async throws -> [PolicySummary] {
+        var components = URLComponents(url: Self.baseURL.appending(path: "policies"), resolvingAgainstBaseURL: false)!
+        if let s = status { components.queryItems = [URLQueryItem(name: "status", value: s)] }
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(PoliciesListResponse.self, from: data).policies
+    }
+
+    func getPolicy(_ id: String) async throws -> Policy {
+        var req = URLRequest(url: Self.baseURL.appending(path: "policies/\(id)"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(Policy.self, from: data)
+    }
+
+    func updatePolicy(_ id: String, contentMd: String? = nil, status: String? = nil) async throws {
+        var req = try await authedRequest(method: "PATCH", path: "policies/\(id)")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: String] = [:]
+        if let c = contentMd { body["content_md"] = c }
+        if let s = status    { body["status"]     = s }
+        req.httpBody = try encoder.encode(body)
+        let (_, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+    }
+
+    func enrichPolicy(_ id: String) async throws -> String {
+        var req = try await authedRequest(method: "POST", path: "policies/\(id)/enrich")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        struct R: Decodable { let content_md: String }
+        return try decoder.decode(R.self, from: data).content_md
+    }
+
+    func generateAllPolicies(companyName: String, effectiveDate: String, approver: String?) async throws -> Int {
+        var req = try await authedRequest(method: "POST", path: "policies/generate-all")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var vars: [String: String] = ["company_name": companyName, "effective_date": effectiveDate]
+        if let a = approver, !a.isEmpty { vars["approver"] = a }
+        req.httpBody = try encoder.encode(["vars": vars])
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        struct R: Decodable { let count: Int }
+        return try decoder.decode(R.self, from: data).count
+    }
+
+    // MARK: - /questionnaires
+
+    func listQuestionnaires() async throws -> [QuestionnaireSummary] {
+        var req = URLRequest(url: Self.baseURL.appending(path: "questionnaires"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(QuestionnairesListResponse.self, from: data).questionnaires
+    }
+
+    func getQuestionnaire(_ id: String) async throws -> QuestionnaireDetail {
+        var req = URLRequest(url: Self.baseURL.appending(path: "questionnaires/\(id)"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(QuestionnaireDetail.self, from: data)
+    }
+
+    func patchQuestionnaireItem(_ qid: String, _ iid: String, answer: String?) async throws {
+        var req = try await authedRequest(method: "PATCH", path: "questionnaires/\(qid)/items/\(iid)")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        struct Body: Encodable { let answer: String? }
+        req.httpBody = try encoder.encode(Body(answer: answer))
+        let (_, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+    }
+
+    func suggestQuestionnaireItem(_ qid: String, _ iid: String) async throws {
+        var req = try await authedRequest(method: "POST", path: "questionnaires/\(qid)/items/\(iid)")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+        let (_, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+    }
+
+    // MARK: - /trust (admin)
+
+    func getTrustPage() async throws -> TrustPageSettings? {
+        var req = URLRequest(url: Self.baseURL.appending(path: "trust"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        struct R: Decodable { let page: TrustPageSettings? }
+        return try decoder.decode(R.self, from: data).page
+    }
+
+    func putTrustPage(_ settings: TrustPageSettings) async throws {
+        var req = try await authedRequest(method: "PUT", path: "trust")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(settings)
+        let (_, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+    }
+
+    // MARK: - /risks
+
+    func listRisks(status: String? = nil, severity: String? = nil) async throws -> [Risk] {
+        var components = URLComponents(
+            url: Self.baseURL.appending(path: "risks"),
+            resolvingAgainstBaseURL: false
+        )!
+        var qs: [URLQueryItem] = []
+        if let s = status   { qs.append(URLQueryItem(name: "status",   value: s)) }
+        if let s = severity { qs.append(URLQueryItem(name: "severity", value: s)) }
+        if !qs.isEmpty { components.queryItems = qs }
+
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(RisksResponse.self, from: data).risks
+    }
+
+    func createRisk(title: String, severity: String,
+                    description: String? = nil, owner: String? = nil,
+                    dueDate: String? = nil, findingId: String? = nil) async throws -> String {
+        var req = try await authedRequest(method: "POST", path: "risks")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: String] = ["title": title, "severity": severity]
+        if let d = description { body["description"] = d }
+        if let o = owner       { body["owner"]       = o }
+        if let dd = dueDate    { body["due_date"]    = dd }
+        if let fid = findingId { body["finding_id"]  = fid }
+        req.httpBody = try encoder.encode(body)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        struct R: Decodable { let risk_id: String }
+        return try decoder.decode(R.self, from: data).risk_id
+    }
+
+    func updateRiskStatus(_ riskId: String, status: String) async throws {
+        var req = try await authedRequest(method: "PATCH", path: "risks/\(riskId)")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try encoder.encode(["status": status])
+        let (_, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+    }
+
+    // MARK: - /findings/rollup
+
+    func findingsRollup(severity: String? = nil, cloud: String? = nil, q: String? = nil) async throws -> FindingsRollupResponse {
+        var components = URLComponents(
+            url: Self.baseURL.appending(path: "findings/rollup"),
+            resolvingAgainstBaseURL: false
+        )!
+        var qs: [URLQueryItem] = []
+        if let s = severity { qs.append(URLQueryItem(name: "severity", value: s)) }
+        if let c = cloud    { qs.append(URLQueryItem(name: "cloud",    value: c)) }
+        if let t = q, !t.isEmpty { qs.append(URLQueryItem(name: "q",  value: t)) }
+        if !qs.isEmpty { components.queryItems = qs }
+
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(FindingsRollupResponse.self, from: data)
+    }
+
+    func listFindingsByCheck(_ checkId: String, limit: Int = 200) async throws -> [Finding] {
+        var components = URLComponents(
+            url: Self.baseURL.appending(path: "findings"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "check_id", value: checkId),
+            URLQueryItem(name: "limit",    value: String(limit)),
+        ]
+        var req = URLRequest(url: components.url!)
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(FindingsResponse.self, from: data).findings
+    }
+
+    // MARK: - /findings/summary
+
+    func findingsSummary() async throws -> FindingsSummaryResponse {
+        var req = URLRequest(url: Self.baseURL.appending(path: "findings/summary"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(FindingsSummaryResponse.self, from: data)
+    }
+
+    // MARK: - /compliance/summary
+
+    func complianceSummary() async throws -> ComplianceSummaryResponse {
+        var req = URLRequest(url: Self.baseURL.appending(path: "compliance/summary"))
+        try await attachAuthHeader(&req)
+        let (data, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+        return try decoder.decode(ComplianceSummaryResponse.self, from: data)
     }
 
     // MARK: - Helpers
@@ -166,6 +468,210 @@ struct ConnectionSignals: Decodable {
     let drift: Bool?
 }
 
+struct EventsResponse: Decodable {
+    let events: [AlertEvent]
+    let total: Int
+    let limit: Int
+    let offset: Int
+}
+
+struct AlertEvent: Decodable, Identifiable, Hashable {
+    let event_id: String
+    let kind: String          // "alert" | "drift"
+    let source: String        // e.g. "aws.guardduty"
+    let severity: String
+    let title: String
+    let description: String?
+    let resource_arn: String?
+    let actor: String?
+    let fired_at: String
+    let ingested_at: String
+
+    var id: String { event_id }
+}
+
+struct RisksResponse: Decodable {
+    let risks: [Risk]
+    let count: Int
+}
+
+struct Risk: Decodable, Identifiable, Hashable {
+    let risk_id:     String
+    let title:       String
+    let description: String?
+    let severity:    String   // critical | high | medium | low | info
+    let status:      String   // open | mitigated | accepted | transferred | closed
+    let owner:       String?
+    let due_date:    String?  // YYYY-MM-DD
+    let finding_id:  String?
+    let notes:       String?
+    let created_at:  String
+    let updated_at:  String
+
+    var id: String { risk_id }
+}
+
+struct FindingsRollupResponse: Decodable {
+    let groups:         [FindingGroup]
+    let total_findings: Int
+    let total_groups:   Int
+}
+
+struct FindingGroup: Decodable, Identifiable, Hashable {
+    let domain:           String
+    let check_id:         String
+    let title:            String
+    let severity:         String
+    let count:            Int
+    let frameworks:       [String: [String]]
+    let sample_resources: [SampleResource]
+
+    var id: String { "\(domain)/\(check_id)" }
+
+    struct SampleResource: Decodable, Hashable {
+        let resource_arn: String
+        let region:       String?
+    }
+}
+
+struct PoliciesListResponse: Decodable { let policies: [PolicySummary] }
+
+struct PolicySummary: Decodable, Identifiable, Hashable {
+    let policy_id:     String
+    let template_key:  String
+    let title:         String
+    let status:        String
+    let version:       Int
+    let soc2_controls: [String]
+    let created_at:    String
+    let updated_at:    String
+
+    var id: String { policy_id }
+}
+
+struct Policy: Decodable {
+    let policy_id:     String
+    let template_key:  String
+    let title:         String
+    let status:        String
+    let version:       Int
+    let content_md:    String
+    let soc2_controls: [String]
+    let created_at:    String
+    let updated_at:    String
+}
+
+struct QuestionnairesListResponse: Decodable { let questionnaires: [QuestionnaireSummary] }
+
+struct QuestionnaireSummary: Decodable, Identifiable, Hashable {
+    let questionnaire_id: String
+    let name:             String
+    let template_key:     String
+    let status:           String
+    let created_at:       String
+    let updated_at:       String
+    let total:            Int
+    let answered:         Int
+
+    var id: String { questionnaire_id }
+}
+
+struct QuestionnaireDetail: Decodable {
+    let questionnaire_id: String
+    let name:             String
+    let template_key:     String
+    let status:           String
+    let created_at:       String
+    let source_filename:  String?
+    let items:            [QuestionnaireItem]
+}
+
+struct QuestionnaireItem: Decodable, Identifiable, Hashable {
+    let item_id:        String
+    let question_id:    String
+    let question:       String
+    let category:       String?
+    let answer:         String?
+    let confidence:     String?
+    let notes:          String?
+    let sort_order:     Int
+
+    var id: String { item_id }
+}
+
+struct TrustPageSettings: Codable {
+    var page_id:             String?
+    var slug:                String
+    var public_name:         String
+    var notes:               String?
+    var is_published:        Bool
+    var show_compliance:     Bool
+    var show_finding_counts: Bool
+    var show_clouds:         Bool
+    var show_last_scan:      Bool
+    var created_at:          String?
+    var updated_at:          String?
+}
+
+struct FindingsSummaryResponse: Decodable {
+    let by_severity: BySeverity
+    let by_cloud:    ByCloud
+    let total:       Int
+
+    struct BySeverity: Decodable {
+        let critical: Int
+        let high:     Int
+        let medium:   Int
+        let low:      Int
+        let info:     Int
+    }
+    struct ByCloud: Decodable {
+        let aws:   Int
+        let azure: Int
+        let gcp:   Int
+        let entra: Int
+    }
+
+    var severitySlices: [(name: String, value: Int)] {
+        [
+            ("critical", by_severity.critical),
+            ("high",     by_severity.high),
+            ("medium",   by_severity.medium),
+            ("low",      by_severity.low),
+            ("info",     by_severity.info),
+        ].filter { $0.value > 0 }
+    }
+
+    var cloudBars: [(name: String, value: Int)] {
+        [
+            ("AWS",   by_cloud.aws),
+            ("Azure", by_cloud.azure),
+            ("GCP",   by_cloud.gcp),
+            ("Entra", by_cloud.entra),
+        ].filter { $0.value > 0 }
+    }
+}
+
+struct ComplianceSummaryResponse: Decodable {
+    let summary: [String: FrameworkScore]
+    let by_framework_control: [FrameworkControlRow]
+}
+
+struct FrameworkScore: Decodable {
+    let total: Int
+    let passing: Int
+    let failing: Int
+    let score_pct: Double
+}
+
+struct FrameworkControlRow: Decodable {
+    let framework: String
+    let control_id: String
+    let fail_count: Int
+    let pass_count: Int
+    let total: Int
+}
+
 struct InitiateAwsResponse: Decodable {
     let connection_id: String
     let external_id: String
@@ -193,9 +699,24 @@ struct InitiateGcpResponse: Decodable {
     let run_command:   String
 }
 
+struct VoiceSessionResponse: Decodable {
+    let session_id:    String?
+    let client_secret: String?
+    let expires_at:    Int?
+    let model:         String?
+}
+
+struct DiscoverTenantResponse: Decodable {
+    let idp_name:      String
+    let idp_provider:  String   // "microsoft" | "google"
+    let tenant_id:     String?
+    let authorize_url: String
+}
+
 struct FindingsResponse: Decodable {
     let findings: [Finding]
-    let count: Int
+    let count: Int   // this page
+    let total: Int   // all matches under the filters
     let limit: Int
     let offset: Int
 }
@@ -223,12 +744,20 @@ enum APIError: Error, LocalizedError {
     case badResponse
     case badStatus(Int)
     case notAuthenticated
+    case discoveryFailed(Int, String)
 
     var errorDescription: String? {
         switch self {
         case .badResponse:      return "Unexpected response"
         case .badStatus(let s): return "Server returned \(s)"
         case .notAuthenticated: return "Not signed in"
+        case .discoveryFailed(let s, let body):
+            if let data = body.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg  = json["message"] as? String ?? json["error"] as? String {
+                return "Could not route sign-in (\(s)): \(msg)"
+            }
+            return "Could not route sign-in (\(s))"
         }
     }
 }
