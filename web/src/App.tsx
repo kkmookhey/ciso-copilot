@@ -12,6 +12,7 @@ import { Policies } from "./routes/Policies";
 import { Questionnaires } from "./routes/Questionnaires";
 import { TrustAdmin }   from "./routes/TrustAdmin";
 import { TrustPublic }  from "./routes/TrustPublic";
+import { InstallCallback } from "./routes/InstallCallback";
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/questionnaires" element={<Questionnaires />} />
           <Route path="/trust"          element={<TrustAdmin />} />
           <Route path="/admin"     element={<Admin />} />
+          <Route path="/ai/install/callback" element={<InstallCallback />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
