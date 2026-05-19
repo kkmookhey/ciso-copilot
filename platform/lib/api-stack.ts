@@ -711,8 +711,83 @@ export class ApiStack extends cdk.Stack {
     entityGraph.addMethod( 'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
 
+    // ========================================================================
+    // SP4 Phase 4a — chat_session (conversation CRUD + voice mint) + streaming
+    //
+    // Two Lambdas off the SAME code asset:
+    //   ChatSessionFn — main.handler, on API Gateway REST, 7 routes.
+    //   ChatStreamFn  — messages_stream.handler, Lambda Function URL with
+    //                   RESPONSE_STREAM, serves only the streaming text turn.
+    // Both share dbEnv + OpenAI/Anthropic secret access + USER_POOL_ID, so
+    // they live here (not a separate stack) to avoid cross-stack imports.
+    // ========================================================================
+    const chatEnv = {
+      ...dbEnv,
+      OPENAI_SECRET_NAME:    props.openaiApiKeySecret.secretName,
+      ANTHROPIC_SECRET_NAME: 'ciso-copilot/anthropic-api-key',
+      USER_POOL_ID:          props.userPool.userPoolId,
+    };
+    const chatCodeAsset = lambda.Code.fromAsset(
+      path.join(__dirname, '..', 'lambda', 'chat_session'),
+    );
+    const anthropicSecretRead = new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/anthropic-api-key*`],
+    });
+
+    const chatSessionFn = new lambda.Function(this, 'ChatSessionFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       chatCodeAsset,
+      timeout:    cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: chatEnv,
+    });
+    props.dbCluster.grantDataApiAccess(chatSessionFn);
+    props.openaiApiKeySecret.grantRead(chatSessionFn);
+    chatSessionFn.addToRolePolicy(anthropicSecretRead);
+
+    // /conversations — CRUD + per-id messages + voice mint.
+    const conversationsRes = api.root.addResource('conversations');
+    const conversationById = conversationsRes.addResource('{id}');
+    conversationsRes.addMethod('POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts);
+    conversationsRes.addMethod('GET',  new apigw.LambdaIntegration(chatSessionFn), authedOpts);
+    conversationById.addMethod('GET',    new apigw.LambdaIntegration(chatSessionFn), authedOpts);
+    conversationById.addMethod('PATCH',  new apigw.LambdaIntegration(chatSessionFn), authedOpts);
+    conversationById.addMethod('DELETE', new apigw.LambdaIntegration(chatSessionFn), authedOpts);
+    conversationById.addResource('messages').addMethod(
+      'POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts,
+    );
+    conversationById.addResource('voice').addMethod(
+      'POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts,
+    );
+
+    // Streaming text turn — Lambda Function URL, RESPONSE_STREAM. JWT is
+    // verified inside messages_stream.py (no API Gateway authorizer here).
+    const chatStreamFn = new lambda.Function(this, 'ChatStreamFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'messages_stream.handler',
+      code:       chatCodeAsset,
+      timeout:    cdk.Duration.seconds(60),   // Anthropic streaming is slower
+      memorySize: 512,
+      environment: chatEnv,
+    });
+    props.dbCluster.grantDataApiAccess(chatStreamFn);
+    chatStreamFn.addToRolePolicy(anthropicSecretRead);
+
+    const chatStreamUrl = chatStreamFn.addFunctionUrl({
+      authType:   lambda.FunctionUrlAuthType.NONE,
+      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedMethods: [lambda.HttpMethod.POST],
+        allowedHeaders: ['authorization', 'content-type'],
+      },
+    });
+
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });
     new cdk.CfnOutput(this, 'GcpScriptUrl',     { value: gcpScriptUrl });
+    new cdk.CfnOutput(this, 'ChatStreamUrl',    { value: chatStreamUrl.url });
   }
 }
