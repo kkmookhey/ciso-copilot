@@ -112,3 +112,26 @@ def test_complete_rejects_expired_state(monkeypatch):
                           body={"installation_id": 99999, "state": "stub.state"})
     out = main.handler(event, None)
     assert out["statusCode"] == 400
+
+
+def test_list_connections_returns_tenant_rows(monkeypatch):
+    import main, helpers
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+
+    def fake_execute(**kw):
+        assert ":tid" in kw["sql"]
+        return {"records": [[
+            {"stringValue": "11111111-1111-1111-1111-111111111111"},
+            {"stringValue": "github"},
+            {"stringValue": "active"},
+            {"stringValue": "kkmookhey"},
+            {"stringValue": "2026-05-18T10:00:00Z"},
+        ]]}
+    helpers.rds_data.execute_statement = fake_execute
+
+    event = _event_authed("tenant-1", method="GET", path="/v1/ai/connections")
+    out = main.handler(event, None)
+    assert out["statusCode"] == 200
+    body = json.loads(out["body"])
+    assert body["connections"][0]["provider"] == "github"
+    assert body["connections"][0]["github_org_name"] == "kkmookhey"

@@ -32,6 +32,8 @@ def handler(event: dict, context) -> dict:
             return _install_url(event)
         if method == "POST" and path == "/v1/ai/connections/github/complete":
             return _complete(event)
+        if method == "GET" and path == "/v1/ai/connections":
+            return _list_connections(event)
         return helpers.resp(404, {"error": "not_found", "path": path, "method": method})
     except Exception as e:  # noqa: BLE001 — top-level fence
         # Surface message; production observability already logs to CloudWatch.
@@ -132,3 +134,38 @@ def _complete(event: dict) -> dict:
         ],
     )
     return helpers.resp(200, {"connection_id": conn_id})
+
+
+# ----------------------------------------------------------------------------
+# GET /v1/ai/connections
+# ----------------------------------------------------------------------------
+
+def _list_connections(event: dict) -> dict:
+    tenant_id = helpers.resolve_tenant_id(event)
+    if not tenant_id:
+        return helpers.resp(401, {"error": "no_tenant"})
+
+    rs = helpers.rds_data.execute_statement(
+        resourceArn=helpers.DB_CLUSTER_ARN,
+        secretArn=helpers.DB_SECRET_ARN,
+        database=helpers.DB_NAME,
+        sql=(
+            "SELECT id::text, provider, status, COALESCE(github_org_name, ''), "
+            "       to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') "
+            "FROM ai_connections "
+            "WHERE tenant_id = CAST(:tid AS UUID) AND status != 'revoked' "
+            "ORDER BY created_at DESC"
+        ),
+        parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
+    )
+    connections = [
+        {
+            "id":              r[0].get("stringValue"),
+            "provider":        r[1].get("stringValue"),
+            "status":          r[2].get("stringValue"),
+            "github_org_name": r[3].get("stringValue"),
+            "created_at":      r[4].get("stringValue"),
+        }
+        for r in rs.get("records", [])
+    ]
+    return helpers.resp(200, {"connections": connections})
