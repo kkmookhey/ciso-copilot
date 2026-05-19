@@ -1,43 +1,43 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, type AIAssetSummary, type AIAssetType } from "../lib/api";
+import { api, type EntitySummary, type EntityKind } from "../lib/api";
 
-const TYPES: AIAssetType[] = [
-  "framework", "model", "mcp_server", "tool", "agent",
-  "vector_db", "embedding", "prompt",
+const TYPES: EntityKind[] = [
+  "ai_framework", "ai_model", "ai_mcp_server", "ai_tool", "ai_agent",
+  "ai_vector_db", "ai_embedding", "ai_prompt",
 ];
 
 export function AIInventory() {
   const [sp, setSp] = useSearchParams();
-  const typeFilter = (sp.get("type") || "") as AIAssetType | "";
+  const typeFilter = (sp.get("type") || "") as EntityKind | "";
   const pageStr    = sp.get("page") || "1";
   const page       = Math.max(1, parseInt(pageStr, 10) || 1);
 
-  const [assets,   setAssets]   = useState<AIAssetSummary[] | null>(null);
+  const [entities, setEntities] = useState<EntitySummary[] | null>(null);
   const [nextPage, setNextPage] = useState<number | null>(null);
   const [error,    setError]    = useState<string | null>(null);
 
   useEffect(() => {
-    setAssets(null); setError(null);
-    api.listAIAssets({ type: typeFilter || undefined, page })
-       .then((r) => { setAssets(r.assets); setNextPage(r.next_page); })
+    setEntities(null); setError(null);
+    api.listEntities({ domain: "ai", kind: typeFilter || undefined, page })
+       .then((r) => { setEntities(r.entities); setNextPage(r.next_page); })
        .catch((e: Error) => setError(e.message));
   }, [typeFilter, page]);
 
-  const groups = groupByRepo(assets ?? []);
+  const groups = groupByKind(entities ?? []);
 
   return (
     <div className="max-w-6xl">
       <h1 className="text-3xl font-bold tracking-tight">AI Inventory</h1>
       <p className="text-slate-600 mt-1">
-        AI assets discovered by the scanner, grouped by repository.
+        AI entities discovered by the scanner, grouped by kind.
       </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
         <FilterChip label="All" active={typeFilter === ""}
                     onClick={() => setSp((s) => { s.delete("type"); s.delete("page"); return s; })} />
         {TYPES.map((t) => (
-          <FilterChip key={t} label={t} active={typeFilter === t}
+          <FilterChip key={t} label={prettyKind(t)} active={typeFilter === t}
                       onClick={() => setSp((s) => { s.set("type", t); s.delete("page"); return s; })} />
         ))}
       </div>
@@ -48,22 +48,22 @@ export function AIInventory() {
         </div>
       )}
 
-      {assets === null && <div className="mt-10 text-slate-500">Loading…</div>}
-      {assets !== null && assets.length === 0 && (
+      {entities === null && <div className="mt-10 text-slate-500">Loading…</div>}
+      {entities !== null && entities.length === 0 && (
         <div className="mt-10 text-slate-500">
-          No AI assets yet. Run a scan from <Link to="/connect" className="text-blue-700 underline">Connect</Link>.
+          No AI entities yet. Run a scan from <Link to="/connect" className="text-blue-700 underline">Connect</Link>.
         </div>
       )}
 
-      {groups.map(({ repo, items }) => (
-        <section key={repo ?? "_orphan"} className="mt-8 rounded-2xl border border-slate-200 overflow-hidden">
+      {groups.map(({ kind, items }) => (
+        <section key={kind} className="mt-8 rounded-2xl border border-slate-200 overflow-hidden">
           <header className="px-4 py-3 bg-slate-50 text-sm font-medium text-slate-700">
-            {repo ?? "Unattached"}
+            {prettyKind(kind)}
           </header>
           <table className="w-full text-sm">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-2 text-left">Type</th>
+                <th className="px-4 py-2 text-left">Kind</th>
                 <th className="px-4 py-2 text-left">Name</th>
                 <th className="px-4 py-2 text-left">Source path</th>
                 <th className="px-4 py-2 text-left">Detector</th>
@@ -71,17 +71,17 @@ export function AIInventory() {
               </tr>
             </thead>
             <tbody>
-              {items.map((a) => (
-                <tr key={a.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-2 text-slate-700">{a.asset_type}</td>
+              {items.map((e) => (
+                <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-2 text-slate-700">{prettyKind(e.kind)}</td>
                   <td className="px-4 py-2">
-                    <Link to={`/ai/inventory/${a.id}`} className="text-blue-700 hover:underline">
-                      {a.name}
+                    <Link to={`/ai/inventory/${e.id}`} className="text-blue-700 hover:underline">
+                      {e.display_name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2 text-slate-600 font-mono text-xs">{a.source_path ?? "—"}</td>
-                  <td className="px-4 py-2 text-slate-500 text-xs">{a.detector_id}</td>
-                  <td className="px-4 py-2 text-slate-500 text-xs">{formatDate(a.last_seen_at)}</td>
+                  <td className="px-4 py-2 text-slate-600 font-mono text-xs">{e.source_path ?? "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 text-xs">{e.detector_id}</td>
+                  <td className="px-4 py-2 text-slate-500 text-xs">{formatDate(e.last_seen_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -120,15 +120,20 @@ function FilterChip({ label, active, onClick }:
   );
 }
 
-function groupByRepo(assets: AIAssetSummary[]) {
-  const map = new Map<string | null, AIAssetSummary[]>();
-  for (const a of assets) {
-    const key = a.source_repo?.full_name ?? null;
-    const bucket = map.get(key) ?? [];
-    bucket.push(a);
-    map.set(key, bucket);
+function groupByKind(entities: EntitySummary[]) {
+  const map = new Map<EntityKind, EntitySummary[]>();
+  for (const e of entities) {
+    const bucket = map.get(e.kind) ?? [];
+    bucket.push(e);
+    map.set(e.kind, bucket);
   }
-  return Array.from(map.entries()).map(([repo, items]) => ({ repo, items }));
+  return Array.from(map.entries())
+    .map(([kind, items]) => ({ kind, items }))
+    .sort((a, b) => a.kind.localeCompare(b.kind));
+}
+
+function prettyKind(kind: string): string {
+  return kind.startsWith("ai_") ? kind.slice(3) : kind;
 }
 
 function formatDate(iso: string): string {

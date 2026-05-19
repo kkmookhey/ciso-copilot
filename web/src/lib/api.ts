@@ -246,25 +246,44 @@ export interface AIScanSummary {
   findings_generated_count:        number;
 }
 
-export type AIAssetType =
-  | "repository" | "model" | "mcp_server" | "framework"
-  | "vector_db" | "prompt" | "agent" | "embedding" | "tool";
+export type EntityKind =
+  | "github_repo" | "ai_framework" | "ai_model" | "ai_mcp_server"
+  | "ai_tool" | "ai_agent" | "ai_vector_db" | "ai_embedding" | "ai_prompt"
+  | "aws_account" | "aws_s3_bucket" | "aws_iam_role" | "aws_iam_user"
+  | "aws_lambda_function" | "aws_ec2_instance" | "aws_vpc" | "aws_subnet"
+  | "aws_security_group";
 
-export interface AIAssetSummary {
-  id:            string;
-  asset_type:    AIAssetType;
-  name:          string;
-  source_repo:   { id: string; full_name: string } | null;
-  source_path:   string | null;
-  detector_id:   string;
-  first_seen_at: string;
-  last_seen_at:  string;
+export type EntityDomain = "ai" | "cloud" | "repo" | "identity" | "asm";
+
+export interface EntitySummary {
+  id:             string;
+  kind:           EntityKind;
+  natural_key:    string;
+  display_name:   string;
+  domain:         EntityDomain;
+  source_path:    string | null;
+  detector_id:    string;
+  first_seen_at:  string;
+  last_seen_at:   string;
+  attributes:     Record<string, unknown>;
 }
 
-export interface AIAssetDetail extends AIAssetSummary {
-  attributes:      Record<string, unknown>;
-  evidence_packet: Record<string, unknown>;
+export interface EntityDetail extends EntitySummary {
+  evidence_packet: Record<string, unknown> | null;
   connection_id:   string | null;
+}
+
+export interface EntityGraph {
+  nodes: { data: { id: string; label: string; type: EntityKind; attributes: Record<string, unknown> } }[];
+  edges: { data: { id: string; source: string; target: string; label: string } }[];
+  meta:  { root_id: string; node_count: number; truncated: boolean };
+}
+
+export interface EntityRelationship {
+  id:           string;
+  kind:         string;
+  direction:    "outgoing" | "incoming";
+  other_entity: { id: string; kind: EntityKind; natural_key: string; display_name: string };
 }
 
 export interface FindingsSummary {
@@ -438,16 +457,19 @@ export const api = {
     return call<{ scans: AIScanSummary[] }>(`/ai/scans${qs ? "?" + qs : ""}`);
   },
   getAIScan: (scanId: string) => call<AIScanSummary>(`/ai/scans/${scanId}`),
-  listAIAssets: (params?: { type?: AIAssetType | string; repo?: string; page?: number; per_page?: number }) => {
+  listEntities: (params?: { domain?: string; kind?: string; repo?: string; page?: number; per_page?: number }) => {
     const q = new URLSearchParams();
-    if (params?.type)     q.set("type", params.type);
+    if (params?.domain)   q.set("domain", params.domain);
+    if (params?.kind)     q.set("kind", params.kind);
     if (params?.repo)     q.set("repo", params.repo);
     if (params?.page)     q.set("page", String(params.page));
     if (params?.per_page) q.set("per_page", String(params.per_page));
     const qs = q.toString();
-    return call<{ assets: AIAssetSummary[]; next_page: number | null }>(
-      `/ai/assets${qs ? "?" + qs : ""}`,
-    );
+    return call<{ entities: EntitySummary[]; next_page: number | null }>(`/entities${qs ? "?" + qs : ""}`);
   },
-  getAIAsset: (assetId: string) => call<AIAssetDetail>(`/ai/assets/${assetId}`),
+  getEntity:                (id: string) => call<EntityDetail>(`/entities/${id}`),
+  getEntityGraph:           (id: string, depth = 4, maxNodes = 500) =>
+    call<EntityGraph>(`/entities/${id}/graph?depth=${depth}&max_nodes=${maxNodes}`),
+  getEntityRelationships:   (id: string, direction: "both" | "outgoing" | "incoming" = "both") =>
+    call<{ relationships: EntityRelationship[] }>(`/entities/${id}/relationships?direction=${direction}`),
 };
