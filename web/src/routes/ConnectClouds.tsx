@@ -8,10 +8,12 @@ export function ConnectClouds() {
   const [pendingAzure, setPendingAzure] = useState(false);
   const [pendingEntra, setPendingEntra] = useState(false);
   const [pendingGcp,   setPendingGcp]   = useState(false);
+  const [pendingGithub, setPendingGithub] = useState(false);
   const [cfnUrl,        setCfnUrl]        = useState<string | null>(null);
   const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
   const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
   const [gcpCmd,        setGcpCmd]        = useState<string | null>(null);
+  const [githubUrl,     setGithubUrl]     = useState<string | null>(null);
   const [error,         setError]         = useState<string | null>(null);
 
   async function connectAws() {
@@ -50,6 +52,17 @@ export function ConnectClouds() {
     finally { setPendingGcp(false); }
   }
 
+  async function connectGithub() {
+    setPendingGithub(true); setError(null);
+    try {
+      const r = await api.getGithubInstallUrl();
+      setGithubUrl(r.install_url);
+      // Send the user straight to GitHub — no intermediate panel for now.
+      window.location.href = r.install_url;
+    } catch (e) { setError((e as Error).message); }
+    finally { setPendingGithub(false); }
+  }
+
   return (
     <div className="max-w-3xl">
       <h1 className="text-3xl font-bold tracking-tight">Connect a cloud</h1>
@@ -68,6 +81,9 @@ export function ConnectClouds() {
         <CloudTile name="GCP"
                    tagline="Workload Identity Federation via Cloud Shell"
                    enabled={true} loading={pendingGcp} onClick={connectGcp} />
+        <CloudTile name="GitHub"
+                   tagline="AI inventory via the CISO Copilot GitHub App"
+                   enabled={true} loading={pendingGithub} onClick={connectGithub} />
       </div>
 
       {cfnUrl && (
