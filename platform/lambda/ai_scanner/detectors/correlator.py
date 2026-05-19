@@ -1,15 +1,21 @@
-"""Cross-detector correlator. Adds derived relationships after the eight
+"""Cross-detector correlator. Adds derived edges after the eight
 deterministic detectors have all run.
 
 Patterns:
-  - ``agent`` + ``mcp_server`` co-located in the same file
-      → ``agent → invokes → mcp_server``
-  - ``agent`` + ``model`` co-located
-      → ``agent → orchestrates → model``  (the edge agentic_workflow leaves
-        to us because the agent detector doesn't know which model is being
-        called)
-  - ``model`` + ``vector_db`` + ``prompt`` co-located
-      → ``model → retrieves → vector_db``  (RAG-shaped pattern)
+  - ``ai_agent`` + ``ai_mcp_server`` co-located in the same file
+      → ``ai_agent → invokes → ai_mcp_server``
+  - ``ai_agent`` + ``ai_model`` co-located
+      → ``ai_agent → orchestrates → ai_model``  (agentic_workflow can't emit
+        this because it doesn't know which model the agent calls)
+  - ``ai_model`` + ``ai_vector_db`` + ``ai_prompt`` co-located
+      → ``ai_model → retrieves → ai_vector_db``  (RAG-shaped pattern)
+
+Natural-key formulas the correlator reproduces (must stay in sync with the
+upstream detectors; see spec §5):
+  - ``ai_agent``      :  ``f"{repo_nk}::{path}::{agent.display_name}"``
+  - ``ai_mcp_server`` :  ``f"{repo_nk}::{path}::{mcp.display_name}"``
+  - ``ai_vector_db``  :  ``vdb.display_name``     (bare name, cross-repo dedup)
+  - ``ai_model``      :  ``model.display_name``   (provider/model_id, cross-repo)
 
 The correlator is invoked with ``correlate(ctx, results)`` where ``results``
 is the list of ``DetectorResult`` objects from the eight detectors.
@@ -18,68 +24,70 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from detectors.base import RelEmission, DetectorResult
+from detectors.base import EdgeEmission, DetectorResult
 import evidence as ev
 
 detector_id      = "ai.detectors.correlator"
-detector_version = "0.1.0"
+detector_version = "0.2.0"
 
 
 def correlate(ctx, results: list[DetectorResult]) -> DetectorResult:
-    rels: list[RelEmission] = []
+    edges: list[EdgeEmission] = []
+    repo_nk = f"github.com/{ctx.repo_full_name}"
 
-    assets_by_path: dict[str, list] = defaultdict(list)
+    entities_by_path: dict[str, list] = defaultdict(list)
     for r in results:
-        for a in r.assets:
-            if a.source_path:
-                assets_by_path[a.source_path].append(a)
+        for e in r.entities:
+            if e.source_path:
+                entities_by_path[e.source_path].append(e)
 
-    for path in sorted(assets_by_path.keys()):
-        assets = assets_by_path[path]
-        types_in_file = {a.asset_type for a in assets}
+    for path in sorted(entities_by_path.keys()):
+        ents = entities_by_path[path]
+        kinds_in_file = {e.kind for e in ents}
 
-        if "agent" in types_in_file and "mcp_server" in types_in_file:
-            agent = next(a for a in assets if a.asset_type == "agent")
-            mcp   = next(a for a in assets if a.asset_type == "mcp_server")
-            rels.append(_edge(
-                ctx, path, relationship_type="invokes",
-                source_asset_ref=f"agent::{ctx.repo_asset_id}::{path}::{agent.name}",
-                target_asset_ref=f"mcp_server::{ctx.repo_asset_id}::{path}::{mcp.name}",
-                subject_name=f"{agent.name}→invokes→{mcp.name}",
-                reasoning=["agent and mcp_server detected in same file"],
+        if "ai_agent" in kinds_in_file and "ai_mcp_server" in kinds_in_file:
+            agent = next(e for e in ents if e.kind == "ai_agent")
+            mcp   = next(e for e in ents if e.kind == "ai_mcp_server")
+            edges.append(_edge(
+                ctx, path, kind="invokes",
+                source_kind="ai_agent",      source_nk=agent.natural_key,
+                target_kind="ai_mcp_server", target_nk=mcp.natural_key,
+                subject_name=f"{agent.display_name}→invokes→{mcp.display_name}",
+                reasoning=["ai_agent and ai_mcp_server detected in same file"],
             ))
 
-        if "agent" in types_in_file and "model" in types_in_file:
-            agent = next(a for a in assets if a.asset_type == "agent")
-            model = next(a for a in assets if a.asset_type == "model")
-            rels.append(_edge(
-                ctx, path, relationship_type="orchestrates",
-                source_asset_ref=f"agent::{ctx.repo_asset_id}::{path}::{agent.name}",
-                target_asset_ref=f"model::{ctx.repo_asset_id}::{path}::{model.name}",
-                subject_name=f"{agent.name}→orchestrates→{model.name}",
-                reasoning=["agent and model detected in same file"],
+        if "ai_agent" in kinds_in_file and "ai_model" in kinds_in_file:
+            agent = next(e for e in ents if e.kind == "ai_agent")
+            model = next(e for e in ents if e.kind == "ai_model")
+            edges.append(_edge(
+                ctx, path, kind="orchestrates",
+                source_kind="ai_agent", source_nk=agent.natural_key,
+                target_kind="ai_model", target_nk=model.natural_key,
+                subject_name=f"{agent.display_name}→orchestrates→{model.display_name}",
+                reasoning=["ai_agent and ai_model detected in same file"],
             ))
 
-        if {"model", "vector_db", "prompt"}.issubset(types_in_file):
-            model = next(a for a in assets if a.asset_type == "model")
-            vdb   = next(a for a in assets if a.asset_type == "vector_db")
-            rels.append(_edge(
-                ctx, path, relationship_type="retrieves",
-                source_asset_ref=f"model::{ctx.repo_asset_id}::{path}::{model.name}",
-                target_asset_ref=f"vector_db::{ctx.repo_asset_id}::{path}::{vdb.name}",
-                subject_name=f"{model.name}→retrieves→{vdb.name}",
-                reasoning=["model, vector_db, prompt detected in same file"],
+        if {"ai_model", "ai_vector_db", "ai_prompt"}.issubset(kinds_in_file):
+            model = next(e for e in ents if e.kind == "ai_model")
+            vdb   = next(e for e in ents if e.kind == "ai_vector_db")
+            edges.append(_edge(
+                ctx, path, kind="retrieves",
+                source_kind="ai_model",     source_nk=model.natural_key,
+                target_kind="ai_vector_db", target_nk=vdb.natural_key,
+                subject_name=f"{model.display_name}→retrieves→{vdb.display_name}",
+                reasoning=["ai_model, ai_vector_db, ai_prompt detected in same file"],
             ))
 
-    return DetectorResult(assets=[], relationships=rels, findings=[])
+    return DetectorResult(entities=[], edges=edges, findings=[])
 
 
-def _edge(ctx, path: str, *, relationship_type: str,
-           source_asset_ref: str, target_asset_ref: str,
-           subject_name: str, reasoning: list[str]) -> RelEmission:
+def _edge(ctx, path: str, *, kind: str,
+           source_kind: str, source_nk: str,
+           target_kind: str, target_nk: str,
+           subject_name: str, reasoning: list[str]) -> EdgeEmission:
     packet = ev.build(
         detector_id=detector_id, detector_version=detector_version,
-        subject_kind="ai_relationship", subject_type=relationship_type,
+        subject_kind="ai_relationship", subject_type=kind,
         subject_name=subject_name,
         source_events=[{
             "kind": "file", "repo": ctx.repo_full_name,
@@ -90,13 +98,12 @@ def _edge(ctx, path: str, *, relationship_type: str,
         reasoning_chain=reasoning,
         confidence="medium",
     )
-    return RelEmission(
+    return EdgeEmission(
         tenant_id=ctx.tenant_id,
-        source_asset_ref=source_asset_ref,
-        target_asset_ref=target_asset_ref,
-        relationship_type=relationship_type,
+        source_kind=source_kind, source_natural_key=source_nk,
+        target_kind=target_kind, target_natural_key=target_nk,
+        kind=kind,
         attributes={},
         evidence_packet=packet,
-        detector_id=detector_id,
-        detector_version=detector_version,
+        detector_id=detector_id, detector_version=detector_version,
     )
