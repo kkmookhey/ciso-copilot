@@ -27,17 +27,19 @@ def handler(event: dict, context) -> dict:
     method = event.get("httpMethod") or ""
     path   = event.get("path") or ""
 
+    # API Gateway strips the /v1 stage prefix before invoking us, so
+    # event.path looks like /ai/connections/... not /v1/ai/connections/...
     try:
-        if method == "POST" and path == "/v1/ai/connections/github/install_url":
+        if method == "POST" and path == "/ai/connections/github/install_url":
             return _install_url(event)
-        if method == "POST" and path == "/v1/ai/connections/github/complete":
+        if method == "POST" and path == "/ai/connections/github/complete":
             return _complete(event)
-        if method == "GET" and path == "/v1/ai/connections":
+        if method == "GET" and path == "/ai/connections":
             return _list_connections(event)
         # Path with {id} parameter
-        if method == "GET" and path.startswith("/v1/ai/connections/") and path.endswith("/repos"):
+        if method == "GET" and path.startswith("/ai/connections/") and path.endswith("/repos"):
             return _list_repos(event)
-        if method == "DELETE" and path.startswith("/v1/ai/connections/") and not path.endswith("/repos"):
+        if method == "DELETE" and path.startswith("/ai/connections/") and not path.endswith("/repos"):
             return _delete_connection(event)
         return helpers.resp(404, {"error": "not_found", "path": path, "method": method})
     except Exception as e:  # noqa: BLE001 — top-level fence

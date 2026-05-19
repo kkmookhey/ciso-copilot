@@ -25,7 +25,7 @@ def env(monkeypatch):
 
 
 def _event_authed(tenant_id: str, sub: str = "user-sub-1",
-                  method: str = "POST", path: str = "/v1/ai/connections/github/install_url",
+                  method: str = "POST", path: str = "/ai/connections/github/install_url",
                   body: dict | None = None, path_params: dict | None = None,
                   query: dict | None = None) -> dict:
     return {
@@ -80,7 +80,7 @@ def test_complete_inserts_row_and_returns_connection_id(monkeypatch):
     # rds_data is the boto3 client mock from the env fixture
     helpers.rds_data.execute_statement = fake_execute
 
-    event = _event_authed("tenant-1", path="/v1/ai/connections/github/complete",
+    event = _event_authed("tenant-1", path="/ai/connections/github/complete",
                           body={"installation_id": 99999, "state": "stub.state"})
     out = main.handler(event, None)
     assert out["statusCode"] == 200
@@ -96,7 +96,7 @@ def test_complete_rejects_state_for_other_tenant(monkeypatch):
     monkeypatch.setattr(state_jwt, "verify",
                         lambda token: {"tenant_id": "tenant-OTHER", "user_sub": "u1"})
 
-    event = _event_authed("tenant-1", path="/v1/ai/connections/github/complete",
+    event = _event_authed("tenant-1", path="/ai/connections/github/complete",
                           body={"installation_id": 99999, "state": "stub.state"})
     out = main.handler(event, None)
     assert out["statusCode"] == 403
@@ -108,7 +108,7 @@ def test_complete_rejects_expired_state(monkeypatch):
     def boom(_t): raise ValueError("token expired")
     monkeypatch.setattr(state_jwt, "verify", boom)
 
-    event = _event_authed("tenant-1", path="/v1/ai/connections/github/complete",
+    event = _event_authed("tenant-1", path="/ai/connections/github/complete",
                           body={"installation_id": 99999, "state": "stub.state"})
     out = main.handler(event, None)
     assert out["statusCode"] == 400
@@ -129,7 +129,7 @@ def test_list_connections_returns_tenant_rows(monkeypatch):
         ]]}
     helpers.rds_data.execute_statement = fake_execute
 
-    event = _event_authed("tenant-1", method="GET", path="/v1/ai/connections")
+    event = _event_authed("tenant-1", method="GET", path="/ai/connections")
     out = main.handler(event, None)
     assert out["statusCode"] == 200
     body = json.loads(out["body"])
@@ -155,7 +155,7 @@ def test_repos_returns_paginated_list(monkeypatch):
                             "next_page": None, "total_count": 1,
                         })
     event = _event_authed("tenant-1", method="GET",
-                          path="/v1/ai/connections/cid-1/repos",
+                          path="/ai/connections/cid-1/repos",
                           path_params={"id": "11111111-1111-1111-1111-111111111111"})
     out = main.handler(event, None)
     assert out["statusCode"] == 200
@@ -169,7 +169,7 @@ def test_repos_404_when_connection_not_owned_by_tenant(monkeypatch):
     monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
     helpers.rds_data.execute_statement = lambda **kw: {"records": []}  # no rows == not found
     event = _event_authed("tenant-1", method="GET",
-                          path="/v1/ai/connections/cid-1/repos",
+                          path="/ai/connections/cid-1/repos",
                           path_params={"id": "11111111-1111-1111-1111-111111111111"})
     out = main.handler(event, None)
     assert out["statusCode"] == 404
@@ -192,7 +192,7 @@ def test_delete_connection_flips_status_and_revokes_token(monkeypatch):
                         lambda iid: revoked.append(iid))
 
     event = _event_authed("tenant-1", method="DELETE",
-                          path="/v1/ai/connections/cid-1",
+                          path="/ai/connections/cid-1",
                           path_params={"id": "11111111-1111-1111-1111-111111111111"})
     out = main.handler(event, None)
     assert out["statusCode"] == 204
