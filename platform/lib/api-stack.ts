@@ -268,9 +268,21 @@ export class ApiStack extends cdk.Stack {
       code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_github'), {
         bundling: {
           image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          // Force the bundling container to linux/amd64 AND tell pip to pull
+          // manylinux x86_64 wheels (not the host platform's). Without this,
+          // pip on Apple-Silicon Macs installs darwin-arm64 cryptography
+          // wheels and the Lambda fails at import with
+          // "_rust.abi3.so: cannot open shared object file".
+          platform: 'linux/amd64',
           command: [
             'bash', '-c',
-            'pip install --no-cache-dir -r requirements.txt -t /asset-output && cp -au . /asset-output',
+            'pip install --no-cache-dir ' +
+            '--platform manylinux2014_x86_64 ' +
+            '--implementation cp ' +
+            '--python-version 3.12 ' +
+            '--only-binary=:all: ' +
+            '-r requirements.txt -t /asset-output && ' +
+            'cp -au . /asset-output',
           ],
         },
       }),
