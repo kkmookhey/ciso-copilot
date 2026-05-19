@@ -62,6 +62,37 @@ export interface Finding {
   last_seen:     string;
 }
 
+export interface AIConnection {
+  id:              string;
+  provider:        "github" | "openai" | "anthropic";
+  status:          "pending" | "active" | "failed" | "revoked";
+  github_org_name: string;
+  created_at:      string;
+}
+
+export interface GitHubRepo {
+  full_name:        string;
+  default_branch:   string | null;
+  last_pushed_at:   string | null;
+  size_kb:          number | null;
+  primary_language: string | null;
+  is_private:       boolean;
+}
+
+export interface InstallUrlResponse {
+  install_url: string;
+}
+
+export interface CompleteInstallResponse {
+  connection_id: string;
+}
+
+export interface ListReposResponse {
+  repos:       GitHubRepo[];
+  next_page:   number | null;
+  total_count: number;
+}
+
 export interface InitiateAwsResponse {
   connection_id: string;
   external_id:   string;
@@ -338,4 +369,23 @@ export const api = {
       `/findings/rollup${s ? "?" + s : ""}`,
     );
   },
+  getGithubInstallUrl: () =>
+    call<InstallUrlResponse>("/ai/connections/github/install_url", {
+      method: "POST",
+      body:   "{}",
+    }),
+  completeGithubInstall: (installationId: number, state: string) =>
+    call<CompleteInstallResponse>("/ai/connections/github/complete", {
+      method: "POST",
+      body:   JSON.stringify({ installation_id: installationId, state }),
+    }),
+  listAIConnections: () =>
+    call<{ connections: AIConnection[] }>("/ai/connections", { method: "GET" }),
+  listAuthorizedRepos: (connectionId: string, page = 1) =>
+    call<ListReposResponse>(
+      `/ai/connections/${connectionId}/repos?page=${page}&per_page=30`,
+      { method: "GET" },
+    ),
+  revokeAIConnection: (connectionId: string) =>
+    call<void>(`/ai/connections/${connectionId}`, { method: "DELETE" }),
 };
