@@ -1,0 +1,2 @@
+# platform/lambda/ai_github/requirements.txt
+pyjwt[crypto]==2.10.1
