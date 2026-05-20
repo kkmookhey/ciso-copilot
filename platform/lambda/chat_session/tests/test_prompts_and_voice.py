@@ -275,7 +275,9 @@ def test_mint_response_envelope(mock_openai_http, mock_db_no_user):
     resp = voice.mint(_event({}), "tenant-uuid-123", "conv-uuid-456")
     body = json.loads(resp["body"])
     assert body["session_id"] == "sess_test123"
-    assert body["client_secret"] == "ek_test_ephemeral_key"
+    # "value" — the web voiceClient reads `.value` for the ephemeral key.
+    assert body["value"] == "ek_test_ephemeral_key"
+    assert "client_secret" not in body
     assert body["conversation_id"] == "conv-uuid-456"
     assert body["model"] == "gpt-realtime-2"
 

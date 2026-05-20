@@ -136,7 +136,10 @@ def mint(event: dict, tenant_id: str, conversation_id: str) -> dict:
     session = body_resp.get("session") or {}
     return _resp(200, {
         "session_id":       session.get("id"),
-        "client_secret":    body_resp.get("value"),     # ephemeral key, prefix "ek_"
+        # "value" (not "client_secret") — the web voiceClient reads `.value`,
+        # matching OpenAI's own GA field name. A mismatch here ships an
+        # `undefined` key to the /realtime/calls SDP exchange → 401.
+        "value":            body_resp.get("value"),     # ephemeral key, prefix "ek_"
         "expires_at":       body_resp.get("expires_at"),
         "model":            session.get("model"),
         "conversation_id":  conversation_id,
