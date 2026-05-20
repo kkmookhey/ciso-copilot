@@ -29,7 +29,7 @@ DB_NAME        = os.environ["DB_NAME"]
 rds_data = boto3.client("rds-data")
 
 ALLOWED_SEVERITIES = {"critical", "high", "medium", "low", "info"}
-ALLOWED_STATUSES   = {"fail", "pass", "not_assessed", "not_applicable"}
+ALLOWED_STATUSES   = {"fail", "partial", "pass", "not_assessed", "not_applicable"}
 ALLOWED_CLOUDS     = {"aws", "azure", "entra", "gcp"}
 
 

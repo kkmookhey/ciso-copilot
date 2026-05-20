@@ -1,14 +1,18 @@
 """GET /findings/summary — aggregate counts for dashboards.
 
-Returns counts grouped by severity, cloud, and status. Filter set matches
-/findings: status defaults to 'fail' (i.e. "open"). Use this for dashboard
-tiles where you need the *whole-tenant* shape, not a 200-row page.
+Returns counts grouped by status, severity, and cloud.
+
+  - `by_status` counts every finding (fail / partial / pass) — drives the
+    dashboard status tiles.
+  - `by_severity` / `by_cloud` count the *actionable* set (fail + partial)
+    — drive the risk-distribution donut and the by-cloud bar.
 
 Response:
   {
+    "by_status":   { "fail": int, "partial": int, "pass": int },
     "by_severity": { "critical": int, "high": int, "medium": int, "low": int, "info": int },
     "by_cloud":    { "aws": int, "azure": int, "gcp": int, "entra": int },
-    "total":       int
+    "total":       int   # actionable total (fail + partial)
   }
 """
 from __future__ import annotations
@@ -24,19 +28,26 @@ DB_NAME        = os.environ["DB_NAME"]
 
 rds_data = boto3.client("rds-data")
 
+# Findings that represent work to do. pass is reported but not "actionable".
+ACTIONABLE = ("fail", "partial")
+
 
 def handler(event: dict, context) -> dict:
     tenant_id = _resolve_tenant_id(event)
     if not tenant_id:
         return _resp(401, {"error": "no_tenant"})
 
-    # One round-trip with two grouped queries — Aurora Data API doesn't return
-    # multiple result sets, so run two statements.
-    by_severity = _agg(tenant_id, "f.severity")
-    by_cloud    = _agg(tenant_id, "c.cloud_type", join_cloud=True)
+    by_status   = _agg(tenant_id, "f.status")
+    by_severity = _agg(tenant_id, "f.severity", statuses=ACTIONABLE)
+    by_cloud    = _agg(tenant_id, "c.cloud_type", join_cloud=True, statuses=ACTIONABLE)
     total = sum(by_severity.values())
 
     return _resp(200, {
+        "by_status": {
+            "fail":    by_status.get("fail", 0),
+            "partial": by_status.get("partial", 0),
+            "pass":    by_status.get("pass", 0),
+        },
         "by_severity": {
             "critical": by_severity.get("critical", 0),
             "high":     by_severity.get("high", 0),
@@ -54,13 +65,21 @@ def handler(event: dict, context) -> dict:
     })
 
 
-def _agg(tenant_id: str, group_col: str, *, join_cloud: bool = False) -> dict[str, int]:
+def _agg(tenant_id: str, group_col: str, *,
+         join_cloud: bool = False,
+         statuses: tuple[str, ...] | None = None) -> dict[str, int]:
+    # `statuses` values are code-controlled literals (never user input).
+    status_clause = ""
+    if statuses:
+        in_list = ", ".join(f"'{s}'" for s in statuses)
+        status_clause = f"AND f.status IN ({in_list}) "
     sql = (
         f"SELECT {group_col} AS k, COUNT(*) AS n "
         "FROM findings f "
         + ("JOIN cloud_connections c ON c.conn_id = f.conn_id " if join_cloud else "")
-        + "WHERE f.tenant_id = CAST(:tid AS UUID) AND f.status = 'fail' "
-        f"GROUP BY {group_col}"
+        + "WHERE f.tenant_id = CAST(:tid AS UUID) "
+        + status_clause
+        + f"GROUP BY {group_col}"
     )
     rs = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,

@@ -34,7 +34,6 @@ const FRAMEWORK_LABEL: Record<string, string> = {
 export function Dashboard() {
   const nav = useNavigate();
   const [conns,      setConns]      = useState<Connection[] | null>(null);
-  const [findings,   setFindings]   = useState<number | null>(null);
   const [alerts,     setAlerts]     = useState<AlertEvent[] | null>(null);
   const [critical,   setCritical]   = useState<number | null>(null);
   const [compliance, setCompliance] = useState<ComplianceSummary | null>(null);
@@ -43,7 +42,6 @@ export function Dashboard() {
 
   useEffect(() => {
     api.listConnections().then((r) => setConns(r.connections)).catch(() => setConns([]));
-    api.listFindings({ limit: 1 }).then((r) => setFindings(r.total)).catch(() => setFindings(null));
     api.listEvents({ limit: 5 }).then((r) => setAlerts(r.events)).catch(() => setAlerts([]));
     api.listEvents({ severity: "critical,high", kind: "alert", limit: 1 })
        .then((r) => setCritical(r.total))
@@ -79,10 +77,12 @@ export function Dashboard() {
 
       {openAlert && <AlertDetailModal event={openAlert} onClose={() => setOpenAlert(null)} />}
 
-      {/* Headline stats */}
-      <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Headline stats — full finding picture: fail / partial / pass */}
+      <div className="mt-10 grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatTile label="Connected clouds" value={activeConns ?? "—"} onClick={() => nav("/connect")} />
-        <StatTile label="Open findings"    value={findings ?? "—"} onClick={() => nav("/findings")} />
+        <StatTile label="Fail"    value={summary?.by_status.fail    ?? "—"} tone="red"   onClick={() => nav("/findings")} />
+        <StatTile label="Partial" value={summary?.by_status.partial ?? "—"} tone="amber" onClick={() => nav("/findings")} />
+        <StatTile label="Pass"    value={summary?.by_status.pass    ?? "—"} tone="green" onClick={() => nav("/findings")} />
         <StatTile label="Critical alerts"  value={critical ?? "—"} tone="red" />
       </div>
 
@@ -245,9 +245,12 @@ export function Dashboard() {
   );
 }
 
-function StatTile({ label, value, onClick, tone }: { label: string; value: string | number; onClick?: () => void; tone?: "red" }) {
+function StatTile({ label, value, onClick, tone }: { label: string; value: string | number; onClick?: () => void; tone?: "red" | "amber" | "green" }) {
   const interactive = !!onClick;
-  const valueClass = tone === "red" ? "text-red-600" : "text-slate-900";
+  const valueClass = tone === "red"   ? "text-red-600"
+                   : tone === "amber" ? "text-amber-600"
+                   : tone === "green" ? "text-green-600"
+                   : "text-slate-900";
   return (
     <button
       type="button"

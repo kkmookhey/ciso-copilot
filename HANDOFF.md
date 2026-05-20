@@ -68,12 +68,14 @@ encryption 13, networking 10, monitoring 8; status 85 pass / 32 fail /
 30 partial; zero `not_assessed` noise. (AWS scan takes ~13 min — wait for
 `scan complete` in the logs before checking.)
 
-Open follow-ups:
-- The issues/findings list should filter to `status IN ('fail','partial')`
-  (62 actionable); `pass` rows (85) are kept for compliance scoring but
-  shouldn't show as issues — a findings web/API filter, not yet done.
-- Bug 5 — finding-card titles for generic multi-resource findings (UI
-  grouping) — re-evaluate now that the data is clean.
+**Findings UX rebuilt + deployed (2026-05-20).** The dashboard now shows
+**Fail / Partial / Pass** tiles (was a single fail-only "Open findings");
+the Findings page shows *all* findings with a user-chosen grouping —
+**Status · Category · Cloud · Compliance Framework** (default Status) —
+rolled up by check into cards with **generic titles** (quoted resource
+names stripped; the real title + ARN are in the drill-in). Backend:
+`findings_summary` returns `by_status`; `partial` added to
+`ALLOWED_STATUSES`. This resolves the AI-group-overcount and Bug 5.
 
 **Known limitations (documented in the plan's Deviations section):**
 - **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
