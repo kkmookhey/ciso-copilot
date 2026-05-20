@@ -335,6 +335,31 @@ def test_mint_missing_key_returns_503(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Test: server VAD is tuned to be less trigger-happy on silence (Bug 1).
+# A higher activation threshold and longer required silence cut the spurious
+# non-speech segments that reach Whisper transcription and get hallucinated
+# into phantom "Bye." user turns.
+# ---------------------------------------------------------------------------
+
+def test_mint_vad_tuned_against_silence_hallucination(mock_openai_http, mock_db_no_user):
+    voice.mint(_event({}), "tenant-uuid-123", "conv-uuid-456")
+
+    call_args = mock_openai_http.call_args
+    req_obj = call_args[0][0]
+    sent_payload = json.loads(req_obj.data)
+    vad = sent_payload["session"]["audio"]["input"]["turn_detection"]
+
+    assert vad["type"] == "server_vad"
+    # Threshold raised above the 0.5 default → needs louder audio to open a turn.
+    assert vad["threshold"] >= 0.6
+    # Longer trailing silence required before a turn commits.
+    assert vad["silence_duration_ms"] >= 700
+    # create_response stays on; barge-in stays off (iOS AEC constraint).
+    assert vad["create_response"] is True
+    assert vad["interrupt_response"] is False
+
+
+# ---------------------------------------------------------------------------
 # Test: OpenAI HTTP error → 502
 # ---------------------------------------------------------------------------
 

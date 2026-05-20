@@ -94,11 +94,20 @@ def mint(event: dict, tenant_id: str, conversation_id: str) -> dict:
                 "input": {
                     "format":         {"type": "audio/pcm", "rate": 24000},
                     "transcription":  {"model": "whisper-1"},
+                    # Server VAD tuned to be less trigger-happy on silence /
+                    # non-speech. Whisper hallucinates filler tokens ("Bye",
+                    # "Thanks") on short non-speech segments; raising the
+                    # activation threshold (0.5 → 0.6 — needs louder audio to
+                    # open a turn) and requiring more trailing silence
+                    # (500 → 700 ms before a turn is committed) cuts the number
+                    # of spurious segments that ever reach transcription. The
+                    # browser also drops empty/whitespace transcripts as a
+                    # second line of defence (voiceClient.shouldDropUserTranscript).
                     "turn_detection": {
                         "type":                "server_vad",
-                        "threshold":           0.5,
+                        "threshold":           0.6,
                         "prefix_padding_ms":   300,
-                        "silence_duration_ms": 500,
+                        "silence_duration_ms": 700,
                         "create_response":     True,
                         "interrupt_response":  False,
                     },
