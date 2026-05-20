@@ -25,8 +25,7 @@
 //
 // const client = new VoiceClient({
 //   onStateChange:        (s: VoiceState) => { ... },
-//   onUserTranscript:     (text: string, final: boolean) => { ... },
-//   onAssistantTranscript:(text: string, final: boolean) => { ... },
+//   onVoiceMessage:       (m) => { ... },   // upsert a transcript by item_id
 //   onToolResult:         (hints: ArtifactHint[]) => { ... },
 //   onSpeechStarted:      () => { ... },    // user started speaking
 //   onSyncWarning:        () => { ... },    // transcript POST failed after retries
@@ -58,16 +57,34 @@ export type VoiceState = "off" | "connecting" | "on";
 export interface VoiceClientCallbacks {
   /** Fired when the connection state transitions (off → connecting → on → off). */
   onStateChange:          (state: "off" | "connecting" | "on") => void;
-  /** User speech transcript. `final=true` when transcription.done fires. */
-  onUserTranscript?:      (text: string, final: boolean) => void;
-  /** Assistant speech transcript. `final=true` when output_audio_transcript.done fires. */
-  onAssistantTranscript?: (text: string, final: boolean) => void;
+  /**
+   * Upsert a voice message keyed by its Realtime conversation `item_id`.
+   *
+   * Realtime events do NOT arrive in display order — the user's audio is
+   * transcribed asynchronously, so the assistant reply can stream in before
+   * the user transcript lands. The client therefore emits each message keyed
+   * by its stable `item_id`: the first call for an item creates the bubble in
+   * stream order (a user placeholder fires the moment the item is created,
+   * before the assistant responds); later calls update that same bubble.
+   * `final=true` marks the last update for that item.
+   */
+  onVoiceMessage?:        (m: { itemId: string; role: "user" | "assistant"; text: string; final: boolean; drop?: boolean }) => void;
   /** Tool executed — array of ArtifactHints to surface as cards. */
   onToolResult?:          (hints: ArtifactHint[]) => void;
   /** User started speaking. 4c.3 calls cancelAssistantResponse() if needed. */
   onSpeechStarted?:       () => void;
   /** TurnQueue has permanently failed a turn — transcript is out of sync. */
   onSyncWarning?:         () => void;
+}
+
+/**
+ * Whisper / Realtime input transcription hallucinates short filler tokens
+ * ("Bye", "Thanks", "you") on silent or non-speech audio segments, and also
+ * emits empty strings. A transcript that is empty/whitespace-only is always
+ * dropped; see shouldDropUserTranscript().
+ */
+export function shouldDropUserTranscript(transcript: string | null | undefined): boolean {
+  return !transcript || transcript.trim().length === 0;
 }
 
 // Shape of the ephemeral key response from POST /v1/conversations/{id}/voice
@@ -118,6 +135,10 @@ export class VoiceClient {
   private artifactHintsThisTurn:     ArtifactHint[] = [];
   private latestUserItemId:          string | null = null;
   private latestAssistantItemId:     string | null = null;
+  // User item_ids for which a placeholder bubble has already been emitted.
+  // Created from `conversation.item.created` so the user message lands in the
+  // correct stream position BEFORE the assistant's reply streams in.
+  private placeholderedUserItems:    Set<string> = new Set();
 
   // Response-lifecycle guard (same pattern as VoiceChat.tsx).
   // Sending response.create while a response is active triggers
@@ -297,24 +318,78 @@ export class VoiceClient {
         break;
 
       case "input_audio_buffer.speech_stopped":
-        // No UI action needed — transcription.done will carry the text.
+        // No UI action needed — conversation.item.created carries the item_id
+        // for the placeholder; transcription.completed carries the text.
         break;
+
+      // -----------------------------------------------------------------------
+      // Conversation item created.
+      //
+      // Fires for every Realtime conversation item the moment it exists. For a
+      // user audio item this lands AFTER speech_stopped but BEFORE the
+      // assistant's response.created — so emitting the user placeholder here
+      // puts the user bubble in the correct stream position before the
+      // assistant reply streams in (fixes the "assistant above user" bug). The
+      // placeholder is empty until input_audio_transcription.completed fills it.
+      // -----------------------------------------------------------------------
+      case "conversation.item.created": {
+        const ev = event as unknown as {
+          item?: { id?: string; role?: string; type?: string };
+        };
+        const item = ev.item;
+        if (
+          item?.id &&
+          item.role === "user" &&
+          item.type === "message" &&
+          !this.placeholderedUserItems.has(item.id)
+        ) {
+          this.placeholderedUserItems.add(item.id);
+          this.userTranscriptByItem.set(item.id, "");
+          this.latestUserItemId = item.id;
+          // Empty placeholder bubble, correctly ordered. Filled when the async
+          // transcription.completed event arrives (or dropped if it never
+          // carries real text — see the .completed handler below).
+          this.callbacks.onVoiceMessage?.({
+            itemId: item.id, role: "user", text: "", final: false,
+          });
+        }
+        break;
+      }
 
       // -----------------------------------------------------------------------
       // User transcript (Whisper transcription)
       // GA API delivers the full transcript in a single .completed event.
       // There is no .delta / .done pair for user input transcription.
+      //
+      // Whisper hallucinates filler ("Bye", "you") on silent/non-speech audio
+      // and also emits empty strings — drop those. Bug 1: a dropped transcript
+      // also removes its placeholder so no empty user bubble lingers.
       // -----------------------------------------------------------------------
       case "conversation.item.input_audio_transcription.completed": {
         const ev = event as unknown as { item_id: string; transcript: string };
+        if (shouldDropUserTranscript(ev.transcript)) {
+          this.userTranscriptByItem.delete(ev.item_id);
+          this.placeholderedUserItems.delete(ev.item_id);
+          if (this.latestUserItemId === ev.item_id) this.latestUserItemId = null;
+          // Signal a drop so the UI removes the empty placeholder bubble.
+          this.callbacks.onVoiceMessage?.({
+            itemId: ev.item_id, role: "user", text: "", final: true, drop: true,
+          });
+          break;
+        }
         this.userTranscriptByItem.set(ev.item_id, ev.transcript);
         this.latestUserItemId = ev.item_id;
-        this.callbacks.onUserTranscript?.(ev.transcript, true);
+        this.callbacks.onVoiceMessage?.({
+          itemId: ev.item_id, role: "user", text: ev.transcript, final: true,
+        });
         break;
       }
 
       // -----------------------------------------------------------------------
       // Assistant transcript (audio transcript from Realtime)
+      // Keyed by item_id: a turn that spans multiple audio items maps each item
+      // to its own stable bubble, and re-deltas for an item update that same
+      // bubble — never a duplicate or stray partial bubble (Bug 4).
       // -----------------------------------------------------------------------
       case "response.output_audio_transcript.delta": {
         const ev  = event as unknown as { item_id: string; delta: string };
@@ -322,7 +397,9 @@ export class VoiceClient {
         const next = cur + ev.delta;
         this.assistantTranscriptByItem.set(ev.item_id, next);
         this.latestAssistantItemId = ev.item_id;
-        this.callbacks.onAssistantTranscript?.(next, false);
+        this.callbacks.onVoiceMessage?.({
+          itemId: ev.item_id, role: "assistant", text: next, final: false,
+        });
         break;
       }
 
@@ -330,7 +407,9 @@ export class VoiceClient {
         const ev = event as unknown as { item_id: string; transcript: string };
         this.assistantTranscriptByItem.set(ev.item_id, ev.transcript);
         this.latestAssistantItemId = ev.item_id;
-        this.callbacks.onAssistantTranscript?.(ev.transcript, true);
+        this.callbacks.onVoiceMessage?.({
+          itemId: ev.item_id, role: "assistant", text: ev.transcript, final: true,
+        });
         this.assistantAudioActive = false;
         break;
       }
@@ -468,6 +547,7 @@ export class VoiceClient {
   private resetTurnAccumulators(): void {
     this.userTranscriptByItem      = new Map();
     this.assistantTranscriptByItem = new Map();
+    this.placeholderedUserItems    = new Set();
     this.toolCallsThisTurn         = [];
     this.artifactHintsThisTurn     = [];
     this.latestUserItemId          = null;

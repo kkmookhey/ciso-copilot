@@ -15,6 +15,13 @@ export interface ChatMessage {
   role:       Role;
   content:    any;
   created_at?: string;
+  /**
+   * Client-only: the OpenAI Realtime conversation `item_id` this message was
+   * created from, for voice turns. Used by the `voiceUpsert` reducer action to
+   * update the correct message when transcript events arrive out of order.
+   * Not persisted server-side.
+   */
+  voiceItemId?: string;
 }
 
 export interface ConversationSummary {

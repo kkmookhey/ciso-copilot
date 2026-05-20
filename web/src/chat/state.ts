@@ -22,11 +22,25 @@ export type ChatAction =
   | { type: "streaming"; on: boolean }
   | { type: "setTitle"; title: string }
   /**
-   * Voice-path: update the last assistant message in place with new text.
-   * Used by onAssistantTranscript to stream voice replies live.
-   * If the last message is not an assistant bubble, appends a new one.
+   * Voice-path: upsert a message keyed by its Realtime conversation `item_id`.
+   *
+   * Realtime data-channel events do NOT arrive in display order: a user's
+   * audio is transcribed asynchronously, so the assistant's reply can stream
+   * in before the user's `input_audio_transcription.completed` event lands.
+   * Appending in event-arrival order therefore produces wrong ordering
+   * (assistant above user) and split/duplicate bubbles.
+   *
+   * Instead the voice client creates a placeholder message the moment a
+   * conversation item exists (in correct stream order) and identifies it by
+   * `itemId`. Every subsequent transcript event for that item updates THAT
+   * message in place — wherever it sits in the stream — rather than touching
+   * "the last bubble". A late user transcript fills its placeholder; a
+   * multi-event assistant turn keeps mapping to one stable message.
+   *
+   * `drop: true` removes the message for `itemId` entirely — used when a user
+   * placeholder's transcription turns out empty/hallucinated (Bug 1).
    */
-  | { type: "voiceUpdateAssistant"; text: string; final: boolean };
+  | { type: "voiceUpsert"; itemId: string; role: "user" | "assistant"; text: string; drop?: boolean };
 
 export function chatReducer(s: ChatState, a: ChatAction): ChatState {
   switch (a.type) {
@@ -63,20 +77,33 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
     }
     case "streaming":
       return { ...s, streaming: a.on };
-    case "voiceUpdateAssistant": {
-      const msgs = s.messages.slice();
-      const last = msgs[msgs.length - 1];
-      if (last && last.role === "assistant") {
-        // Update the existing assistant bubble in place.
-        msgs[msgs.length - 1] = {
-          ...last,
-          content: { ...last.content, text: a.text },
-        };
-      } else {
-        // No trailing assistant bubble yet — append one.
-        msgs.push({ role: "assistant", content: { text: a.text } });
+    case "voiceUpsert": {
+      const idx = s.messages.findIndex((m) => m.voiceItemId === a.itemId);
+      if (a.drop) {
+        // Hallucinated/empty transcript — remove the placeholder if present.
+        if (idx === -1) return s;
+        const msgs = s.messages.slice();
+        msgs.splice(idx, 1);
+        return { ...s, messages: msgs };
       }
-      return { ...s, messages: msgs };
+      // Find an existing voice message for this Realtime item_id and update it
+      // in place, wherever it sits. The message keeps its stream position, so a
+      // late-arriving user transcript fills the placeholder created earlier and
+      // a multi-event assistant turn maps to one stable bubble — never a
+      // duplicate or stray partial bubble, never wrong ordering.
+      if (idx !== -1) {
+        const msgs = s.messages.slice();
+        msgs[idx] = { ...msgs[idx], content: { ...msgs[idx].content, text: a.text } };
+        return { ...s, messages: msgs };
+      }
+      // No message for this item yet — append a new one in arrival order.
+      return {
+        ...s,
+        messages: [
+          ...s.messages,
+          { role: a.role, content: { text: a.text }, voiceItemId: a.itemId },
+        ],
+      };
     }
   }
 }

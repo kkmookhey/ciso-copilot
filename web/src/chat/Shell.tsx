@@ -121,14 +121,11 @@ export function ChatShell() {
     const client = new VoiceClient({
       onStateChange: (s) => setVoiceState(s),
 
-      onUserTranscript: (text, _final) => {
-        // User transcripts always arrive as complete (final=true per VoiceClient).
-        dispatch({ type: "append", message: { role: "user", content: { text } } });
-      },
-
-      onAssistantTranscript: (text, _final) => {
-        // Streams live into the last assistant bubble; appends one if absent.
-        dispatch({ type: "voiceUpdateAssistant", text, final: _final });
+      onVoiceMessage: ({ itemId, role, text, drop }) => {
+        // Voice messages are keyed by their Realtime item_id, so out-of-order
+        // transcript events (async user transcription, multi-item assistant
+        // turns) still land on the correct bubble in the correct position.
+        dispatch({ type: "voiceUpsert", itemId, role, text, drop });
       },
 
       onToolResult: (hints) => {
