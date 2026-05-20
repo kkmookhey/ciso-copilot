@@ -50,10 +50,25 @@ SP1** (the 2026-05-19 scan failed the same way). Fixed (commit `d17c500`)
 — plain typed `CAST(:x AS T)`; `shasta_runner` + `ai_scanner` images
 rebuilt and redeployed.
 
-**Demo gate — pending KK's re-rescan** (after the writer fix): trigger an
-AWS scan, confirm cloud findings persist again, AI findings appear with
-`findings.frameworks` carrying `nist_ai_rmf`, and NIST AI RMF / ISO 42001
-show in the compliance view.
+**Second E2E exposed finding-ingestion bugs (2026-05-20) — fixed.** The
+re-scan succeeded but the output was wrong: `unified_writer` hardcoded
+every finding to `domain='ai'` + `status='fail'` (so cloud IAM/storage/
+encryption checks showed inside the AI group, and `not_assessed`
+"Unable to check …" per-region results showed as failures), and INSERTed
+a fresh row per scan (counts doubled on every rescan). Fixed (commit
+`62357b2`): `FindingEmission` now carries real `domain`/`status`/`region`;
+`not_assessed`/`not_applicable` results are dropped at ingestion;
+`_insert_finding` UPSERTs on a natural key `(tenant, conn, check_id,
+resource_arn, region)`; migration `008` adds the unique index and purged
+the 3,734 accumulated junk rows. `shasta_runner` + `ai_scanner` redeployed.
+
+**Demo gate — pending KK's re-rescan:** trigger an AWS scan; confirm cloud
+findings sit under their real categories (not the AI group), the AI group
+holds only Bedrock/SageMaker findings, no "Unable to check" noise, counts
+don't double on a second rescan, and NIST AI RMF / ISO 42001 show in the
+compliance view. Open follow-up: finding-card titles for generic
+multi-resource findings (Bug 5 — UI grouping) — re-evaluate after a clean
+rescan.
 
 **Known limitations (documented in the plan's Deviations section):**
 - **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
