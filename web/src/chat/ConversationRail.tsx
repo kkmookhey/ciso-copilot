@@ -2,6 +2,12 @@
 import { useState, useRef, useEffect } from "react";
 import type { ConversationSummary } from "./chatApi";
 
+// Approximate height of the dropdown menu (2 rows × ~36px + border)
+const MENU_HEIGHT = 80;
+const MENU_WIDTH  = 130;
+
+interface MenuPos { top: number; left: number; }
+
 export function ConversationRail({ conversations, activeId, onSelect, onNew, onRename, onDelete }: {
   conversations: ConversationSummary[];
   activeId: string | null;
@@ -10,8 +16,9 @@ export function ConversationRail({ conversations, activeId, onSelect, onNew, onR
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const [hoveredId, setHoveredId]   = useState<string | null>(null);
-  const [menuId,    setMenuId]      = useState<string | null>(null);
+  const [hoveredId,  setHoveredId]  = useState<string | null>(null);
+  const [menuId,     setMenuId]     = useState<string | null>(null);
+  const [menuPos,    setMenuPos]    = useState<MenuPos | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -21,8 +28,26 @@ export function ConversationRail({ conversations, activeId, onSelect, onNew, onR
     if (renamingId) inputRef.current?.focus();
   }, [renamingId]);
 
-  function startRename(id: string, currentTitle: string) {
+  function openMenu(id: string, buttonEl: HTMLButtonElement) {
+    const rect = buttonEl.getBoundingClientRect();
+    // Default: open below the button, right-aligned
+    let top  = rect.bottom + 4;
+    const left = rect.right - MENU_WIDTH;
+    // Flip upward if not enough space below
+    if (top + MENU_HEIGHT > window.innerHeight) {
+      top = rect.top - MENU_HEIGHT - 4;
+    }
+    setMenuPos({ top, left });
+    setMenuId(id);
+  }
+
+  function closeMenu() {
     setMenuId(null);
+    setMenuPos(null);
+  }
+
+  function startRename(id: string, currentTitle: string) {
+    closeMenu();
     setRenamingId(id);
     setDraftTitle(currentTitle);
   }
@@ -39,7 +64,7 @@ export function ConversationRail({ conversations, activeId, onSelect, onNew, onR
   }
 
   function handleDelete(id: string) {
-    setMenuId(null);
+    closeMenu();
     if (window.confirm("Delete this conversation?")) {
       onDelete(id);
     }
@@ -48,12 +73,26 @@ export function ConversationRail({ conversations, activeId, onSelect, onNew, onR
   // Close the kebab menu when clicking elsewhere
   useEffect(() => {
     if (!menuId) return;
-    function closeMenu(e: MouseEvent) {
+    function onMouseDown(e: MouseEvent) {
       const target = e.target as HTMLElement;
-      if (!target.closest("[data-conv-menu]")) setMenuId(null);
+      if (!target.closest("[data-conv-menu]")) closeMenu();
     }
-    document.addEventListener("mousedown", closeMenu);
-    return () => document.removeEventListener("mousedown", closeMenu);
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeMenu();
+    }
+    // Close on scroll or resize — fixed menu won't follow the rail
+    function onScrollOrResize() { closeMenu(); }
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown",   onKeyDown);
+    window.addEventListener("scroll",  onScrollOrResize, { capture: true });
+    window.addEventListener("resize",  onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown",   onKeyDown);
+      window.removeEventListener("scroll",  onScrollOrResize, { capture: true } as EventListenerOptions);
+      window.removeEventListener("resize",  onScrollOrResize);
+    };
   }, [menuId]);
 
   return (
@@ -124,7 +163,11 @@ export function ConversationRail({ conversations, activeId, onSelect, onNew, onR
                   data-conv-menu
                   onClick={(e) => {
                     e.stopPropagation();
-                    setMenuId(menuOpen ? null : c.id);
+                    if (menuOpen) {
+                      closeMenu();
+                    } else {
+                      openMenu(c.id, e.currentTarget as HTMLButtonElement);
+                    }
                   }}
                   style={{
                     flexShrink: 0,
@@ -138,50 +181,70 @@ export function ConversationRail({ conversations, activeId, onSelect, onNew, onR
                   ⋯
                 </button>
               )}
-
-              {/* Dropdown menu */}
-              {menuOpen && (
-                <div
-                  data-conv-menu
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    position: "absolute", top: "100%", right: 6, zIndex: 100,
-                    background: "#FFFCF6",
-                    border: "1px solid #E8DFD0",
-                    borderRadius: 6,
-                    boxShadow: "0 2px 8px rgba(58,52,43,0.12)",
-                    minWidth: 110,
-                    overflow: "hidden",
-                  }}
-                >
-                  <button
-                    onClick={() => startRename(c.id, c.title)}
-                    style={menuItemStyle}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#F5F0E6")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    onClick={() => handleDelete(c.id)}
-                    style={{ ...menuItemStyle, color: "#B94040" }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#F5F0E6")}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
+
+      {/* Fixed-position dropdown — rendered outside the scroll container so it
+          cannot be clipped by overflowY: auto */}
+      {menuId && menuPos && (() => {
+        const conv = conversations.find((c) => c.id === menuId);
+        if (!conv) return null;
+        return (
+          <div
+            data-conv-menu
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              top: menuPos.top,
+              left: menuPos.left,
+              width: MENU_WIDTH,
+              zIndex: 1000,
+              background: "#FFFCF6",
+              border: "1px solid #E8DFD0",
+              borderRadius: "6px 6px 8px 8px",
+              boxShadow: "0 4px 16px rgba(58,52,43,0.12)",
+              overflow: "hidden",
+            }}
+          >
+            <button
+              onClick={() => startRename(conv.id, conv.title)}
+              style={menuItemStyle}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#F5F0E6")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                   style={{ marginRight: 8, verticalAlign: "middle", flexShrink: 0 }}
+                   stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8.5 1.5a1.414 1.414 0 0 1 2 2L3.5 10.5 1 11l.5-2.5L8.5 1.5z"/>
+              </svg>
+              Rename
+            </button>
+            <button
+              onClick={() => handleDelete(conv.id)}
+              style={{ ...menuItemStyle, color: "#B94040" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#F5F0E6")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+                   style={{ marginRight: 8, verticalAlign: "middle", flexShrink: 0 }}
+                   stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1,3 11,3"/>
+                <path d="M2.5 3l.5 7.5a1 1 0 0 0 1 .5h5a1 1 0 0 0 1-.5L10.5 3"/>
+                <path d="M4.5 3V1.5h3V3"/>
+              </svg>
+              Delete
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
 const menuItemStyle: React.CSSProperties = {
-  display: "block", width: "100%",
+  display: "flex", alignItems: "center", width: "100%",
   background: "transparent", border: "none",
   textAlign: "left", cursor: "pointer",
   padding: "8px 12px", fontSize: 13,
