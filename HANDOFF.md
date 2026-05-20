@@ -62,13 +62,18 @@ a fresh row per scan (counts doubled on every rescan). Fixed (commit
 resource_arn, region)`; migration `008` adds the unique index and purged
 the 3,734 accumulated junk rows. `shasta_runner` + `ai_scanner` redeployed.
 
-**Demo gate — pending KK's re-rescan:** trigger an AWS scan; confirm cloud
-findings sit under their real categories (not the AI group), the AI group
-holds only Bedrock/SageMaker findings, no "Unable to check" noise, counts
-don't double on a second rescan, and NIST AI RMF / ISO 42001 show in the
-compliance view. Open follow-up: finding-card titles for generic
-multi-resource findings (Bug 5 — UI grouping) — re-evaluate after a clean
-rescan.
+**Demo gate — PASSED** (scan `5c62e6d3`, 2026-05-20 23:30): 147 findings,
+correctly categorized — storage 65, iam 20, **ai 17**, logging 14,
+encryption 13, networking 10, monitoring 8; status 85 pass / 32 fail /
+30 partial; zero `not_assessed` noise. (AWS scan takes ~13 min — wait for
+`scan complete` in the logs before checking.)
+
+Open follow-ups:
+- The issues/findings list should filter to `status IN ('fail','partial')`
+  (62 actionable); `pass` rows (85) are kept for compliance scoring but
+  shouldn't show as issues — a findings web/API filter, not yet done.
+- Bug 5 — finding-card titles for generic multi-resource findings (UI
+  grouping) — re-evaluate now that the data is clean.
 
 **Known limitations (documented in the plan's Deviations section):**
 - **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
