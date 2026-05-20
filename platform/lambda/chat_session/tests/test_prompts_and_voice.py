@@ -31,8 +31,11 @@ class TestSystemForVoice:
 
     def test_contains_tool_rules(self):
         result = prompts.system_for_voice()
-        assert "Never invent data" in result
+        # Customer-specific data boundary — must not be invented
+        assert "never invent" in result.lower()
         assert "propose_" in result
+        # General compliance knowledge is allowed from model's own knowledge
+        assert "GENERAL SECURITY" in result
 
     def test_contains_voice_addendum_not_text(self):
         result = prompts.system_for_voice()
@@ -72,7 +75,10 @@ class TestSystemForText:
 
     def test_contains_tool_rules(self):
         result = prompts.system_for_text()
-        assert "Never invent data" in result
+        # Customer-specific data boundary — must not be invented
+        assert "never invent" in result.lower()
+        # General compliance knowledge is allowed from model's own knowledge
+        assert "GENERAL SECURITY" in result
 
     def test_contains_text_addendum_not_voice(self):
         result = prompts.system_for_text()

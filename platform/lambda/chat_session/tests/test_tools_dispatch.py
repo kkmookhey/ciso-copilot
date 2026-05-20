@@ -403,3 +403,67 @@ def test_data_tool_is_tenant_scoped(tool_name, args, monkeypatch):
             f"expected {_SENTINEL_TENANT_ID!r}. Full params: {params}"
         )
         assert params.get("tid") == _SENTINEL_TENANT_ID, msg_tid
+
+
+# ---------------------------------------------------------------------------
+# query_findings — domain filter (Bug 6 regression)
+# ---------------------------------------------------------------------------
+
+def test_query_findings_domain_filter_adds_sql_clause(monkeypatch):
+    """When domain='iam' is passed, the SQL must include AND f.domain = :dom."""
+    captured = {}
+
+    def fake_q(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params or {}
+        return []
+
+    monkeypatch.setattr(TD, "_q", fake_q)
+    TD.dispatch("query_findings", "tenant-1", {"domain": "iam"})
+
+    assert "f.domain = :dom" in captured["sql"], (
+        "domain filter missing from SQL: " + captured["sql"]
+    )
+    assert captured["params"].get("dom") == "iam"
+
+
+def test_query_findings_no_domain_omits_domain_clause(monkeypatch):
+    """When domain is not passed, the SQL must NOT include f.domain = :dom."""
+    captured = {}
+
+    def fake_q(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params or {}
+        return []
+
+    monkeypatch.setattr(TD, "_q", fake_q)
+    TD.dispatch("query_findings", "tenant-1", {})
+
+    assert "f.domain = :dom" not in captured["sql"]
+    assert "dom" not in captured["params"]
+
+
+def test_query_findings_invalid_domain_is_ignored(monkeypatch):
+    """An unknown domain value must be silently ignored — no SQL injection."""
+    captured = {}
+
+    def fake_q(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params or {}
+        return []
+
+    monkeypatch.setattr(TD, "_q", fake_q)
+    TD.dispatch("query_findings", "tenant-1", {"domain": "not_a_real_domain"})
+
+    assert "f.domain = :dom" not in captured["sql"]
+    assert "dom" not in captured["params"]
+
+
+def test_query_findings_domain_in_tool_schema():
+    """The query_findings tool's input_schema must expose a 'domain' property."""
+    defs = TD.anthropic_tool_defs()
+    qf = next(d for d in defs if d["name"] == "query_findings")
+    props = qf["input_schema"]["properties"]
+    assert "domain" in props, "query_findings input_schema missing 'domain' property"
+    assert props["domain"]["type"] == "string"
+    assert "iam" in props["domain"]["enum"]

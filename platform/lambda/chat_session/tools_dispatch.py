@@ -59,8 +59,13 @@ DRAFT_POLICY_EDIT_FIELDS = [
 # Data-tool query helpers (mirror the REST Lambdas; all tenant-scoped)
 # ---------------------------------------------------------------------------
 
+ALLOWED_DOMAINS = {"iam", "storage", "encryption", "logging", "networking",
+                   "monitoring", "compute"}
+
+
 def _query_findings(tenant_id: str, severity: str | None = None,
                      cloud: str | None = None, check_id: str | None = None,
+                     domain: str | None = None,
                      limit: int = 20) -> list[dict]:
     """Replicates findings_list/main.py — open ('fail') findings, tenant-scoped."""
     severities = [severity] if severity in ALLOWED_SEVERITIES else list(ALLOWED_SEVERITIES)
@@ -68,6 +73,9 @@ def _query_findings(tenant_id: str, severity: str | None = None,
     cloud = cloud.lower() if cloud else None
     if cloud and cloud not in ALLOWED_CLOUDS:
         cloud = None
+    domain = domain.lower() if domain else None
+    if domain and domain not in ALLOWED_DOMAINS:
+        domain = None
 
     sev_in = ", ".join(f":sev{i}" for i in range(len(severities)))
     sql = (
@@ -81,6 +89,7 @@ def _query_findings(tenant_id: str, severity: str | None = None,
         + f"  AND f.severity IN ({sev_in}) "
         + "  AND f.status = 'fail' "
         + ("  AND f.check_id = :chk " if check_id else "")
+        + ("  AND f.domain = :dom " if domain else "")
         + "ORDER BY CASE f.severity "
           "    WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 "
           "    WHEN 'low' THEN 4 ELSE 5 END, f.last_seen DESC "
@@ -93,6 +102,8 @@ def _query_findings(tenant_id: str, severity: str | None = None,
         params["cloud"] = cloud
     if check_id:
         params["chk"] = check_id
+    if domain:
+        params["dom"] = domain
 
     rows = _q(sql, params)
     return [
@@ -423,6 +434,7 @@ def _exec_query_findings(tenant_id: str, args: dict) -> dict:
         severity=args.get("severity"),
         cloud=args.get("cloud"),
         check_id=args.get("check_id"),
+        domain=args.get("domain"),
         limit=args.get("limit", 20),
     )
     result = {"findings": findings, "count": len(findings)}
@@ -644,9 +656,14 @@ TOOLS: list[_T] = [
     ),
     _T(
         "query_findings",
-        "Query open security findings. Filter by severity, cloud, or check_id. "
-        "Returns an entity_list for many results or individual finding_card "
-        "artifacts for <=3 matches.",
+        "Query open security findings. Filter by severity, cloud, domain, or "
+        "check_id. Use domain to scope by security category: 'iam' for identity "
+        "and access management findings, 'networking' for network findings, "
+        "'encryption' for key/certificate/encryption findings (including Key "
+        "Vault), 'storage' for storage findings, 'logging' for audit/log "
+        "findings, 'monitoring' for alerting findings, 'compute' for VM/container "
+        "findings. Returns an entity_list for many results or individual "
+        "finding_card artifacts for <=3 matches.",
         {
             "type": "object",
             "properties": {
@@ -654,6 +671,11 @@ TOOLS: list[_T] = [
                              "enum": ["critical", "high", "medium", "low", "info"]},
                 "cloud": {"type": "string",
                           "enum": ["aws", "azure", "gcp", "entra"]},
+                "domain": {"type": "string",
+                           "enum": ["iam", "storage", "encryption", "logging",
+                                    "networking", "monitoring", "compute"],
+                           "description": "Security domain / category to filter by. "
+                                          "Use 'iam' for IAM/identity findings."},
                 "check_id": {"type": "string"},
                 "limit": {"type": "number", "default": 20},
             },
