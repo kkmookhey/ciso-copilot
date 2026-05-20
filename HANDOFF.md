@@ -57,6 +57,28 @@ x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
 verified the `.so` import error is gone. **Next: KK retries the authed
 demo; if it passes, Phase 4b (tools + 8 artifact components).**
 
+**SP4 Phase 4d deployed (2026-05-20) — action approvals. SP4 feature-complete.**
+The chat can now propose actions and the user approves them:
+- `propose_risk_entry` / `propose_policy_draft` tools return a pending
+  `approval_card` (NEVER auto-execute — determinism invariant).
+- Clicking **Approve** → `POST /risks` or `/policies`, idempotent on the
+  card's `approval_id` (atomic `INSERT ... ON CONFLICT DO NOTHING
+  RETURNING` — double-tap safe). Card → `approved` with a link.
+- Edit-in-place before approving; Cancel. Card state persists via
+  `PATCH /v1/conversations/{id}/messages/{message_id}` — reload shows the
+  final state.
+- Migration `007_approval_idempotency.sql` — `source_approval_id` on
+  `risks` + `policies` with a partial unique index.
+- The pre-SP4 voice modal (`web/src/voice/`) retired; `excelHelpers.ts`
+  moved to `web/src/lib/`.
+- **Phase 4d demo gate — pending KK's test:** in chat, "add X to my risk
+  register" → editable approval card → Approve → risk created. Same for a
+  policy draft. Double-click Approve = no duplicate.
+- **SP4 status:** all 4 phases (4a shell+text · 4b tools+artifacts · 4c
+  voice · 4d approvals) built + deployed on `feat/sp4-chat-first`. Branch
+  not yet PR'd to main. Deferred polish (see items above): compliance
+  donut visual, TOOL_RULES general-knowledge tuning. iOS = SP4.5.
+
 **SP4 Phase 4c deployed (2026-05-20) — voice.** The chat surface now has
 voice via OpenAI Realtime over WebRTC:
 - **Model: `gpt-realtime-2`** (OpenAI's newer GPT-5-class realtime model —
