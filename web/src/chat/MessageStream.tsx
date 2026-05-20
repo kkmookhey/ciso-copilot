@@ -1,4 +1,5 @@
 // web/src/chat/MessageStream.tsx
+import { useEffect, useRef } from "react";
 import type { ChatMessage } from "./chatApi";
 import type { ArtifactHint } from "./tools";
 import { Artifact } from "./Artifact";
@@ -13,9 +14,33 @@ function toolHints(content: any): ArtifactHint[] {
   return [];
 }
 
+const NEAR_BOTTOM_PX = 80;
+
 export function MessageStream({ messages }: { messages: ChatMessage[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  // true when the user is at or near the bottom; start true so first load scrolls down.
+  const isNearBottom = useRef(true);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    isNearBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+  };
+
+  useEffect(() => {
+    if (isNearBottom.current) {
+      sentinelRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [messages]);
+
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px" }}>
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      style={{ flex: 1, overflowY: "auto", padding: "24px 32px" }}
+    >
       {messages.map((m, i) => {
         if (m.role === "tool") {
           const hints = toolHints(m.content);
@@ -44,6 +69,7 @@ export function MessageStream({ messages }: { messages: ChatMessage[] }) {
           </div>
         );
       })}
+      <div ref={sentinelRef} />
     </div>
   );
 }
