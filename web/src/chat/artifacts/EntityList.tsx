@@ -54,8 +54,8 @@ export function EntityList({ title, entities }: EntityListProps) {
                   borderRadius: 6,
                   transition: "background 0.12s",
                 }}
-                onMouseEnter={e_ => { if (e.source) (e_.target as HTMLButtonElement).style.background = "#F5F0E6"; }}
-                onMouseLeave={e_ => { (e_.target as HTMLButtonElement).style.background = "none"; }}
+                onMouseEnter={e_ => { if (e.source) (e_.currentTarget as HTMLButtonElement).style.background = "#F5F0E6"; }}
+                onMouseLeave={e_ => { (e_.currentTarget as HTMLButtonElement).style.background = "none"; }}
               >
                 <span style={{
                   fontSize: 10, color: "#A89B89", background: "#F0E8DB",

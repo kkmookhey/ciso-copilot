@@ -17,7 +17,7 @@ interface ChartBarProps {
 
 const DEFAULT_BAR_COLOR = "#D85F3B";
 
-export function ChartBar({ title, series, source }: ChartBarProps) {
+export function ChartBar({ title, x_label, y_label, series, source }: ChartBarProps) {
   const data = series.map(s => ({ name: s.label, value: s.value, color: s.color }));
 
   return (
@@ -36,19 +36,21 @@ export function ChartBar({ title, series, source }: ChartBarProps) {
       </div>
 
       <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+        <BarChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: x_label ? 20 : 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#E8DFD0" />
           <XAxis
             dataKey="name"
             tick={{ fontSize: 11, fill: "#7A7268" }}
             axisLine={{ stroke: "#E8DFD0" }}
             tickLine={false}
+            {...(x_label ? { label: { value: x_label, position: "insideBottom", offset: -4, fontSize: 11, fill: "#A89B89" } } : {})}
           />
           <YAxis
             tick={{ fontSize: 11, fill: "#7A7268" }}
             axisLine={false}
             tickLine={false}
             allowDecimals={false}
+            {...(y_label ? { label: { value: y_label, angle: -90, position: "insideLeft", fontSize: 11, fill: "#A89B89" } } : {})}
           />
           <RTooltip
             contentStyle={{ borderRadius: 8, fontSize: 12,

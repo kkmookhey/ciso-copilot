@@ -3,7 +3,7 @@
 // Approve→POST wiring is Phase 4d. This task: full UI + inline edit form.
 // The component manages its own pending↔editing view state locally.
 
-import { useState } from "react";
+import { useState, Fragment } from "react";
 
 interface EditField {
   key:      string;
@@ -41,14 +41,14 @@ function PayloadSummary({ payload }: { payload: Record<string, unknown> }) {
                  gridTemplateColumns: "max-content 1fr",
                  gap: "4px 12px", fontSize: 12 }}>
       {entries.map(([k, v]) => (
-        <>
-          <dt key={`dt-${k}`} style={{ color: "#A89B89", textTransform: "capitalize" }}>
+        <Fragment key={k}>
+          <dt style={{ color: "#A89B89", textTransform: "capitalize" }}>
             {k.replace(/_/g, " ")}
           </dt>
-          <dd key={`dd-${k}`} style={{ color: "#3A342B", margin: 0, fontWeight: 500 }}>
+          <dd style={{ color: "#3A342B", margin: 0, fontWeight: 500 }}>
             {String(v)}
           </dd>
-        </>
+        </Fragment>
       ))}
     </dl>
   );

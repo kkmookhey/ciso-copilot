@@ -174,4 +174,19 @@ describe("Artifact renderer", () => {
     expect(screen.getByText("Retry")).toBeTruthy();
     expect(screen.getByText("Database write failed")).toBeTruthy();
   });
+
+  it("renders approval_card cancelled state with struck-through label", () => {
+    const hint: ArtifactHint = {
+      kind: "approval_card",
+      action_kind: "add_risk",
+      current_status: "cancelled",
+      payload: { title: "Stale risk" },
+      edit_fields: [],
+    };
+    const { container } = render(<Artifact hint={hint} />);
+    // Should render without throwing and show the cancelled text
+    const cancelledEl = container.querySelector("[style*='line-through']");
+    expect(cancelledEl).toBeTruthy();
+    expect(cancelledEl?.textContent).toContain("cancelled");
+  });
 });
