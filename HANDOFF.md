@@ -57,6 +57,29 @@ x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
 verified the `.so` import error is gone. **Next: KK retries the authed
 demo; if it passes, Phase 4b (tools + 8 artifact components).**
 
+**SP4 bug-fix round (2026-05-20) — 6 bugs from KK's testing, all fixed + deployed:**
+1. **Phantom "Bye"/empty voice messages** — Whisper hallucinates on silence.
+   Fixed: client drops empty/whitespace transcripts; server VAD tuned
+   (threshold 0.5→0.6, silence 500→700ms).
+2. **No compliance-control details** — `TOOL_RULES` over-blocked. Fixed:
+   the model may now answer GENERAL framework knowledge (what MCSB AM-1 /
+   SOC2 CC2.1 require) from its own knowledge; customer-specific data stays
+   tool-gated.
+3. **Donut all-red / zero segments** — both `tools.ts` AND server
+   `tools_dispatch.py` set explicit red segment colors. Fixed: hint sends
+   no color; `ChartDonut`/`ChartBar` apply an 8-hue palette; zero segments
+   muted.
+4. **Voice reply split into 2 bubbles** + **5. assistant text above the
+   user's question** — transcripts were appended in event-arrival order.
+   Fixed: voice messages keyed by Realtime `item_id` (`voiceUpsert`
+   reducer action); user placeholder created on `conversation.item.created`
+   so it lands before the assistant reply; late async transcript fills it.
+6. **"IAM issues" returned Key Vault findings** — `query_findings` had no
+   domain filter. Fixed: added a `domain` enum param (`findings.domain`:
+   iam/storage/encryption/…) so the model can scope queries.
+Commits `0b92f4b`, `a0aa068`, `d034e80`, `f93d593`, `4fa55cd`. The earlier
+"deferred 4b/4c polish" items (donut, TOOL_RULES) are now resolved.
+
 **SP4 Phase 4d deployed (2026-05-20) — action approvals. SP4 feature-complete.**
 The chat can now propose actions and the user approves them:
 - `propose_risk_entry` / `propose_policy_draft` tools return a pending
