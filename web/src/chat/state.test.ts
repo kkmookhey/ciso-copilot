@@ -75,4 +75,53 @@ describe("chatReducer", () => {
     expect(s.conversationId).toBe("conv-1");
     expect(s.messages).toHaveLength(1);
   });
+
+  describe("voiceUpdateAssistant", () => {
+    it("updates the last assistant bubble when one exists", () => {
+      let s = chatReducer(initialState, {
+        type: "append", message: { role: "assistant", content: { text: "Hel" } },
+      });
+      s = chatReducer(s, { type: "voiceUpdateAssistant", text: "Hello", final: false });
+      expect(s.messages).toHaveLength(1);
+      expect(s.messages[0].content.text).toBe("Hello");
+    });
+
+    it("appends a new assistant bubble when the last message is not assistant", () => {
+      const s = chatReducer(initialState, {
+        type: "voiceUpdateAssistant", text: "Hi there", final: false,
+      });
+      expect(s.messages).toHaveLength(1);
+      expect(s.messages[0].role).toBe("assistant");
+      expect(s.messages[0].content.text).toBe("Hi there");
+    });
+
+    it("appends when messages list is empty", () => {
+      const s = chatReducer(initialState, {
+        type: "voiceUpdateAssistant", text: "First", final: true,
+      });
+      expect(s.messages).toHaveLength(1);
+      expect(s.messages[0].content.text).toBe("First");
+    });
+
+    it("does not update a user bubble — appends instead", () => {
+      let s = chatReducer(initialState, {
+        type: "append", message: { role: "user", content: { text: "Hey" } },
+      });
+      s = chatReducer(s, { type: "voiceUpdateAssistant", text: "Reply", final: false });
+      expect(s.messages).toHaveLength(2);
+      expect(s.messages[1].role).toBe("assistant");
+      expect(s.messages[1].content.text).toBe("Reply");
+    });
+
+    it("streams deltas by replacing text (not appending)", () => {
+      let s = chatReducer(initialState, {
+        type: "append", message: { role: "assistant", content: { text: "" } },
+      });
+      s = chatReducer(s, { type: "voiceUpdateAssistant", text: "So",    final: false });
+      s = chatReducer(s, { type: "voiceUpdateAssistant", text: "Some",  final: false });
+      s = chatReducer(s, { type: "voiceUpdateAssistant", text: "Something", final: true });
+      expect(s.messages).toHaveLength(1);
+      expect(s.messages[0].content.text).toBe("Something");
+    });
+  });
 });

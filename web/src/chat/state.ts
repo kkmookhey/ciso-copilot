@@ -20,7 +20,13 @@ export type ChatAction =
   | { type: "appendTool"; content: any }
   | { type: "streamDelta"; text: string }
   | { type: "streaming"; on: boolean }
-  | { type: "setTitle"; title: string };
+  | { type: "setTitle"; title: string }
+  /**
+   * Voice-path: update the last assistant message in place with new text.
+   * Used by onAssistantTranscript to stream voice replies live.
+   * If the last message is not an assistant bubble, appends a new one.
+   */
+  | { type: "voiceUpdateAssistant"; text: string; final: boolean };
 
 export function chatReducer(s: ChatState, a: ChatAction): ChatState {
   switch (a.type) {
@@ -57,5 +63,20 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
     }
     case "streaming":
       return { ...s, streaming: a.on };
+    case "voiceUpdateAssistant": {
+      const msgs = s.messages.slice();
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === "assistant") {
+        // Update the existing assistant bubble in place.
+        msgs[msgs.length - 1] = {
+          ...last,
+          content: { ...last.content, text: a.text },
+        };
+      } else {
+        // No trailing assistant bubble yet — append one.
+        msgs.push({ role: "assistant", content: { text: a.text } });
+      }
+      return { ...s, messages: msgs };
+    }
   }
 }

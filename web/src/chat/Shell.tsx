@@ -4,7 +4,7 @@
 //   2. api.me() → tenant status check → redirect /pending or signOut
 //   3. render once email is known
 
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { isSignedIn, signOut } from "../lib/cognito";
 import { api, type MeResponse } from "../lib/api";
@@ -15,6 +15,8 @@ import { SourceSideSheet } from "./SourceSideSheet";
 import { chatReducer, initialState } from "./state";
 import * as chatApi from "./chatApi";
 import { executeTool } from "./tools";
+import { VoiceClient } from "./voiceClient";
+import type { VoiceState } from "./voiceClient";
 
 const ADMIN_EMAILS = new Set([
   "kkmookhey@gmail.com",
@@ -31,6 +33,14 @@ export function ChatShell() {
   const [loading, setLoading] = useState(true);
   const [state, dispatch]   = useReducer(chatReducer, initialState);
   const [convs, setConvs]   = useState<chatApi.ConversationSummary[]>([]);
+
+  // Voice state
+  const [voiceState, setVoiceState]   = useState<VoiceState>("off");
+  const [syncWarning, setSyncWarning] = useState(false);
+  const voiceClientRef                = useRef<VoiceClient | null>(null);
+  // Keep a ref to the latest conversationId so callbacks (created at connect
+  // time) don't capture a stale closure value.
+  const conversationIdRef = useRef<string | null>(null);
 
   // --- Auth gate (mirrors routes/Shell.tsx) ---
   useEffect(() => {
@@ -84,7 +94,69 @@ export function ChatShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, me]);
 
+  // Keep the conversationId ref in sync so voice callbacks aren't stale.
+  useEffect(() => {
+    conversationIdRef.current = state.conversationId;
+  }, [state.conversationId]);
+
+  // Disconnect voice when the active conversation changes (or on unmount).
+  useEffect(() => {
+    return () => {
+      voiceClientRef.current?.disconnect();
+      voiceClientRef.current = null;
+    };
+  }, [state.conversationId]);
+
+  function toggleVoice() {
+    if (voiceState === "on" || voiceState === "connecting") {
+      voiceClientRef.current?.disconnect();
+      voiceClientRef.current = null;
+      return;
+    }
+
+    // off → connecting
+    const convId = conversationIdRef.current;
+    if (!convId) return;
+
+    const client = new VoiceClient({
+      onStateChange: (s) => setVoiceState(s),
+
+      onUserTranscript: (text, _final) => {
+        // User transcripts always arrive as complete (final=true per VoiceClient).
+        dispatch({ type: "append", message: { role: "user", content: { text } } });
+      },
+
+      onAssistantTranscript: (text, _final) => {
+        // Streams live into the last assistant bubble; appends one if absent.
+        dispatch({ type: "voiceUpdateAssistant", text, final: _final });
+      },
+
+      onToolResult: (hints) => {
+        dispatch({
+          type: "appendTool",
+          content: { _artifact_hints: hints },
+        });
+      },
+
+      onSpeechStarted: () => {
+        // Barge-in: cancel the assistant's in-progress response.
+        voiceClientRef.current?.cancelAssistantResponse();
+      },
+
+      onSyncWarning: () => setSyncWarning(true),
+    });
+
+    voiceClientRef.current = client;
+    client.connect(convId).catch((err) => {
+      console.error("VoiceClient.connect failed:", err);
+      voiceClientRef.current = null;
+    });
+  }
+
   async function openConversation(id: string) {
+    // Disconnect voice before switching conversations.
+    voiceClientRef.current?.disconnect();
+    voiceClientRef.current = null;
     const c = await chatApi.getConversation(id);
     dispatch({ type: "load", id: c.id, title: c.title, messages: c.messages });
   }
@@ -178,7 +250,13 @@ export function ChatShell() {
         onRename={onRename}
         onDelete={onDelete}
       />
-      <ChatCenter state={state} onSend={onSend} />
+      <ChatCenter
+        state={state}
+        onSend={onSend}
+        voiceState={voiceState}
+        onToggleVoice={toggleVoice}
+        syncWarning={syncWarning}
+      />
       <SourceSideSheet />
     </div>
   );
