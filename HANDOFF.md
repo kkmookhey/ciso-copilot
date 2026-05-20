@@ -79,6 +79,13 @@ voice via OpenAI Realtime over WebRTC:
   such field. Removed it (commit `9735d36`); `conversation_id` doesn't need
   to reach OpenAI — the browser owns the conversation binding. Lesson:
   validate the FULL session payload against the live API, not a minimal one.
+- **Gotcha 2 — voice mint response field.** After the metadata fix the mint
+  200'd but the mic still failed: `voice.py` returned the ephemeral key as
+  `client_secret`, the web `voiceClient` reads `.value`. Mismatch → `Bearer
+  undefined` to `/v1/realtime/calls` → 401. Fixed (commit `713a315`):
+  `voice.py` returns `value`. Lesson: the 4c.1 + 4c.2 reviews each checked
+  one side vs the spec; neither cross-checked the two sides of the
+  Lambda↔client contract.
 - **Phase 4c demo gate — pending KK's mic retest** (after the metadata fix):
   toggle the mic, hold a spoken conversation, verify transcripts stream +
   persist + tools work + barge-in. Spec §15: same questions in text vs
