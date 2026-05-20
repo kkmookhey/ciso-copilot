@@ -115,7 +115,7 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     })
                 elif ev["type"] == "done":
                     yield _sse({"type": "done"})
-        except RuntimeError as e:
+        except Exception as e:
             print(f"Anthropic stream error: {e}")
             yield _sse({"error": "upstream_failed", "detail": str(e)[:200]})
             # Persist a placeholder assistant message so the conversation
