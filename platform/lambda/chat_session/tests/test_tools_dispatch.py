@@ -274,3 +274,101 @@ def test_filter_findings_view_returns_intent_only():
     out = TD.dispatch("filter_findings_view", "tenant-1", {"severity": "critical"})
     assert out["result"] == {"filtered": {"severity": "critical"}}
     assert "_artifact_hint" not in out
+
+    assert "_artifact_hints" not in out
+
+
+# ---------------------------------------------------------------------------
+# Tenant-scope regression -- ALL 8 data tools
+#
+# For each data tool: monkeypatch _q to capture every (sql, params) pair,
+# dispatch the tool with a known tenant_id, then assert:
+#   1. At least one SQL call was made.
+#   2. EVERY SQL call contains the tenant-scoping token "CAST(:tid AS UUID)".
+#   3. EVERY such call passes params["tid"] equal to the sentinel tenant_id.
+#
+# "Tenant-owned tables" = findings, risks, entities -- i.e. every SELECT
+# the data tools produce. Action and side-effect tools have separate tests
+# that assert _q is NEVER called.
+#
+# Update this test when a new data tool is added to TOOLS.
+# ---------------------------------------------------------------------------
+
+_TENANT_SCOPE_TOKEN = "CAST(:tid AS UUID)"
+_SENTINEL_TENANT_ID = "tenant-SCOPE-TEST"
+
+# Minimal fake rows so each query returns enough data to finish without error.
+_FINDING_ROW = [
+    _s("fid-1"), _s("chk.1"), _s("Test finding"), _s("desc"),
+    _s("high"), _s("fail"), _s(None), _s("s3"),
+    _s("us-east-1"), _s("cloud"), _s("{}"),
+]
+_SEVERITY_ROW = [_s("high"), _l(1)]
+_RISK_ROW = [
+    _s("rid-1"), _s("Risk title"), _s("desc"), _s("high"), _s("open"),
+    _s(None), _s(None), _s(None),
+]
+_ENTITY_ROW = [
+    _s("eid-1"), _s("aws_s3_bucket"), _s("nat-key"), _s("Display"),
+    _s("cloud"), _s("{}"),
+]
+_COMPLIANCE_ROW = [_s("soc2"), _s("CC6.1"), _l(0), _l(1), _l(1)]
+
+
+def _stubbed_q(sql, params=None):
+    """Return plausible rows for every SQL pattern the data tools issue."""
+    if "jsonb_each" in sql:          # compliance rollup
+        return [_COMPLIANCE_ROW]
+    if "GROUP BY f.severity" in sql:  # severity breakdown
+        return [_SEVERITY_ROW]
+    if "FROM findings f" in sql:      # findings queries
+        return [_FINDING_ROW]
+    if "FROM risks" in sql:           # risks query
+        return [_RISK_ROW]
+    if "FROM entities" in sql:        # entities queries
+        return [_ENTITY_ROW]
+    return []
+
+
+@pytest.mark.parametrize("tool_name,args", [
+    ("get_morning_briefing",    {}),
+    ("query_entities",          {}),
+    ("get_entity",              {"entity_id": "eid-1"}),
+    ("query_findings",          {}),
+    ("get_finding",             {"check_id": "chk.1"}),
+    ("get_compliance_summary",  {}),
+    ("get_severity_breakdown",  {}),
+    ("list_risks",              {}),
+])
+def test_data_tool_is_tenant_scoped(tool_name, args, monkeypatch):
+    """Every SQL query issued by a data tool must contain the tenant filter
+    and must bind :tid to the caller-supplied tenant_id -- security boundary.
+
+    Covers all 8 data tools. Fails immediately if any query is missing the
+    CAST(:tid AS UUID) predicate or passes the wrong tenant_id.
+    """
+    captured_calls: list[tuple[str, dict]] = []
+
+    def recording_q(sql, params=None):
+        captured_calls.append((sql, params or {}))
+        return _stubbed_q(sql, params)
+
+    monkeypatch.setattr(TD, "_q", recording_q)
+
+    TD.dispatch(tool_name, _SENTINEL_TENANT_ID, args)
+
+    assert captured_calls, (
+        f"{tool_name}: expected at least one _q call but got none"
+    )
+
+    for sql, params in captured_calls:
+        msg_sql = (
+            f"{tool_name}: SQL missing tenant scope token {_TENANT_SCOPE_TOKEN!r}. "
+            f"SQL was: {sql}"
+        )
+        assert _TENANT_SCOPE_TOKEN in sql, msg_sql
+        msg_tid = (
+            f"{tool_name}: params['tid'] = {params.get('tid')!r}, "
+            f"expected {_SENTINEL_TENANT_ID!r}. Full params: {params}"
+        )
+        assert params.get("tid") == _SENTINEL_TENANT_ID, msg_tid
