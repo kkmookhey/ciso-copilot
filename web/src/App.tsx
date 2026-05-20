@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { SignIn } from "./routes/SignIn";
 import { Callback } from "./routes/Callback";
 import { PendingApproval } from "./routes/PendingApproval";
-import { Welcome } from "./routes/Welcome";
+import { Dashboard } from "./routes/Dashboard";
 import { ConnectClouds } from "./routes/ConnectClouds";
 import { TopRisks } from "./routes/TopRisks";
 import { Shell } from "./routes/Shell";
@@ -16,6 +16,7 @@ import { InstallCallback } from "./routes/InstallCallback";
 import { RepoPicker } from "./routes/RepoPicker";
 import { AIInventory } from "./routes/AIInventory";
 import { AssetDetail } from "./routes/AssetDetail";
+import { ChatShell } from "./chat/Shell";
 
 export default function App() {
   return (
@@ -26,8 +27,12 @@ export default function App() {
         <Route path="/pending"            element={<PendingApproval />} />
         <Route path="/public/trust/:slug" element={<TrustPublic />} />
 
+        {/* Chat surface — auth-gated inside ChatShell itself; no legacy sidebar */}
+        <Route path="/" element={<ChatShell />} />
+
+        {/* Legacy routes — auth-gated by Shell, which renders the sidebar chrome */}
         <Route element={<Shell />}>
-          <Route path="/"          element={<Welcome />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/connect"   element={<ConnectClouds />} />
           <Route path="/findings"  element={<TopRisks />} />
           <Route path="/risks"     element={<Risks />} />

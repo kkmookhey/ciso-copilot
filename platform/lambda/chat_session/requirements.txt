@@ -1,0 +1,12 @@
+# platform/lambda/chat_session/requirements.txt
+# Runtime deps for the chat_session Lambda code asset.
+#
+# starlette + uvicorn back the ASGI streaming app (app.py) served under the
+# Lambda Web Adapter for ChatStreamFn. Plain `uvicorn` (not uvicorn[standard])
+# is deliberate — the [standard] extra pulls httptools/uvloop C-extensions that
+# complicate the pure-Python zip build and buy nothing for a Lambda that serves
+# one request at a time. ChatSessionFn does not import these.
+boto3>=1.35.0
+PyJWT[crypto]==2.10.1
+starlette==0.41.3
+uvicorn==0.34.0

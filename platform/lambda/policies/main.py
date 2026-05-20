@@ -278,25 +278,79 @@ def _create(tenant_id: str, body: dict) -> dict:
     if not template_key or template_key not in TEMPLATES:
         return _resp(400, {"error": "invalid_template_key", "allowed": list(TEMPLATES.keys())})
 
+    source_approval_id = body.get("source_approval_id")
+
     vars_in = body.get("vars") or {}
     rendered = render(template_key, vars_in)
 
+    # Allow caller to override rendered title/content (e.g. chat approval cards
+    # where the AI authored the content directly rather than filling a template).
+    title_override    = body.get("title")
+    content_override  = body.get("content_md")
+
     policy_id = str(uuid.uuid4())
+
+    params = [
+        {"name": "p",   "value": {"stringValue": policy_id}},
+        {"name": "t",   "value": {"stringValue": tenant_id}},
+        {"name": "k",   "value": {"stringValue": template_key}},
+        {"name": "ti",  "value": {"stringValue": title_override or rendered["title"]}},
+        {"name": "body","value": {"stringValue": content_override or rendered["content_md"]}},
+        {"name": "soc", "value": {"stringValue": json.dumps(rendered["soc2_controls"])}},
+        {"name": "v",   "value": {"stringValue": json.dumps(vars_in)}},
+    ]
+
+    if source_approval_id:
+        # Atomic idempotency via ON CONFLICT: the INSERT either creates the row
+        # or no-ops if (tenant_id, source_approval_id) already exists. If it
+        # no-ops (RETURNING is empty), fetch the winner row. This eliminates
+        # the TOCTOU window that a SELECT-then-INSERT pattern has.
+        params.append({"name": "said", "value": {"stringValue": source_approval_id}})
+
+        rs = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("INSERT INTO policies (policy_id, tenant_id, template_key, title, content_md, "
+                 "                      soc2_controls, vars, source_approval_id) "
+                 "VALUES (CAST(:p AS UUID), CAST(:t AS UUID), :k, :ti, :body, "
+                 "        CAST(:soc AS JSONB), CAST(:v AS JSONB), CAST(:said AS UUID)) "
+                 "ON CONFLICT (tenant_id, source_approval_id) DO NOTHING "
+                 "RETURNING policy_id::text, status"),
+            parameters=params,
+        )
+        rows = rs.get("records", [])
+        if rows:
+            # Fresh insert succeeded — return the new row.
+            new_id = rows[0][0].get("stringValue")
+            new_st = rows[0][1].get("stringValue")
+            return _resp(200, {"policy_id": new_id, "status": new_st})
+
+        # Conflict: another concurrent request already inserted this row.
+        # Fetch and return the winner.
+        rs2 = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("SELECT policy_id::text, status FROM policies "
+                 "WHERE tenant_id = CAST(:t AS UUID) "
+                 "AND source_approval_id = CAST(:said AS UUID) LIMIT 1"),
+            parameters=[
+                {"name": "t",    "value": {"stringValue": tenant_id}},
+                {"name": "said", "value": {"stringValue": source_approval_id}},
+            ],
+        )
+        existing = rs2.get("records", [])
+        if existing:
+            existing_id = existing[0][0].get("stringValue")
+            existing_st = existing[0][1].get("stringValue")
+            print(f"INFO: idempotent policy create — returning existing policy_id={existing_id}")
+            return _resp(200, {"policy_id": existing_id, "status": existing_st})
+        # Should never reach here, but fall through to plain insert as safety net.
+
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=("INSERT INTO policies (policy_id, tenant_id, template_key, title, content_md, "
-             "                       soc2_controls, vars) "
+             "                      soc2_controls, vars) "
              "VALUES (CAST(:p AS UUID), CAST(:t AS UUID), :k, :ti, :body, "
              "        CAST(:soc AS JSONB), CAST(:v AS JSONB))"),
-        parameters=[
-            {"name": "p",   "value": {"stringValue": policy_id}},
-            {"name": "t",   "value": {"stringValue": tenant_id}},
-            {"name": "k",   "value": {"stringValue": template_key}},
-            {"name": "ti",  "value": {"stringValue": rendered["title"]}},
-            {"name": "body","value": {"stringValue": rendered["content_md"]}},
-            {"name": "soc", "value": {"stringValue": json.dumps(rendered["soc2_controls"])}},
-            {"name": "v",   "value": {"stringValue": json.dumps(vars_in)}},
-        ],
+        parameters=params,
     )
     return _resp(200, {"policy_id": policy_id, "status": "draft"})
 

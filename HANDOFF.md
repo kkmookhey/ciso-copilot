@@ -4,7 +4,200 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-19 (Slice 1b shipped — AI scanner + 8 detectors + ai_scan_api + AI Inventory on web & iOS).
+> Last updated: 2026-05-19 (SP4 Phase 4a deployed — chat-first front door, text path).
+
+## 🚀 SP4 Phase 4a deployed — chat-first front door (text)
+
+On branch `feat/sp4-chat-first` (SP1 + Slice 1b already merged to `main`).
+Spec: `docs/superpowers/specs/2026-05-19-sp4-chat-first-design.md`. Plan:
+`docs/superpowers/plans/2026-05-19-sp4-chat-first.md` (4 mini-slices; 4a done).
+
+**What landed (Phase 4a — Shell + text chat):**
+
+- **DB**: migration `006_conversations.sql` — `conversations` +
+  `conversation_messages` tables (applied to prod Aurora).
+- **`chat_session` Lambda** — one code asset (`platform/lambda/chat_session/`),
+  deployed as TWO functions:
+  - **`ChatSessionFn`** — `main.handler`, API Gateway REST. 7 routes:
+    `POST/GET /v1/conversations`, `GET/PATCH/DELETE /v1/conversations/{id}`,
+    `POST /v1/conversations/{id}/messages`, `POST /v1/conversations/{id}/voice`.
+  - **`ChatStreamFn`** — `messages_stream`/`app.py` Starlette ASGI app under
+    **Lambda Web Adapter**, Function URL with `RESPONSE_STREAM`. Serves
+    `POST /v1/conversations/{id}/stream` — Anthropic streaming text turns,
+    SSE (`data: {"type":"text-delta",...}` / `{"type":"done"}`).
+    Function URL: `https://otc43ep2sidkuyv5uaxpclljsu0rkvbr.lambda-url.us-east-1.on.aws/`
+- **Web** — `/` is now the chat surface (`ChatShell`: ModuleRail +
+  ConversationRail + ChatCenter); the old Welcome page moved to `/dashboard`.
+  Conversation CRUD + landing flow (load most-recent <24h or create fresh) +
+  token-streamed assistant replies. Deployed to `app.settlingforless.com`.
+
+**Gotcha paid in debugging time (load-bearing):**
+
+- **AWS Lambda's managed Python runtime CANNOT do response streaming.**
+  `InvokeMode: RESPONSE_STREAM` only streams on Node.js managed runtimes.
+  The plan originally routed Anthropic streaming through a plain Python
+  Lambda Function URL — it deployed but returned `'NoneType' has no
+  attribute 'write'`. Fix: `ChatStreamFn` runs a Starlette app under
+  **Lambda Web Adapter** (LWA layer `arn:aws:lambda:us-east-1:753240598075:layer:LambdaAdapterLayerX86:27`,
+  env `AWS_LAMBDA_EXEC_WRAPPER=/opt/bootstrap`, `AWS_LWA_INVOKE_MODE=response_stream`,
+  handler `run.sh` → `uvicorn`). `ChatSessionFn` (REST only) is fine on the
+  normal managed runtime.
+
+**Phase 4a demo gate — first authed test FAILED, root cause fixed, awaiting retest.**
+KK's first sign-in test (2026-05-20): message sent but no reply; refresh
+showed the conversation row but no message text. Root cause: `ChatStreamFn`'s
+`_verify_jwt` crashed importing `cryptography` —
+`_rust.abi3.so: cannot open shared object file`. The `chatStreamAsset`
+bundling installed the `cryptography` wheel (via `PyJWT[crypto]`) for the
+host platform, not Lambda's linux x86_64. Every JWT verification failed →
+streaming endpoint returned `unauthorized` for every request → no replies,
+nothing persisted (the LWA app is what writes both user + assistant rows).
+**Fixed** (commit `7c87069`): added `platform: 'linux/amd64'` + manylinux
+x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
+verified the `.so` import error is gone. **Next: KK retries the authed
+demo; if it passes, Phase 4b (tools + 8 artifact components).**
+
+**SP4 bug-fix round (2026-05-20) — 6 bugs from KK's testing, all fixed + deployed:**
+1. **Phantom "Bye"/empty voice messages** — Whisper hallucinates on silence.
+   Fixed: client drops empty/whitespace transcripts; server VAD tuned
+   (threshold 0.5→0.6, silence 500→700ms).
+2. **No compliance-control details** — `TOOL_RULES` over-blocked. Fixed:
+   the model may now answer GENERAL framework knowledge (what MCSB AM-1 /
+   SOC2 CC2.1 require) from its own knowledge; customer-specific data stays
+   tool-gated.
+3. **Donut all-red / zero segments** — both `tools.ts` AND server
+   `tools_dispatch.py` set explicit red segment colors. Fixed: hint sends
+   no color; `ChartDonut`/`ChartBar` apply an 8-hue palette; zero segments
+   muted.
+4. **Voice reply split into 2 bubbles** + **5. assistant text above the
+   user's question** — transcripts were appended in event-arrival order.
+   Fixed: voice messages keyed by Realtime `item_id` (`voiceUpsert`
+   reducer action); user placeholder created on `conversation.item.created`
+   so it lands before the assistant reply; late async transcript fills it.
+6. **"IAM issues" returned Key Vault findings** — `query_findings` had no
+   domain filter. Fixed: added a `domain` enum param (`findings.domain`:
+   iam/storage/encryption/…) so the model can scope queries.
+Commits `0b92f4b`, `a0aa068`, `d034e80`, `f93d593`, `4fa55cd`. The earlier
+"deferred 4b/4c polish" items (donut, TOOL_RULES) are now resolved.
+
+**SP4 Phase 4d deployed (2026-05-20) — action approvals. SP4 feature-complete.**
+The chat can now propose actions and the user approves them:
+- `propose_risk_entry` / `propose_policy_draft` tools return a pending
+  `approval_card` (NEVER auto-execute — determinism invariant).
+- Clicking **Approve** → `POST /risks` or `/policies`, idempotent on the
+  card's `approval_id` (atomic `INSERT ... ON CONFLICT DO NOTHING
+  RETURNING` — double-tap safe). Card → `approved` with a link.
+- Edit-in-place before approving; Cancel. Card state persists via
+  `PATCH /v1/conversations/{id}/messages/{message_id}` — reload shows the
+  final state.
+- Migration `007_approval_idempotency.sql` — `source_approval_id` on
+  `risks` + `policies` with a partial unique index.
+- The pre-SP4 voice modal (`web/src/voice/`) retired; `excelHelpers.ts`
+  moved to `web/src/lib/`.
+- **Phase 4d demo gate — pending KK's test:** in chat, "add X to my risk
+  register" → editable approval card → Approve → risk created. Same for a
+  policy draft. Double-click Approve = no duplicate.
+- **SP4 status:** all 4 phases (4a shell+text · 4b tools+artifacts · 4c
+  voice · 4d approvals) built + deployed on `feat/sp4-chat-first`. Branch
+  not yet PR'd to main. Deferred polish (see items above): compliance
+  donut visual, TOOL_RULES general-knowledge tuning. iOS = SP4.5.
+
+**SP4 Phase 4c deployed (2026-05-20) — voice.** The chat surface now has
+voice via OpenAI Realtime over WebRTC:
+- **Model: `gpt-realtime-2`** (OpenAI's newer GPT-5-class realtime model —
+  validated against the live API; drop-in over `gpt-realtime`).
+- **`voice.py`** mints the Realtime ephemeral key with the full persona
+  (`prompts.py` — PERSONA + TOOL_RULES + VOICE_ADDENDUM) + the 12-tool
+  catalog (the browser supplies the Realtime-shaped tool defs).
+- **`voiceClient.ts` + `turnQueue.ts`** — browser WebRTC client (lifted
+  from the proven `web/src/voice/` client). Voice tool calls execute
+  browser-side via the TS `executeTool`. Transcripts persist per-turn to
+  `conversation_messages` (`modality: "voice"`); `fetch(keepalive:true)`
+  flushes the pending turn on page unload.
+- **Voice UI** — mic toggle in the composer (off/connecting/on), persimmon
+  breathing dot in the header, live transcripts into the stream, barge-in
+  (`response.cancel` on user speech), sync-warning banner.
+- **Gotcha — OpenAI Realtime rejects `session.metadata`.** The first mic
+  test failed: every `/v1/realtime/client_secrets` mint 400'd with
+  `"Unknown parameter: 'session.metadata'"`. `voice.py` had bound
+  `conversation_id` into `session.metadata` — OpenAI's Realtime API has no
+  such field. Removed it (commit `9735d36`); `conversation_id` doesn't need
+  to reach OpenAI — the browser owns the conversation binding. Lesson:
+  validate the FULL session payload against the live API, not a minimal one.
+- **Gotcha 2 — voice mint response field.** After the metadata fix the mint
+  200'd but the mic still failed: `voice.py` returned the ephemeral key as
+  `client_secret`, the web `voiceClient` reads `.value`. Mismatch → `Bearer
+  undefined` to `/v1/realtime/calls` → 401. Fixed (commit `713a315`):
+  `voice.py` returns `value`. Lesson: the 4c.1 + 4c.2 reviews each checked
+  one side vs the spec; neither cross-checked the two sides of the
+  Lambda↔client contract.
+- **Phase 4c demo gate — pending KK's mic retest** (after the metadata fix):
+  toggle the mic, hold a spoken conversation, verify transcripts stream +
+  persist + tools work + barge-in. Spec §15: same questions in text vs
+  voice → same tool calls / same results.
+
+**SP4 Phase 4b deployed (2026-05-20) — tools + artifacts.** The chat can
+now query real tenant data and render it as cards:
+- **`tools.ts`** — 12-tool TS catalog (`web/src/chat/`): 8 data, 2 action
+  (`propose_*`), 2 side-effect. Used by the browser for the landing
+  briefing + (later) voice.
+- **`tools_dispatch.py`** — Python server-side mirror in the chat_session
+  Lambda. The text path runs the **Anthropic agentic tool-use loop
+  server-side** inside the LWA app (`app.py`): the model calls tools, the
+  Lambda executes them against Aurora (tenant-scoped), streams back
+  `text-delta` + `tool-result` SSE events. Max 6 tool rounds.
+- **8 artifact components** + `Artifact.tsx` renderer (`web/src/chat/
+  artifacts/`) — kpi_card, entity_list, finding_card, risk_card,
+  chart_bar, chart_donut, severity_breakdown, approval_card. Rendered
+  inline in the chat stream; persisted as `tool` messages so they
+  reconstitute on reload.
+- **SourceSideSheet** — clicking a card's `↗ source` chip opens a
+  right-edge panel with the underlying entity/finding.
+- **Landing morning briefing** — a fresh conversation auto-runs
+  `get_morning_briefing` and shows 2-3 posture cards.
+- Determinism invariant intact: the LLM never writes — `propose_*` tools
+  return pending approval cards only (the approve→POST is Phase 4d).
+- **Known 4b limitation:** persisted `tool` messages aren't replayed into
+  the Anthropic history across turns (they lack the tool_use/tool_result
+  block IDs), so the model re-derives tool calls each turn rather than
+  "seeing" prior tool outputs. Cards still reconstitute on reload. Fine
+  for 4b; revisit if multi-turn tool memory is needed.
+- **Phase 4b demo gate — PASSED** 2026-05-20 (KK: "works like a charm",
+  findings + AI inventory render with real data).
+- **Deferred 4b polish:** the `chart_donut` for compliance posture renders
+  but is visually ineffective — revisit the donut component (sizing /
+  legend / segment clarity). KK flagged, agreed to improve later.
+- **Deferred 4c polish (prompt tuning):** asked "details for CC 2.1" the
+  assistant declined ("not available from findings"). `TOOL_RULES`
+  over-constrains — it should let the model answer GENERAL compliance/
+  security knowledge (what a control like SOC 2 CC2.1 requires) from its
+  own knowledge, while keeping CUSTOMER-SPECIFIC data (the tenant's status
+  for that control) gated behind tools. Refine the `prompts.py` TOOL_RULES
+  to draw that line. (Bigger future option: a compliance-control reference
+  tool/KB.) KK flagged 2026-05-20, agreed to iron out later.
+
+**Post-4a-demo-gate additions (2026-05-20, KK feedback during testing):**
+- **Rename + Delete on conversations** (`ConversationRail` hover → ⋯ menu,
+  inline rename, delete-with-confirm; backend `PATCH`/`DELETE` already
+  existed). Commit `35d6801`.
+- **Legacy screens re-themed to Quiet Paper.** Tailwind `blue`/`slate`/
+  `white` scales remapped in `web/tailwind.config.js` + `index.css` body —
+  flips all ~17 route files to the warm cream/persimmon palette without a
+  per-file sweep. Commit `836c256`. Chat surface (`web/src/chat/*`) stays
+  on its own inline-hex Quiet Paper styling — two styling systems, same
+  palette; a future pass could unify them.
+- **Voice mic** is NOT in Phase 4a — it's Phase 4c by design. The 4a
+  composer is text-only.
+
+**Gotcha — Python Lambda native deps:** ANY Python Lambda bundling a
+package with a compiled extension (`cryptography`, `pydantic-core`, etc.)
+MUST bundle with `platform: 'linux/amd64'` + `pip install --platform
+manylinux2014_x86_64 --implementation cp --python-version 3.12
+--only-binary=:all:`. Otherwise pip on an Apple-Silicon Mac installs the
+wrong-arch wheel and the Lambda fails at import. `AiGithubFn` and now
+`ChatStreamFn` do this. Pure-Python deps (starlette, uvicorn, PyJWT
+itself, boto3) don't need it — but `PyJWT[crypto]` pulls `cryptography`,
+which does.
 
 ## 🚀 Slice 1b shipped — what's new since the last update
 
