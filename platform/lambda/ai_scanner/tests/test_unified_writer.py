@@ -186,3 +186,38 @@ def test_insert_finding_persists_frameworks(monkeypatch):
         "nist_ai_rmf": ["MANAGE-2"],
         "iso_42001":   ["AI-8.3"],
     }
+
+
+def test_nullable_cast_params_are_typed_not_case_is_null(monkeypatch):
+    """Regression: a typeless-NULL Data API param used in `CASE WHEN :x IS
+    NULL` triggers Postgres error 42P18 ('could not determine data type').
+    Nullable cast columns — evidence_packet on entities, subject_entity_id
+    on findings — must use a plain typed CAST so a NULL parameter still
+    carries a determinable type."""
+    import unified_writer
+    from detectors.base import EntityEmission, FindingEmission
+    _fake, calls = _stub_rds(monkeypatch)
+
+    entity_no_ev = EntityEmission(
+        tenant_id="t1", kind="aws_account", natural_key="111122223333",
+        display_name="111122223333", domain="cloud", attributes={},
+        evidence_packet=None,
+        detector_id="shasta_runner.account", detector_version="0.1.0",
+    )
+    finding_no_subject = FindingEmission(
+        tenant_id="t1", finding_type="x", severity="medium",
+        title="t", description="d",
+        subject_entity_kind=None, subject_entity_natural_key=None,
+        subject_type=None, subject_ref=None,
+        evidence_packet={"version": "0.1"}, confidence="high",
+    )
+    unified_writer.commit_scan(_ctx(), entities=[entity_no_ev], edges=[],
+                               findings=[finding_no_subject])
+
+    entity_sql  = next(c["sql"] for c in calls if "INSERT INTO entities" in (c.get("sql") or ""))
+    finding_sql = next(c["sql"] for c in calls if "INSERT INTO findings" in (c.get("sql") or ""))
+    assert "CASE WHEN :ev IS NULL"  not in entity_sql
+    assert "CAST(:ev AS JSONB)"     in entity_sql
+    assert "CASE WHEN :sid IS NULL" not in entity_sql
+    assert "CASE WHEN :eid IS NULL" not in finding_sql
+    assert "CAST(:eid AS UUID)"     in finding_sql

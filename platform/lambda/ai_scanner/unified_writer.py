@@ -135,9 +135,9 @@ def _upsert_entity(tx: str, e: EntityEmission | None,
             "   attributes, evidence_packet, detector_id, detector_version, scan_id) "
             "VALUES (CAST(:id AS UUID), CAST(:tid AS UUID), :kind, :nk, :name, :dom, "
             "        CAST(:attrs AS JSONB), "
-            "        CASE WHEN :ev IS NULL THEN NULL ELSE CAST(:ev AS JSONB) END, "
+            "        CAST(:ev AS JSONB), "
             "        :did, :dver, "
-            "        CASE WHEN :sid IS NULL THEN NULL ELSE CAST(:sid AS UUID) END) "
+            "        CAST(:sid AS UUID)) "
             "ON CONFLICT (tenant_id, kind, natural_key) "
             "  DO UPDATE SET last_seen_at=NOW(), "
             "                attributes=COALESCE(EXCLUDED.attributes - '_stub', entities.attributes), "
@@ -207,7 +207,7 @@ def _upsert_edge(tx: str, e: EdgeEmission, source_id: str, target_id: str,
             "VALUES (CAST(:id AS UUID), CAST(:tid AS UUID), CAST(:src AS UUID), "
             "        CAST(:tgt AS UUID), :kind, CAST(:attrs AS JSONB), CAST(:ev AS JSONB), "
             "        :did, :dver, "
-            "        CASE WHEN :sid IS NULL THEN NULL ELSE CAST(:sid AS UUID) END) "
+            "        CAST(:sid AS UUID)) "
             "ON CONFLICT (source_entity_id, target_entity_id, kind) "
             "  DO UPDATE SET last_seen_at=NOW(), evidence_packet=EXCLUDED.evidence_packet, "
             "                attributes=EXCLUDED.attributes"
@@ -243,7 +243,7 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
             "VALUES (CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:conn AS UUID), "
             "        CAST(:sid AS UUID), :ftype, :title, :desc, :sev, 'fail', :subj, "
             "        :stype, NULL, 'ai', CAST(:fw AS JSONB), NULL, NOW(), NOW(), CAST(:ev AS JSONB), "
-            "        CASE WHEN :eid IS NULL THEN NULL ELSE CAST(:eid AS UUID) END)"
+            "        CAST(:eid AS UUID))"
         ),
         parameters=[
             {"name": "fid",   "value": {"stringValue": fid}},
