@@ -4,7 +4,53 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-19 (SP4 Phase 4a deployed — chat-first front door, text path).
+> Last updated: 2026-05-20 (AI Discovery cloud-AI connector deployed).
+
+## 🚀 AI Discovery — cloud-AI connector deployed (2026-05-20)
+
+On branch `feat/ai-discovery-cloud-ai`. Spec:
+`docs/superpowers/specs/2026-05-20-ai-discovery-connectors-design.md`.
+Plan: `docs/superpowers/plans/2026-05-20-ai-discovery-cloud-ai.md`
+(plan 1 of 2 — provider connectors are plan 2, not yet built).
+
+**What landed (cloud-AI connector — completes the Discovery module's
+cloud surface):**
+
+- **`shasta_runner/app/ai_pass.py`** — new module. Wraps Shasta's
+  `discover_aws_ai_services` (SageMaker/Comprehend), `run_full_aws_ai_scan`
+  (15 AWS-AI checks), and `compliance/ai` mapper. Folded into **every AWS
+  scan** via the `shasta_runner` handler — no separate connection/trigger.
+- AI services emit as `domain='cloud'` entities (`sagemaker_endpoint`,
+  `sagemaker_model`, `sagemaker_training_job`, `comprehend_endpoint`) +
+  `aws_account → contains` edges. AI findings carry `frameworks` with
+  **NIST AI RMF / ISO 42001** (also EU AI Act, OWASP LLM, MITRE ATLAS)
+  control IDs.
+- **`unified_writer` fix** — `_insert_finding` previously hardcoded the
+  `findings.frameworks` column to `'{}'`; it now persists
+  `FindingEmission.frameworks`. This is what lets `compliance_summary`
+  roll AI frameworks into the compliance view (and is a latent fix for
+  cloud SOC 2 / CIS findings too — they were also losing framework data).
+
+**Deployed:** `shasta-runner` image rebuilt + pushed to ECR; Lambda
+`ciso-copilot-shasta-runner` updated (CodeSha256 `a81711b4…`). Empty-event
+smoke test passed (all imports load in the Lambda runtime). **28 unit
+tests pass.**
+
+**Demo gate — pending KK's live-scan E2E:** trigger an AWS scan, confirm
+`sagemaker_*`/`comprehend_endpoint` entities, `findings.frameworks` with
+`nist_ai_rmf`, and NIST AI RMF / ISO 42001 in the compliance view.
+
+**Known limitations (documented in the plan's Deviations section):**
+- **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
+  has a key-name mismatch that drops Bedrock model lists. Bedrock
+  *findings* (the 15 checks) are unaffected. A Shasta fix, not ours.
+- **Finding status is hardcoded `'fail'`** in `unified_writer` —
+  platform-wide, pre-existing; compliance % reflects "controls with a
+  finding," not true pass/fail.
+- **Pre-existing test rot:** `ai_scanner`'s stale `writer.py`
+  (`AssetEmission`/`RelEmission`, renamed in SP1) breaks 6 tests in
+  `test_writer.py` / `test_detectors.py`. Unrelated to this change;
+  worth a separate cleanup.
 
 ## 🚀 SP4 Phase 4a deployed — chat-first front door (text)
 
