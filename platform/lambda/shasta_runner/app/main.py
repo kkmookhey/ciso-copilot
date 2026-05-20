@@ -56,6 +56,7 @@ from shasta.aws import (
 )
 
 # === Entity-emission helpers (this module) ===
+from ai_pass           import run_ai_pass
 from arn_to_entity     import parse_arn
 from enumerate_compute import enumerate_compute
 from enumerate_iam     import enumerate_iam
@@ -261,30 +262,51 @@ def handler(event: dict, context) -> dict:
                     print(f"{key} FAILED: {e}\n{traceback.format_exc()}")
                     module_stats[key] = {"error": str(e)[:200]}
 
+        # --- Cloud-AI pass: Shasta AI discovery + 15 AI checks + framework mapping.
+        # Wrapped like every other module so one failure doesn't kill the scan.
+        ai_finding_emissions: list[FindingEmission] = []
+        try:
+            ai_client = AssumedRoleAWSClient(credentials, "us-east-1", account_id)
+            ai_result = run_ai_pass(ai_client, account_id=account_id, tenant_id=tenant_id)
+            entities.extend(ai_result["entities"])
+            edges.extend(ai_result["edges"])
+            ai_finding_emissions = ai_result["findings"]
+            module_stats["ai_pass"] = {
+                "entities": len(ai_result["entities"]),
+                "findings": len(ai_result["findings"]),
+            }
+            print(f"ai_pass: {len(ai_result['entities'])} entities, "
+                  f"{len(ai_result['findings'])} findings")
+        except Exception as e:
+            print(f"ai_pass FAILED: {e}\n{traceback.format_exc()}")
+            module_stats["ai_pass"] = {"error": str(e)[:200]}
+
         # --- Convert Shasta findings to FindingEmission, derive ARN→entity FKs
         finding_emissions = _convert_findings(
             all_shasta_findings, tenant_id, account_id, entities, edges,
         )
 
         # --- Single transactional write
-        commit_scan(ctx, entities=entities, edges=edges, findings=finding_emissions)
+        commit_scan(ctx, entities=entities, edges=edges,
+                    findings=finding_emissions + ai_finding_emissions)
 
+        total_findings = len(finding_emissions) + len(ai_finding_emissions)
         _update_scan(scan_id, status="completed", stats={
             "entities":      len(entities),
             "edges":         len(edges),
-            "findings":      len(finding_emissions),
+            "findings":      total_findings,
             "modules":       module_stats,
             "regions":       regions,
             "global_runs":   len(GLOBAL_MODULES),
             "regional_runs": len(REGIONAL_MODULES) * len(regions),
         })
         print(f"scan complete: {len(entities)} entities, {len(edges)} edges, "
-              f"{len(finding_emissions)} findings")
+              f"{total_findings} findings")
         return {
             "scan_id":          scan_id,
             "entities_written": len(entities),
             "edges_written":    len(edges),
-            "findings_written": len(finding_emissions),
+            "findings_written": total_findings,
         }
 
     except Exception as e:

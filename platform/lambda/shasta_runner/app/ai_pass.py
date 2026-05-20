@@ -147,3 +147,23 @@ def ai_findings_to_emissions(
             frameworks=frameworks,
         ))
     return out
+
+
+def run_ai_pass(client: Any, *, account_id: str, tenant_id: str) -> dict[str, list]:
+    """Run Shasta's AWS-AI discovery + checks against an assumed-role client
+    and return unified emissions. Shasta is imported lazily so this module
+    stays importable in test environments without Shasta installed."""
+    from shasta.aws.ai_discovery import discover_aws_ai_services
+    from shasta.aws.ai_checks import run_full_aws_ai_scan
+    from shasta.compliance.ai.mapper import enrich_findings_with_ai_controls
+
+    discovery = discover_aws_ai_services(client)
+    entities, edges = discovery_to_entities(
+        discovery, account_id=account_id, tenant_id=tenant_id,
+    )
+
+    findings = run_full_aws_ai_scan(client)
+    enrich_findings_with_ai_controls(findings)
+    finding_emissions = ai_findings_to_emissions(findings, tenant_id=tenant_id)
+
+    return {"entities": entities, "edges": edges, "findings": finding_emissions}
