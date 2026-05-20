@@ -242,6 +242,32 @@ def test_propose_risk_entry_returns_pending_card_without_mutating(monkeypatch):
     assert hint["payload"]["severity"] == "high"
     assert hint["payload"]["status"] == "open"
     assert hint["edit_fields"] == TD.ADD_RISK_EDIT_FIELDS
+    # approval_id must be a stable UUID present on every propose card
+    import uuid
+    assert "approval_id" in hint
+    parsed = uuid.UUID(hint["approval_id"])   # raises if not a valid UUID
+    assert parsed.version == 4
+
+
+def test_propose_risk_entry_generates_unique_approval_ids(monkeypatch):
+    """Each card invocation must produce a different approval_id."""
+    monkeypatch.setattr(TD, "_q", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no DB")))
+    ids = set()
+    for _ in range(5):
+        try:
+            out = TD.dispatch("propose_risk_entry", "tenant-1",
+                              {"title": "R", "severity": "low"})
+            ids.add(out["_artifact_hint"]["approval_id"])
+        except AssertionError:
+            pass   # _q boom only fires if called; propose tools skip DB
+    # Re-run without the boom to actually get the ids
+    monkeypatch.undo()
+    ids = set()
+    for _ in range(5):
+        out = TD.dispatch("propose_risk_entry", "tenant-1",
+                          {"title": "R", "severity": "low"})
+        ids.add(out["_artifact_hint"]["approval_id"])
+    assert len(ids) == 5
 
 
 def test_propose_policy_draft_returns_pending_card_without_mutating(monkeypatch):
@@ -257,6 +283,11 @@ def test_propose_policy_draft_returns_pending_card_without_mutating(monkeypatch)
     assert hint["payload"]["name"] == "Access Policy"
     assert hint["payload"]["status"] == "draft"
     assert hint["edit_fields"] == TD.DRAFT_POLICY_EDIT_FIELDS
+    # approval_id must be a stable UUID
+    import uuid
+    assert "approval_id" in hint
+    parsed = uuid.UUID(hint["approval_id"])
+    assert parsed.version == 4
 
 
 # ---------------------------------------------------------------------------

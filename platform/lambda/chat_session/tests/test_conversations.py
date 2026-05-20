@@ -32,6 +32,38 @@ def test_get_returns_none_for_wrong_tenant(monkeypatch):
     assert result is None
 
 
+def test_get_includes_message_id(monkeypatch):
+    """get() must return message id so the frontend can PATCH individual messages."""
+    import json
+
+    calls = []
+
+    def fake_q(sql, params=None):
+        calls.append(sql)
+        if "FROM conversations" in sql:
+            return [[{"stringValue": "conv-uuid"}, {"stringValue": "Title"}]]
+        if "FROM conversation_messages" in sql:
+            return [[
+                {"stringValue": "msg-uuid-1"},
+                {"stringValue": "assistant"},
+                {"stringValue": json.dumps({"text": "hello"})},
+                {"stringValue": "2026-01-01T00:00:00"},
+            ]]
+        return []
+
+    monkeypatch.setattr(C, "_q", fake_q)
+    result = C.get("tenant-1", "conv-uuid")
+    assert result is not None
+    assert len(result["messages"]) == 1
+    msg = result["messages"][0]
+    assert msg["id"] == "msg-uuid-1"
+    assert msg["role"] == "assistant"
+    assert msg["content"] == {"text": "hello"}
+    # Verify SELECT includes id column
+    msg_sql = next(s for s in calls if "conversation_messages" in s)
+    assert "id::text" in msg_sql
+
+
 def test_patch_title_returns_false_when_no_row(monkeypatch):
     monkeypatch.setattr(C, "_q", lambda sql, params=None: [])
     assert C.patch_title("tenant-1", "nonexistent-id", "New Title") is False

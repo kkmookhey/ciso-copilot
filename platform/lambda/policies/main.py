@@ -283,14 +283,19 @@ def _create(tenant_id: str, body: dict) -> dict:
     vars_in = body.get("vars") or {}
     rendered = render(template_key, vars_in)
 
+    # Allow caller to override rendered title/content (e.g. chat approval cards
+    # where the AI authored the content directly rather than filling a template).
+    title_override    = body.get("title")
+    content_override  = body.get("content_md")
+
     policy_id = str(uuid.uuid4())
 
     params = [
         {"name": "p",   "value": {"stringValue": policy_id}},
         {"name": "t",   "value": {"stringValue": tenant_id}},
         {"name": "k",   "value": {"stringValue": template_key}},
-        {"name": "ti",  "value": {"stringValue": rendered["title"]}},
-        {"name": "body","value": {"stringValue": rendered["content_md"]}},
+        {"name": "ti",  "value": {"stringValue": title_override or rendered["title"]}},
+        {"name": "body","value": {"stringValue": content_override or rendered["content_md"]}},
         {"name": "soc", "value": {"stringValue": json.dumps(rendered["soc2_controls"])}},
         {"name": "v",   "value": {"stringValue": json.dumps(vars_in)}},
     ]

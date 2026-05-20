@@ -22,6 +22,7 @@ return an intent only; the browser performs the actual navigation/filter.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any, Callable
 
 from _db import _claim_value, _q
@@ -544,6 +545,7 @@ def _exec_propose_risk_entry(tenant_id: str, args: dict) -> dict:
         "kind": "approval_card",
         "action_kind": "add_risk",
         "current_status": "pending",
+        "approval_id": str(uuid.uuid4()),
         "payload": payload,
         "edit_fields": ADD_RISK_EDIT_FIELDS,
     }
@@ -562,6 +564,7 @@ def _exec_propose_policy_draft(tenant_id: str, args: dict) -> dict:
         "kind": "approval_card",
         "action_kind": "draft_policy",
         "current_status": "pending",
+        "approval_id": str(uuid.uuid4()),
         "payload": payload,
         "edit_fields": DRAFT_POLICY_EDIT_FIELDS,
     }

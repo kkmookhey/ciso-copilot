@@ -50,7 +50,7 @@ def get(tenant_id: str, conversation_id: str) -> dict | None:
     if not head:
         return None
     msgs = _q(
-        "SELECT role, content::text, created_at::text "
+        "SELECT id::text, role, content::text, created_at::text "
         "FROM conversation_messages "
         "WHERE conversation_id = :id::uuid ORDER BY created_at",
         {"id": conversation_id},
@@ -60,9 +60,10 @@ def get(tenant_id: str, conversation_id: str) -> dict | None:
         "title": _claim_value(head[0][1]),
         "messages": [
             {
-                "role": _claim_value(m[0]),
-                "content": json.loads(_claim_value(m[1])),
-                "created_at": _claim_value(m[2]),
+                "id": _claim_value(m[0]),
+                "role": _claim_value(m[1]),
+                "content": json.loads(_claim_value(m[2])),
+                "created_at": _claim_value(m[3]),
             }
             for m in msgs
         ],
