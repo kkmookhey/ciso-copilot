@@ -66,6 +66,30 @@ export function ChatShell() {
     setConvs(await chatApi.listConversations());
   }
 
+  async function onRename(id: string, title: string) {
+    await chatApi.patchTitle(id, title);
+    // Update the local list in-place — no round-trip needed
+    setConvs((prev) => prev.map((c) => c.id === id ? { ...c, title } : c));
+    // If this is the currently-open conversation, update the header title too
+    if (state.conversationId === id) {
+      dispatch({ type: "setTitle", title });
+    }
+  }
+
+  async function onDelete(id: string) {
+    await chatApi.deleteConversation(id);
+    const remaining = convs.filter((c) => c.id !== id);
+    setConvs(remaining);
+    if (state.conversationId === id) {
+      // Move to the next most-recent conversation, or create a fresh one
+      if (remaining.length > 0) {
+        await openConversation(remaining[0].id);
+      } else {
+        await onNew();
+      }
+    }
+  }
+
   async function onSend(text: string) {
     if (!state.conversationId) return;
     dispatch({ type: "append", message: { role: "user",      content: { text } } });
@@ -100,6 +124,8 @@ export function ChatShell() {
         activeId={state.conversationId}
         onSelect={openConversation}
         onNew={onNew}
+        onRename={onRename}
+        onDelete={onDelete}
       />
       <ChatCenter state={state} onSend={onSend} />
     </div>

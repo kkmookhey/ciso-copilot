@@ -18,12 +18,15 @@ export type ChatAction =
   | { type: "load"; id: string; title: string; messages: ChatMessage[] }
   | { type: "append"; message: ChatMessage }
   | { type: "streamDelta"; text: string }
-  | { type: "streaming"; on: boolean };
+  | { type: "streaming"; on: boolean }
+  | { type: "setTitle"; title: string };
 
 export function chatReducer(s: ChatState, a: ChatAction): ChatState {
   switch (a.type) {
     case "load":
       return { ...s, conversationId: a.id, title: a.title, messages: a.messages };
+    case "setTitle":
+      return { ...s, title: a.title };
     case "append":
       return { ...s, messages: [...s.messages, a.message] };
     case "streamDelta": {

@@ -34,4 +34,15 @@ describe("chatReducer", () => {
     const s2 = chatReducer(s, { type: "streaming", on: false });
     expect(s2.streaming).toBe(false);
   });
+
+  it("setTitle updates the title without touching messages", () => {
+    const base = chatReducer(initialState, {
+      type: "load", id: "conv-1", title: "Old title",
+      messages: [{ role: "user", content: { text: "hi" } }],
+    });
+    const s = chatReducer(base, { type: "setTitle", title: "New title" });
+    expect(s.title).toBe("New title");
+    expect(s.conversationId).toBe("conv-1");
+    expect(s.messages).toHaveLength(1);
+  });
 });
