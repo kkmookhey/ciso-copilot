@@ -90,6 +90,7 @@ export function ChatShell() {
   }
 
   async function onNew() {
+    // No morning briefing here — briefings are landing-only (see the boot effect).
     const id = await chatApi.createConversation();
     dispatch({ type: "load", id, title: "New conversation", messages: [] });
     setConvs(await chatApi.listConversations());

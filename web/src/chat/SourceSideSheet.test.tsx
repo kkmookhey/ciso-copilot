@@ -76,4 +76,17 @@ describe("SourceSideSheet", () => {
     });
     expect(screen.getByLabelText("Close")).toBeTruthy();
   });
+
+  it("closes when mousedown fires outside the panel", async () => {
+    render(<SourceSideSheet />);
+    await act(async () => {
+      dispatchOpenEvent({ entity_id: "e-1" });
+    });
+    expect(screen.getByLabelText("Close")).toBeTruthy();
+    // Fire mousedown on document.body — outside the panel
+    await act(async () => {
+      fireEvent.mouseDown(document.body);
+    });
+    expect(screen.queryByLabelText("Close")).toBeNull();
+  });
 });

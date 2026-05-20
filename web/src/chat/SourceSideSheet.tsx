@@ -156,8 +156,13 @@ export function SourceSideSheet() {
   const [record,  setRecord]  = useState<FetchedRecord | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Listen for open-source-sheet events
+  // Listen for open-source-sheet events.
+  // A cancellation guard prevents a stale fetch (fired by a previous event) from
+  // overwriting state after a newer event has already taken over, and also prevents
+  // setState calls on an unmounted component.
   useEffect(() => {
+    let cancelled = false;
+
     function handleEvent(ev: Event) {
       const src = (ev as CustomEvent<Source>).detail;
       if (!src) return;
@@ -165,16 +170,19 @@ export function SourceSideSheet() {
       setOpen(true);
       setRecord(null);
       setLoading(true);
+      cancelled = false; // reset for this invocation
 
       // Fetch the underlying record
       (async () => {
         try {
           if (src.entity_id) {
             const data = await api.getEntity(src.entity_id);
+            if (cancelled) return;
             setRecord({ kind: "entity", data });
           } else if (src.finding_id) {
             // No /findings/{id} endpoint — use the list + find pattern (same as getFinding tool)
             const broader = await api.listFindings({ limit: 100 });
+            if (cancelled) return;
             const found = broader.findings.find(f => f.finding_id === src.finding_id);
             if (found) {
               setRecord({ kind: "finding", data: found });
@@ -182,19 +190,24 @@ export function SourceSideSheet() {
               setRecord({ kind: "raw", data: src });
             }
           } else {
+            if (cancelled) return;
             setRecord({ kind: "raw", data: src });
           }
         } catch (err) {
+          if (cancelled) return;
           console.error("SourceSideSheet fetch failed", err);
           setRecord({ kind: "raw", data: src });
         } finally {
-          setLoading(false);
+          if (!cancelled) setLoading(false);
         }
       })();
     }
 
     window.addEventListener("open-source-sheet", handleEvent);
-    return () => window.removeEventListener("open-source-sheet", handleEvent);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("open-source-sheet", handleEvent);
+    };
   }, []);
 
   // Close on Escape key
@@ -215,7 +228,8 @@ export function SourceSideSheet() {
         setOpen(false);
       }
     }
-    // Use capture so we catch clicks before they bubble up
+    // mousedown (not capture) — the panelRef.contains() guard filters out
+    // inside-panel clicks, so outside clicks are what close the sheet.
     window.addEventListener("mousedown", handleClick);
     return () => window.removeEventListener("mousedown", handleClick);
   }, [open]);
