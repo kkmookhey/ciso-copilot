@@ -112,6 +112,35 @@ export class TurnQueue {
     this.queue     = [];
   }
 
+  /**
+   * Best-effort flush of the HEAD turn on page unload.
+   *
+   * Called from `window.beforeunload`. Uses `fetch` with `keepalive: true` so
+   * the request survives the page going away AND can carry the Authorization
+   * header (navigator.sendBeacon cannot set headers — §9.2 note).
+   *
+   * Fire-and-forget: no await, no error handling.  Only the head turn is sent;
+   * anything beyond the head is acceptable loss (matches spec §9.2).
+   */
+  flushHeadOnUnload(token: string): void {
+    const head = this.queue[0];
+    if (!head) return;
+
+    // Intentionally not awaited — the page is going away.
+    void fetch(
+      `${REST_BASE}/conversations/${head.conversation_id}/messages`,
+      {
+        method:    "POST",
+        keepalive: true,
+        headers: {
+          Authorization:  `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(head),
+      },
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------

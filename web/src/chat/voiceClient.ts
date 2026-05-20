@@ -99,6 +99,17 @@ export class VoiceClient {
   // TurnQueue for background persistence
   private turnQueue: TurnQueue | null = null;
 
+  // Cached Bearer token — captured at connect() so the beforeunload handler
+  // (which is synchronous) can use it without an async validIdToken() call.
+  private cachedToken: string | null = null;
+
+  // beforeunload handler reference — kept so we can remove it on disconnect.
+  private readonly unloadHandler = (): void => {
+    if (this.turnQueue && this.cachedToken) {
+      this.turnQueue.flushHeadOnUnload(this.cachedToken);
+    }
+  };
+
   // Per-turn accumulation state
   // These refs are reset at the start of each new response.
   private userTranscriptByItem:      Map<string, string> = new Map();
@@ -200,6 +211,11 @@ export class VoiceClient {
       this.turnQueue = new TurnQueue({
         onSyncWarning: () => this.callbacks.onSyncWarning?.(),
       });
+
+      // 9. Register beforeunload flush.
+      //    Token was already fetched in fetchEphemeralKey (step 1); it's cached
+      //    in this.cachedToken so the synchronous beforeunload handler can use it.
+      window.addEventListener("beforeunload", this.unloadHandler);
 
       // Reset per-turn accumulators.
       this.resetTurnAccumulators();
@@ -486,6 +502,10 @@ export class VoiceClient {
     this.audioElement = null;
     this.micTrack     = null;
 
+    // Remove the beforeunload flush listener — voice session is ending cleanly.
+    window.removeEventListener("beforeunload", this.unloadHandler);
+    this.cachedToken = null;
+
     // The TurnQueue is intentionally NOT destroyed here — it keeps draining
     // any in-flight turns in the background after disconnect.
 
@@ -497,6 +517,10 @@ export class VoiceClient {
   private async fetchEphemeralKey(conversationId: string): Promise<VoiceSessionResponse> {
     const token = await validIdToken();
     if (!token) { signOut(); throw new Error("Sign in to use voice."); }
+
+    // Cache the Cognito Bearer token so the synchronous beforeunload handler
+    // can include it in the keepalive-fetch unload flush (§9.2).
+    this.cachedToken = token;
 
     const res = await fetch(
       `${REST_BASE}/conversations/${conversationId}/voice`,

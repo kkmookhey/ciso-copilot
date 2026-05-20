@@ -250,6 +250,53 @@ describe("TurnQueue — network error handling", () => {
   });
 });
 
+describe("TurnQueue — flushHeadOnUnload (keepalive-fetch)", () => {
+  it("fires a keepalive POST for the head turn on unload", async () => {
+    // Hold the background flush so the head turn stays in the queue.
+    let holdResolve!: (v: Response) => void;
+    const held = new Promise<Response>(r => { holdResolve = r; });
+    fetchMock.mockReturnValueOnce(held);
+
+    const q = new TurnQueue();
+    const head = makeTurn("conv-unload", "unload-me");
+    const tail  = makeTurn("conv-unload", "tail-turn");
+    q.enqueue(head);
+    q.enqueue(tail);
+
+    // Tick once so the background flush fires (it's now blocked on `held`).
+    await Promise.resolve();
+
+    // Reset call count so we can assert just the unload POST below.
+    fetchMock.mockClear();
+
+    // Simulate beforeunload while the background flush is still in flight.
+    q.flushHeadOnUnload("test-bearer-token");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+
+    expect(url).toContain("/conversations/conv-unload/messages");
+    expect(init.method).toBe("POST");
+    expect((init as RequestInit & { keepalive?: boolean }).keepalive).toBe(true);
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+      "Bearer test-bearer-token",
+    );
+    const body = JSON.parse(init.body as string) as SealedTurn;
+    expect(body.user.text).toBe("unload-me");
+
+    // Resolve the held background fetch to clean up.
+    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    holdResolve({ ok: true, status: 200 } as Response);
+    await flushAsync(5);
+  });
+
+  it("does nothing when queue is empty", () => {
+    const q = new TurnQueue();
+    q.flushHeadOnUnload("token");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("TurnQueue — tool_results in SealedTurn", () => {
   it("persists tool_results in the POST body", async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
