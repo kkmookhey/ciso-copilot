@@ -4,7 +4,51 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-19 (Slice 1b shipped — AI scanner + 8 detectors + ai_scan_api + AI Inventory on web & iOS).
+> Last updated: 2026-05-19 (SP4 Phase 4a deployed — chat-first front door, text path).
+
+## 🚀 SP4 Phase 4a deployed — chat-first front door (text)
+
+On branch `feat/sp4-chat-first` (SP1 + Slice 1b already merged to `main`).
+Spec: `docs/superpowers/specs/2026-05-19-sp4-chat-first-design.md`. Plan:
+`docs/superpowers/plans/2026-05-19-sp4-chat-first.md` (4 mini-slices; 4a done).
+
+**What landed (Phase 4a — Shell + text chat):**
+
+- **DB**: migration `006_conversations.sql` — `conversations` +
+  `conversation_messages` tables (applied to prod Aurora).
+- **`chat_session` Lambda** — one code asset (`platform/lambda/chat_session/`),
+  deployed as TWO functions:
+  - **`ChatSessionFn`** — `main.handler`, API Gateway REST. 7 routes:
+    `POST/GET /v1/conversations`, `GET/PATCH/DELETE /v1/conversations/{id}`,
+    `POST /v1/conversations/{id}/messages`, `POST /v1/conversations/{id}/voice`.
+  - **`ChatStreamFn`** — `messages_stream`/`app.py` Starlette ASGI app under
+    **Lambda Web Adapter**, Function URL with `RESPONSE_STREAM`. Serves
+    `POST /v1/conversations/{id}/stream` — Anthropic streaming text turns,
+    SSE (`data: {"type":"text-delta",...}` / `{"type":"done"}`).
+    Function URL: `https://otc43ep2sidkuyv5uaxpclljsu0rkvbr.lambda-url.us-east-1.on.aws/`
+- **Web** — `/` is now the chat surface (`ChatShell`: ModuleRail +
+  ConversationRail + ChatCenter); the old Welcome page moved to `/dashboard`.
+  Conversation CRUD + landing flow (load most-recent <24h or create fresh) +
+  token-streamed assistant replies. Deployed to `app.settlingforless.com`.
+
+**Gotcha paid in debugging time (load-bearing):**
+
+- **AWS Lambda's managed Python runtime CANNOT do response streaming.**
+  `InvokeMode: RESPONSE_STREAM` only streams on Node.js managed runtimes.
+  The plan originally routed Anthropic streaming through a plain Python
+  Lambda Function URL — it deployed but returned `'NoneType' has no
+  attribute 'write'`. Fix: `ChatStreamFn` runs a Starlette app under
+  **Lambda Web Adapter** (LWA layer `arn:aws:lambda:us-east-1:753240598075:layer:LambdaAdapterLayerX86:27`,
+  env `AWS_LAMBDA_EXEC_WRAPPER=/opt/bootstrap`, `AWS_LWA_INVOKE_MODE=response_stream`,
+  handler `run.sh` → `uvicorn`). `ChatSessionFn` (REST only) is fine on the
+  normal managed runtime.
+
+**Phase 4a demo gate — PENDING KK's authenticated verification.** Deploy
+verified at the unauthenticated level (`/` → `/signin` redirect works,
+sign-in page clean, zero console errors). The full demo (sign in → land on
+chat → type a question → watch the reply stream in → refresh → resume)
+needs KK's Google sign-in. **Next: KK runs the authed demo; then Phase 4b
+(tools + 8 artifact components).**
 
 ## 🚀 Slice 1b shipped — what's new since the last update
 
