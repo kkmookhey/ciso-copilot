@@ -57,7 +57,36 @@ x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
 verified the `.so` import error is gone. **Next: KK retries the authed
 demo; if it passes, Phase 4b (tools + 8 artifact components).**
 
-**Post-demo-gate additions (2026-05-20, KK feedback during testing):**
+**SP4 Phase 4b deployed (2026-05-20) — tools + artifacts.** The chat can
+now query real tenant data and render it as cards:
+- **`tools.ts`** — 12-tool TS catalog (`web/src/chat/`): 8 data, 2 action
+  (`propose_*`), 2 side-effect. Used by the browser for the landing
+  briefing + (later) voice.
+- **`tools_dispatch.py`** — Python server-side mirror in the chat_session
+  Lambda. The text path runs the **Anthropic agentic tool-use loop
+  server-side** inside the LWA app (`app.py`): the model calls tools, the
+  Lambda executes them against Aurora (tenant-scoped), streams back
+  `text-delta` + `tool-result` SSE events. Max 6 tool rounds.
+- **8 artifact components** + `Artifact.tsx` renderer (`web/src/chat/
+  artifacts/`) — kpi_card, entity_list, finding_card, risk_card,
+  chart_bar, chart_donut, severity_breakdown, approval_card. Rendered
+  inline in the chat stream; persisted as `tool` messages so they
+  reconstitute on reload.
+- **SourceSideSheet** — clicking a card's `↗ source` chip opens a
+  right-edge panel with the underlying entity/finding.
+- **Landing morning briefing** — a fresh conversation auto-runs
+  `get_morning_briefing` and shows 2-3 posture cards.
+- Determinism invariant intact: the LLM never writes — `propose_*` tools
+  return pending approval cards only (the approve→POST is Phase 4d).
+- **Known 4b limitation:** persisted `tool` messages aren't replayed into
+  the Anthropic history across turns (they lack the tool_use/tool_result
+  block IDs), so the model re-derives tool calls each turn rather than
+  "seeing" prior tool outputs. Cards still reconstitute on reload. Fine
+  for 4b; revisit if multi-turn tool memory is needed.
+- **Phase 4b demo gate — pending KK's authed test:** ask "what are my top
+  AWS concerns" → should query real findings + render finding cards.
+
+**Post-4a-demo-gate additions (2026-05-20, KK feedback during testing):**
 - **Rename + Delete on conversations** (`ConversationRail` hover → ⋯ menu,
   inline rename, delete-with-confirm; backend `PATCH`/`DELETE` already
   existed). Commit `35d6801`.
