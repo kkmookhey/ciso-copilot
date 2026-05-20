@@ -487,18 +487,14 @@ def _exec_get_compliance_summary(tenant_id: str, args: dict) -> dict:
     data = _compliance_summary(tenant_id)
     summary = data["summary"]
 
-    def _color(score: float) -> str:
-        if score >= 80:
-            return "#4CAF50"
-        if score >= 50:
-            return "#FF9800"
-        return "#F44336"
-
+    # No per-segment color — ChartDonut assigns distinct palette colors
+    # automatically, so any chart_donut renders distinguishable.
+    # value = passing control count (one slice per framework).
     segments = [
-        {"label": fw, "value": counts["passing"], "color": _color(counts["score_pct"])}
+        {"label": fw, "value": counts["passing"]}
         for fw, counts in summary.items()
     ]
-    donut = {"kind": "chart_donut", "title": "Compliance posture", "segments": segments}
+    donut = {"kind": "chart_donut", "title": "Compliance posture — passing controls by framework", "segments": segments}
 
     def _sev(score: float) -> str:
         if score >= 80:

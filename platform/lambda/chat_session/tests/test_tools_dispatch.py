@@ -189,7 +189,16 @@ def test_get_compliance_summary_shape(monkeypatch):
     monkeypatch.setattr(TD, "_q", lambda sql, params=None: rows)
 
     out = TD.dispatch("get_compliance_summary", "tenant-1", {})
-    assert out["_artifact_hint"]["kind"] == "chart_donut"
+    donut = out["_artifact_hint"]
+    assert donut["kind"] == "chart_donut"
+    # Title must match tools.ts for consistency across voice and chat paths.
+    assert donut["title"] == "Compliance posture — passing controls by framework"
+    # No explicit color — ChartDonut assigns distinct palette colors.
+    for seg in donut["segments"]:
+        assert "color" not in seg, f"segment must not carry an explicit color: {seg}"
+    # value = passing control count
+    soc2_seg = next(s for s in donut["segments"] if s["label"] == "soc2")
+    assert soc2_seg["value"] == 1  # 1 passing control (CC6.1 pass_count=2 → passing)
     hints = out["_artifact_hints"]
     assert hints[0]["kind"] == "chart_donut"
     assert hints[1]["kind"] == "kpi_card"
