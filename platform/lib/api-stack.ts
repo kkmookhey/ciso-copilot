@@ -728,14 +728,15 @@ export class ApiStack extends cdk.Stack {
       USER_POOL_ID:          props.userPool.userPoolId,
     };
     // ChatSessionFn's code asset. The streaming-only files (app.py, run.sh,
-    // messages_stream.py) live in the same source directory but are NOT
-    // imported by main.handler — excluding them keeps ChatSessionFn's asset
-    // hash (and thus its deployed artifact) unchanged when the streaming
-    // rework adds/edits those files.
+    // messages_stream.py, tools_dispatch.py) live in the same source directory
+    // but are NOT imported by main.handler — excluding them keeps
+    // ChatSessionFn's asset hash (and thus its deployed artifact) unchanged
+    // when the streaming rework adds/edits those files.
     const chatCodeAsset = lambda.Code.fromAsset(
       path.join(__dirname, '..', 'lambda', 'chat_session'),
       { exclude: [
-        'app.py', 'run.sh', 'messages_stream.py', 'requirements.txt',
+        'app.py', 'run.sh', 'messages_stream.py', 'tools_dispatch.py',
+        'requirements.txt',
         'tests', '__pycache__', '.pytest_cache', '*.pyc',
       ] },
     );
