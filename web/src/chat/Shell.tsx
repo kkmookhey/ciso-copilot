@@ -11,8 +11,10 @@ import { api, type MeResponse } from "../lib/api";
 import { ModuleRail } from "./ModuleRail";
 import { ConversationRail } from "./ConversationRail";
 import { ChatCenter } from "./ChatCenter";
+import { SourceSideSheet } from "./SourceSideSheet";
 import { chatReducer, initialState } from "./state";
 import * as chatApi from "./chatApi";
+import { executeTool } from "./tools";
 
 const ADMIN_EMAILS = new Set([
   "kkmookhey@gmail.com",
@@ -57,6 +59,24 @@ export function ChatShell() {
         const id = await chatApi.createConversation();
         dispatch({ type: "load", id, title: "New conversation", messages: [] });
         setConvs(await chatApi.listConversations());
+
+        // Fetch and display the morning briefing for fresh conversations only.
+        // Wrapped in try/catch — a failed briefing must never break the landing.
+        try {
+          const result = await executeTool("get_morning_briefing", {});
+          const content = {
+            tool_name:       "get_morning_briefing",
+            args:            {},
+            result:          result.result,
+            _artifact_hints: result._artifact_hints,
+            source:          result.source,
+          };
+          dispatch({ type: "appendTool", content });
+          // Persist server-side so it survives refresh
+          await chatApi.appendMessage(id, "tool", content);
+        } catch (err) {
+          console.error("Morning briefing fetch failed — skipping:", err);
+        }
       }
     })();
     // One-shot boot: runs when auth resolves (loading → false). openConversation
@@ -158,6 +178,7 @@ export function ChatShell() {
         onDelete={onDelete}
       />
       <ChatCenter state={state} onSend={onSend} />
+      <SourceSideSheet />
     </div>
   );
 }
