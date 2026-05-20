@@ -57,6 +57,26 @@ x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
 verified the `.so` import error is gone. **Next: KK retries the authed
 demo; if it passes, Phase 4b (tools + 8 artifact components).**
 
+**SP4 Phase 4c deployed (2026-05-20) — voice.** The chat surface now has
+voice via OpenAI Realtime over WebRTC:
+- **Model: `gpt-realtime-2`** (OpenAI's newer GPT-5-class realtime model —
+  validated against the live API; drop-in over `gpt-realtime`).
+- **`voice.py`** mints the Realtime ephemeral key with the full persona
+  (`prompts.py` — PERSONA + TOOL_RULES + VOICE_ADDENDUM) + the 12-tool
+  catalog (the browser supplies the Realtime-shaped tool defs).
+- **`voiceClient.ts` + `turnQueue.ts`** — browser WebRTC client (lifted
+  from the proven `web/src/voice/` client). Voice tool calls execute
+  browser-side via the TS `executeTool`. Transcripts persist per-turn to
+  `conversation_messages` (`modality: "voice"`); `fetch(keepalive:true)`
+  flushes the pending turn on page unload.
+- **Voice UI** — mic toggle in the composer (off/connecting/on), persimmon
+  breathing dot in the header, live transcripts into the stream, barge-in
+  (`response.cancel` on user speech), sync-warning banner.
+- **Phase 4c demo gate — pending KK's mic test:** toggle the mic, hold a
+  spoken conversation, verify transcripts stream + persist + tools work +
+  barge-in. Spec §15 verification: ask the same questions in text vs voice
+  → same tool calls / same results.
+
 **SP4 Phase 4b deployed (2026-05-20) — tools + artifacts.** The chat can
 now query real tenant data and render it as cards:
 - **`tools.ts`** — 12-tool TS catalog (`web/src/chat/`): 8 data, 2 action
@@ -83,8 +103,11 @@ now query real tenant data and render it as cards:
   block IDs), so the model re-derives tool calls each turn rather than
   "seeing" prior tool outputs. Cards still reconstitute on reload. Fine
   for 4b; revisit if multi-turn tool memory is needed.
-- **Phase 4b demo gate — pending KK's authed test:** ask "what are my top
-  AWS concerns" → should query real findings + render finding cards.
+- **Phase 4b demo gate — PASSED** 2026-05-20 (KK: "works like a charm",
+  findings + AI inventory render with real data).
+- **Deferred 4b polish:** the `chart_donut` for compliance posture renders
+  but is visually ineffective — revisit the donut component (sizing /
+  legend / segment clarity). KK flagged, agreed to improve later.
 
 **Post-4a-demo-gate additions (2026-05-20, KK feedback during testing):**
 - **Rename + Delete on conversations** (`ConversationRail` hover → ⋯ menu,
