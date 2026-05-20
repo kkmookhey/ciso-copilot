@@ -64,8 +64,9 @@ vi.mock("../lib/api", () => ({
     }),
     complianceSummary: vi.fn().mockResolvedValue({
       summary: {
-        SOC2:   { total: 100, passing: 82, failing: 18, score_pct: 82 },
+        SOC2:    { total: 100, passing: 82, failing: 18, score_pct: 82 },
         ISO27001: { total: 50, passing: 40, failing: 10, score_pct: 80 },
+        mcsb:    { total: 30,  passing: 0,  failing: 30, score_pct: 0  },
       },
       by_framework_control: [],
     }),
@@ -320,6 +321,43 @@ describe("get_compliance_summary", () => {
     const result = await executeTool("get_compliance_summary", {});
     expect(result._artifact_hints![0].kind).toBe("chart_donut");
     expect(result._artifact_hints!.some(h => h.kind === "kpi_card")).toBe(true);
+  });
+
+  it("segments have NO explicit color — color assignment is the component's job", async () => {
+    const result = await executeTool("get_compliance_summary", {});
+    const donut = result._artifact_hint as { kind: "chart_donut"; segments: Array<{ color?: string }> };
+    for (const seg of donut.segments) {
+      expect(seg.color, "segment should not carry an explicit color").toBeUndefined();
+    }
+  });
+
+  it("segments use passing count as value", async () => {
+    const result = await executeTool("get_compliance_summary", {});
+    const donut = result._artifact_hint as {
+      kind: "chart_donut";
+      segments: Array<{ label: string; value: number }>;
+    };
+    // Mock: SOC2 has 82 passing, ISO27001 has 40 passing
+    const soc2 = donut.segments.find(s => s.label === "SOC2");
+    expect(soc2?.value).toBe(82);
+  });
+
+  it("title mentions passing controls for clarity", async () => {
+    const result = await executeTool("get_compliance_summary", {});
+    const donut = result._artifact_hint as { kind: "chart_donut"; title: string };
+    expect(donut.title.toLowerCase()).toContain("passing");
+  });
+
+  it("includes zero-value segment in segments (component handles the muted display)", async () => {
+    const result = await executeTool("get_compliance_summary", {});
+    const donut = result._artifact_hint as {
+      kind: "chart_donut";
+      segments: Array<{ label: string; value: number }>;
+    };
+    // mcsb is in the mock with passing=0; it should still appear in segments
+    const mcsb = donut.segments.find(s => s.label === "mcsb");
+    expect(mcsb).toBeDefined();
+    expect(mcsb?.value).toBe(0);
   });
 });
 

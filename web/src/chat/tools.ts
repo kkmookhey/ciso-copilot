@@ -441,17 +441,17 @@ const getComplianceSummary: Tool = {
     const data = await api.complianceSummary();
     const { summary } = data;
 
+    // No per-segment color — ChartDonut assigns distinct palette colors
+    // automatically, so any chart_donut renders distinguishable.
+    // value = passing control count (one slice per framework).
     const segments = Object.entries(summary).map(([framework, counts]) => ({
       label: framework,
       value: counts.passing,
-      color: counts.score_pct >= 80 ? "#4CAF50"
-           : counts.score_pct >= 50 ? "#FF9800"
-           : "#F44336",
     }));
 
     const donut: ArtifactHint = {
       kind:     "chart_donut",
-      title:    "Compliance posture",
+      title:    "Compliance posture — passing controls by framework",
       segments,
     };
 

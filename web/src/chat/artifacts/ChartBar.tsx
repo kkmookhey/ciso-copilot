@@ -15,10 +15,25 @@ interface ChartBarProps {
   source?:  Source;
 }
 
-const DEFAULT_BAR_COLOR = "#D85F3B";
+// Matches ChartDonut's palette so bar charts also render with distinct
+// per-bar colors when the caller doesn't supply an explicit color.
+const BAR_COLORS = [
+  "#D85F3B", // persimmon
+  "#4A90C4", // slate blue
+  "#7BAF5C", // sage green
+  "#C4956A", // warm tan
+  "#9B6BB5", // muted violet
+  "#E8A83C", // amber
+  "#5BAAA8", // teal
+  "#C46A6A", // dusty rose
+];
 
 export function ChartBar({ title, x_label, y_label, series, source }: ChartBarProps) {
-  const data = series.map(s => ({ name: s.label, value: s.value, color: s.color }));
+  const data = series.map((s, i) => ({
+    name:  s.label,
+    value: s.value,
+    color: s.color ?? BAR_COLORS[i % BAR_COLORS.length],
+  }));
 
   return (
     <div style={{
@@ -58,10 +73,7 @@ export function ChartBar({ title, x_label, y_label, series, source }: ChartBarPr
           />
           <Bar dataKey="value" radius={[4, 4, 0, 0]}>
             {data.map((entry, i) => (
-              <Cell
-                key={i}
-                fill={entry.color ?? DEFAULT_BAR_COLOR}
-              />
+              <Cell key={i} fill={entry.color} />
             ))}
           </Bar>
         </BarChart>
