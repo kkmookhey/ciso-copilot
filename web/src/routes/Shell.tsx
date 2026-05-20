@@ -28,7 +28,8 @@ export function Shell() {
         email={me?.user?.email ?? ""}
         isAdmin={isAdmin(me?.user?.email)}
       />
-      <main style={{ flex: 1, overflowY: "auto", background: "#FAF8F3" }}>
+      <main style={{ flex: 1, overflowY: "auto", background: "#FAF8F3",
+                     padding: "32px 40px" }}>
         <Outlet />
       </main>
     </div>
