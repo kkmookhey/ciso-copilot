@@ -278,25 +278,56 @@ def _create(tenant_id: str, body: dict) -> dict:
     if not template_key or template_key not in TEMPLATES:
         return _resp(400, {"error": "invalid_template_key", "allowed": list(TEMPLATES.keys())})
 
+    source_approval_id = body.get("source_approval_id")
+
+    # Idempotency check: if source_approval_id provided, return the existing row
+    # for this tenant rather than inserting a duplicate.
+    if source_approval_id:
+        rs = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("SELECT policy_id::text, status FROM policies "
+                 "WHERE tenant_id = CAST(:t AS UUID) "
+                 "AND source_approval_id = CAST(:said AS UUID) LIMIT 1"),
+            parameters=[
+                {"name": "t",    "value": {"stringValue": tenant_id}},
+                {"name": "said", "value": {"stringValue": source_approval_id}},
+            ],
+        )
+        rows = rs.get("records", [])
+        if rows:
+            existing_id = rows[0][0].get("stringValue")
+            existing_st = rows[0][1].get("stringValue")
+            print(f"INFO: idempotent policy create — returning existing policy_id={existing_id}")
+            return _resp(200, {"policy_id": existing_id, "status": existing_st})
+
     vars_in = body.get("vars") or {}
     rendered = render(template_key, vars_in)
 
     policy_id = str(uuid.uuid4())
+
+    params = [
+        {"name": "p",   "value": {"stringValue": policy_id}},
+        {"name": "t",   "value": {"stringValue": tenant_id}},
+        {"name": "k",   "value": {"stringValue": template_key}},
+        {"name": "ti",  "value": {"stringValue": rendered["title"]}},
+        {"name": "body","value": {"stringValue": rendered["content_md"]}},
+        {"name": "soc", "value": {"stringValue": json.dumps(rendered["soc2_controls"])}},
+        {"name": "v",   "value": {"stringValue": json.dumps(vars_in)}},
+    ]
+    extra_cols = ""
+    extra_vals = ""
+    if source_approval_id:
+        extra_cols = ", source_approval_id"
+        extra_vals = ", CAST(:said AS UUID)"
+        params.append({"name": "said", "value": {"stringValue": source_approval_id}})
+
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=("INSERT INTO policies (policy_id, tenant_id, template_key, title, content_md, "
-             "                       soc2_controls, vars) "
+             f"                      soc2_controls, vars{extra_cols}) "
              "VALUES (CAST(:p AS UUID), CAST(:t AS UUID), :k, :ti, :body, "
-             "        CAST(:soc AS JSONB), CAST(:v AS JSONB))"),
-        parameters=[
-            {"name": "p",   "value": {"stringValue": policy_id}},
-            {"name": "t",   "value": {"stringValue": tenant_id}},
-            {"name": "k",   "value": {"stringValue": template_key}},
-            {"name": "ti",  "value": {"stringValue": rendered["title"]}},
-            {"name": "body","value": {"stringValue": rendered["content_md"]}},
-            {"name": "soc", "value": {"stringValue": json.dumps(rendered["soc2_controls"])}},
-            {"name": "v",   "value": {"stringValue": json.dumps(vars_in)}},
-        ],
+             f"        CAST(:soc AS JSONB), CAST(:v AS JSONB){extra_vals})"),
+        parameters=params,
     )
     return _resp(200, {"policy_id": policy_id, "status": "draft"})
 

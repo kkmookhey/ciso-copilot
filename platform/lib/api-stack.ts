@@ -765,8 +765,10 @@ export class ApiStack extends cdk.Stack {
     conversationById.addMethod('GET',    new apigw.LambdaIntegration(chatSessionFn), authedOpts);
     conversationById.addMethod('PATCH',  new apigw.LambdaIntegration(chatSessionFn), authedOpts);
     conversationById.addMethod('DELETE', new apigw.LambdaIntegration(chatSessionFn), authedOpts);
-    conversationById.addResource('messages').addMethod(
-      'POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts,
+    const conversationMessages = conversationById.addResource('messages');
+    conversationMessages.addMethod('POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts);
+    conversationMessages.addResource('{message_id}').addMethod(
+      'PATCH', new apigw.LambdaIntegration(chatSessionFn), authedOpts,
     );
     conversationById.addResource('voice').addMethod(
       'POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts,

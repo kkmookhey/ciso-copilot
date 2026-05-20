@@ -1,5 +1,5 @@
 # platform/lambda/chat_session/messages.py
-"""Append a fully-formed message to a conversation."""
+"""Append and update conversation messages."""
 from __future__ import annotations
 
 import json
@@ -27,3 +27,18 @@ def append(conversation_id: str, role: str, content: dict) -> dict:
         {"cid": conversation_id},
     )
     return {"message_id": mid}
+
+
+def update_content(conversation_id: str, message_id: str, content: dict) -> bool:
+    """Replace a message's JSONB content in-place.
+
+    Scoped to conversation_id so callers cannot update messages that belong
+    to a different conversation. Returns True if a row was updated.
+    """
+    rows = _q(
+        "UPDATE conversation_messages SET content = :content::jsonb "
+        "WHERE id = :mid::uuid AND conversation_id = :cid::uuid "
+        "RETURNING id::text",
+        {"content": json.dumps(content), "mid": message_id, "cid": conversation_id},
+    )
+    return bool(rows)

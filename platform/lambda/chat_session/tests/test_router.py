@@ -172,3 +172,62 @@ def test_post_messages_conversation_not_found(monkeypatch):
         None,
     )
     assert r["statusCode"] == 404
+
+
+# ---------------------------------------------------------------------------
+# PATCH /v1/conversations/{id}/messages/{message_id}  →  M.update_content
+# ---------------------------------------------------------------------------
+
+def test_patch_message_content_ok(monkeypatch):
+    monkeypatch.setattr(main, "_resolve_user_context", _resolved())
+    monkeypatch.setattr(C, "get", lambda tid, cid: {"id": cid, "title": "t", "messages": []})
+    monkeypatch.setattr(M, "update_content", lambda cid, mid, content: True)
+    r = main.handler(
+        _evt("PATCH", "/v1/conversations/abc/messages/mid-1",
+             path_params={"id": "abc", "message_id": "mid-1"},
+             body={"content": {"kind": "approval_card", "current_status": "approved"}}),
+        None,
+    )
+    assert r["statusCode"] == 200
+    assert json.loads(r["body"])["ok"] is True
+
+
+def test_patch_message_content_missing_body_400(monkeypatch):
+    """PATCH without a 'content' key returns 400."""
+    monkeypatch.setattr(main, "_resolve_user_context", _resolved())
+    monkeypatch.setattr(C, "get", lambda tid, cid: {"id": cid, "title": "t", "messages": []})
+    r = main.handler(
+        _evt("PATCH", "/v1/conversations/abc/messages/mid-1",
+             path_params={"id": "abc", "message_id": "mid-1"},
+             body={"something_else": 1}),
+        None,
+    )
+    assert r["statusCode"] == 400
+
+
+def test_patch_message_content_conversation_not_found(monkeypatch):
+    """PATCH on a message whose conversation doesn't belong to tenant → 404."""
+    monkeypatch.setattr(main, "_resolve_user_context", _resolved())
+    monkeypatch.setattr(C, "get", lambda tid, cid: None)
+    r = main.handler(
+        _evt("PATCH", "/v1/conversations/abc/messages/mid-1",
+             path_params={"id": "abc", "message_id": "mid-1"},
+             body={"content": {"current_status": "approved"}}),
+        None,
+    )
+    assert r["statusCode"] == 404
+
+
+def test_patch_message_content_message_not_found(monkeypatch):
+    """PATCH on a message_id that doesn't exist in the conversation → 404."""
+    monkeypatch.setattr(main, "_resolve_user_context", _resolved())
+    monkeypatch.setattr(C, "get", lambda tid, cid: {"id": cid, "title": "t", "messages": []})
+    monkeypatch.setattr(M, "update_content", lambda cid, mid, content: False)
+    r = main.handler(
+        _evt("PATCH", "/v1/conversations/abc/messages/mid-999",
+             path_params={"id": "abc", "message_id": "mid-999"},
+             body={"content": {"current_status": "approved"}}),
+        None,
+    )
+    assert r["statusCode"] == 404
+    assert json.loads(r["body"])["error"] == "message_not_found"
