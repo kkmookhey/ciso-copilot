@@ -6,12 +6,18 @@
 >
 > Last updated: 2026-05-20 (AI Discovery cloud-AI connector deployed).
 
-## 🚀 AI Discovery — cloud-AI connector deployed (2026-05-20)
+## 🚀 AI Discovery — cloud-AI connector + findings overhaul (2026-05-20)
 
-On branch `feat/ai-discovery-cloud-ai`. Spec:
+**Status: shipped, deployed, merged to `main`.** Spec:
 `docs/superpowers/specs/2026-05-20-ai-discovery-connectors-design.md`.
-Plan: `docs/superpowers/plans/2026-05-20-ai-discovery-cloud-ai.md`
-(plan 1 of 2 — provider connectors are plan 2, not yet built).
+Plan: `docs/superpowers/plans/2026-05-20-ai-discovery-cloud-ai.md`.
+
+**▶ NEXT SESSION starts here:** Plan 2 — the **OpenAI / Anthropic provider
+connectors** (spec §7). The spec is written; the implementation plan is
+NOT. Blocked on KK obtaining enterprise/admin API access to OpenAI +
+Anthropic. Once unblocked: research the two admin APIs, write
+`docs/superpowers/plans/2026-05-20-ai-discovery-providers.md`, then build
+(a new `provider_scanner` Lambda + paste-key connect flow — see spec §7).
 
 **What landed (cloud-AI connector — completes the Discovery module's
 cloud surface):**
@@ -77,17 +83,19 @@ names stripped; the real title + ARN are in the drill-in). Backend:
 `findings_summary` returns `by_status`; `partial` added to
 `ALLOWED_STATUSES`. This resolves the AI-group-overcount and Bug 5.
 
-**Known limitations (documented in the plan's Deviations section):**
+**Known limitations / open items:**
 - **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
   has a key-name mismatch that drops Bedrock model lists. Bedrock
-  *findings* (the 15 checks) are unaffected. A Shasta fix, not ours.
-- **Finding status is hardcoded `'fail'`** in `unified_writer` —
-  platform-wide, pre-existing; compliance % reflects "controls with a
-  finding," not true pass/fail.
+  *findings* (the 15 checks) are unaffected. A Shasta-side fix.
+- **Generic finding titles are a heuristic** — display-time stripping of
+  single-quoted resource names. Covers Shasta's common title pattern; a
+  curated `check_id → title` catalog is the clean long-term fix.
 - **Pre-existing test rot:** `ai_scanner`'s stale `writer.py`
   (`AssetEmission`/`RelEmission`, renamed in SP1) breaks 6 tests in
-  `test_writer.py` / `test_detectors.py`. Unrelated to this change;
-  worth a separate cleanup.
+  `test_writer.py` / `test_detectors.py`. Unrelated; worth a cleanup.
+- No route-level web tests for `Dashboard.tsx` / `TopRisks.tsx` — the repo
+  has no route-test precedent; verified via type-check + a live endpoint
+  smoke test.
 
 ## 🚀 SP4 Phase 4a deployed — chat-first front door (text)
 

@@ -44,3 +44,7 @@ ios/*.xcodeproj/
 .cache/
 tmp/
 scratch/
+
+# Superpowers brainstorm scratch + local test venv
+.superpowers/
+.venv-test/

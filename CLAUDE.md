@@ -18,14 +18,14 @@ through an iOS app, a web app, and a voice interface.
 Where any two disagree: **HANDOFF.md wins for state, v2 wins for spec**,
 v1 / this file lose.
 
-## Status (2026-05-18)
+## Status (2026-05-20)
 
 - **v1** — deployed at `ciso-copilot.kkmookhey.workers.dev`, sunset.
-- **v2** — Phases 0 + A + B + C + D + E deployed. Sign-in + AWS onboard +
-  scan + findings + WebRTC voice all working end-to-end on iPhone for KK's
-  Gmail tenant. Today: testing + bugfix only, no new features, target is
-  "ready for self-service from the web app." See **HANDOFF.md** and
-  **TEST_PLAN.md**.
+- **v2** — live. The SP4 chat-first front door, the AI-discovery cloud-AI
+  connector, and the findings overhaul (Fail/Partial/Pass tiles + the
+  Status/Category/Cloud/Framework grouping) are all deployed. Next:
+  AI-discovery plan 2 — OpenAI/Anthropic provider connectors. Read
+  **HANDOFF.md** first every session.
 
 ## Repo layout
 
