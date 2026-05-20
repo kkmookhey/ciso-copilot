@@ -129,7 +129,6 @@ xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
 - ❌ Skip tests or disable hooks. Fix the underlying issue.
 - ❌ Invent function names, library APIs, or version numbers. Check or say
   "I don't know — let me look it up."
-- ❌ Commit anything unless explicitly asked.
 
 ---
 
