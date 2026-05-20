@@ -50,7 +50,8 @@ export function ChatShell() {
         setConvs(await chatApi.listConversations());
       }
     })();
-    // openConversation is stable; deps are correct
+    // One-shot boot: runs when auth resolves (loading → false). openConversation
+    // is recreated each render but intentionally omitted — the effect fires once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, me]);
 
