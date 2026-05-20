@@ -102,7 +102,7 @@ export function TopRisks() {
 
   return (
     <div className="max-w-6xl">
-      <h1 className="text-3xl font-bold tracking-tight">Top Risks</h1>
+      <h1 className="text-3xl font-bold tracking-tight">Findings</h1>
       <p className="text-slate-600 mt-1">
         Open findings across your connected clouds, grouped by what's failing.
       </p>
