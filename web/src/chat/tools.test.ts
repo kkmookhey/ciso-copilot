@@ -1,7 +1,7 @@
 // web/src/chat/tools.test.ts
 // Tests for the 12-tool shared catalog (SP4 Task 4b.1).
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   TOOLS,
   toAnthropicTools,
