@@ -270,13 +270,12 @@ describe("get_morning_briefing", () => {
     expect(result._artifact_hint?.kind).toBe("kpi_card");
   });
 
-  it("result._artifact_hints contains 3 hints", async () => {
+  it("_artifact_hints contains 3 hints", async () => {
     const result = await executeTool("get_morning_briefing", {});
-    const hints = (result.result as any)._artifact_hints;
-    expect(hints).toHaveLength(3);
-    expect(hints[0].kind).toBe("kpi_card");
-    expect(hints[1].kind).toBe("severity_breakdown");
-    expect(hints[2].kind).toBe("kpi_card");
+    expect(result._artifact_hints).toHaveLength(3);
+    expect(result._artifact_hints![0].kind).toBe("kpi_card");
+    expect(result._artifact_hints![1].kind).toBe("severity_breakdown");
+    expect(result._artifact_hints![2].kind).toBe("kpi_card");
   });
 });
 
@@ -317,11 +316,10 @@ describe("get_compliance_summary", () => {
     expect(result._artifact_hint?.kind).toBe("chart_donut");
   });
 
-  it("result._artifact_hints includes donut + kpi_cards per framework", async () => {
+  it("_artifact_hints includes donut + kpi_cards per framework", async () => {
     const result = await executeTool("get_compliance_summary", {});
-    const hints = (result.result as any)._artifact_hints;
-    expect(hints[0].kind).toBe("chart_donut");
-    expect(hints.some((h: any) => h.kind === "kpi_card")).toBe(true);
+    expect(result._artifact_hints![0].kind).toBe("chart_donut");
+    expect(result._artifact_hints!.some(h => h.kind === "kpi_card")).toBe(true);
   });
 });
 
@@ -341,11 +339,10 @@ describe("list_risks", () => {
     expect(result._artifact_hint?.kind).toBe("risk_card");
   });
 
-  it("result._artifact_hints carries all risk cards", async () => {
+  it("_artifact_hints carries all risk cards", async () => {
     const result = await executeTool("list_risks", {});
-    const hints = (result.result as any)._artifact_hints;
-    expect(hints.length).toBeGreaterThan(0);
-    expect(hints[0].kind).toBe("risk_card");
+    expect(result._artifact_hints!.length).toBeGreaterThan(0);
+    expect(result._artifact_hints![0].kind).toBe("risk_card");
   });
 });
 

@@ -61,7 +61,8 @@ export type ArtifactHint =
       risk_id:   string;
       title:     string;
       severity:  "critical" | "high" | "medium" | "low" | "info";
-      status:    "open" | "mitigating" | "accepted" | "closed";
+      // mirrors the risks.status DB CHECK constraint
+      status:    "open" | "mitigated" | "accepted" | "transferred" | "closed";
       owner?:    string;
       due_date?: string;
       source?:   Source;
@@ -112,9 +113,10 @@ export type ArtifactHint =
 export type Flavor = "data" | "action" | "side-effect";
 
 export interface ToolResult {
-  result:          unknown;
-  _artifact_hint?: ArtifactHint;
-  source?:         Source;
+  result:            unknown;
+  _artifact_hint?:   ArtifactHint;    // primary (single-artifact tools)
+  _artifact_hints?:  ArtifactHint[];  // all artifacts (multi-artifact tools)
+  source?:           Source;
 }
 
 export interface Tool {
@@ -138,7 +140,7 @@ type EditField = {
 const ADD_RISK_EDIT_FIELDS: EditField[] = [
   { key: "title",    label: "Title",    type: "text" },
   { key: "severity", label: "Severity", type: "select", options: ["critical", "high", "medium", "low"] },
-  { key: "status",   label: "Status",   type: "select", options: ["open", "mitigating", "accepted", "closed"] },
+  { key: "status",   label: "Status",   type: "select", options: ["open", "mitigated", "accepted", "transferred", "closed"] },
   { key: "owner",    label: "Owner",    type: "text" },
   { key: "due_date", label: "Due date", type: "date" },
 ];
@@ -213,14 +215,12 @@ const getMorningBriefing: Tool = {
 
     return {
       result: {
-        summary:       summaryData,
-        risks_count:   count,
-        open_risks:    openCount,
-        // All 3 hints packed so the renderer paints each as a separate card
-        _artifact_hints: [topFindingKpi, severityBreakdown, riskKpi],
+        summary:     summaryData,
+        risks_count: count,
+        open_risks:  openCount,
       },
-      // Primary hint (kpi_card for top finding) — renderer also checks _artifact_hints
-      _artifact_hint: topFindingKpi,
+      _artifact_hint:  topFindingKpi,
+      _artifact_hints: [topFindingKpi, severityBreakdown, riskKpi],
     };
   },
 };
@@ -345,9 +345,10 @@ const queryFindings: Tool = {
         source:       { finding_id: f.finding_id },
       }));
       return {
-        result:         { ...data, _artifact_hints: cards },
-        _artifact_hint: cards[0],
-        source:         { finding_id: findings[0].finding_id },
+        result:          data,
+        _artifact_hint:  cards[0],
+        _artifact_hints: cards,
+        source:          { finding_id: findings[0].finding_id },
       };
     }
 
@@ -463,11 +464,9 @@ const getComplianceSummary: Tool = {
     }));
 
     return {
-      result: {
-        ...data,
-        _artifact_hints: [donut, ...frameworkKpis],
-      },
-      _artifact_hint: donut,
+      result:          data,
+      _artifact_hint:  donut,
+      _artifact_hints: [donut, ...frameworkKpis],
     };
   },
 };
@@ -519,31 +518,24 @@ const listRisks: Tool = {
     const data = await api.listRisks({ status: args.status, severity: args.severity });
     const { risks } = data;
 
-    // api Risk status → ArtifactHint risk_card status
-    const toCardStatus = (s: string): "open" | "mitigating" | "accepted" | "closed" => {
-      if (s === "open")                      return "open";
-      if (s === "accepted")                  return "accepted";
-      if (s === "mitigated" || s === "closed") return "closed";
-      return "open"; // transferred → open (closest available)
-    };
-
+    // risk_card.status mirrors the risks.status DB CHECK constraint:
+    // 'open' | 'mitigated' | 'accepted' | 'transferred' | 'closed'
+    // Pass r.status straight through — no lossy remapping needed.
     const cards: ArtifactHint[] = risks.map(r => ({
       kind:      "risk_card" as const,
       risk_id:   r.risk_id,
       title:     r.title,
       severity:  r.severity,
-      status:    toCardStatus(r.status),
+      status:    r.status as "open" | "mitigated" | "accepted" | "transferred" | "closed",
       owner:     r.owner ?? undefined,
       due_date:  r.due_date ?? undefined,
       source:    r.finding_id ? { finding_id: r.finding_id } : undefined,
     }));
 
     return {
-      result: {
-        ...data,
-        _artifact_hints: cards,
-      },
-      _artifact_hint: cards[0] as ArtifactHint | undefined,
+      result:          data,
+      _artifact_hint:  cards[0] as ArtifactHint | undefined,
+      _artifact_hints: cards,
     };
   },
 };
@@ -564,7 +556,7 @@ const proposeRiskEntry: Tool = {
       description: { type: "string" },
       owner:       { type: "string" },
       due_date:    { type: "string", description: "YYYY-MM-DD" },
-      status:      { type: "string", enum: ["open", "mitigating", "accepted", "closed"], default: "open" },
+      status:      { type: "string", enum: ["open", "mitigated", "accepted", "transferred", "closed"], default: "open" },
     },
     required: ["title", "severity"],
   },
