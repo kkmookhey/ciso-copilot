@@ -2,7 +2,7 @@
 // REST conversation CRUD via API Gateway; streaming turns via Lambda Web Adapter Function URL.
 // Mirrors web/src/lib/api.ts: Bearer token via validIdToken(), hardcoded base URLs.
 
-import { validIdToken } from "../lib/cognito";
+import { validIdToken, signOut } from "../lib/cognito";
 
 const REST_BASE  = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
 const STREAM_BASE = "https://otc43ep2sidkuyv5uaxpclljsu0rkvbr.lambda-url.us-east-1.on.aws";
@@ -23,7 +23,8 @@ export interface ConversationSummary {
 
 async function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = await validIdToken();
-  return fetch(url, {
+  if (!token) { signOut(); throw new Error("not_signed_in"); }
+  const res = await fetch(url, {
     ...init,
     headers: {
       ...(init.headers ?? {}),
@@ -31,6 +32,8 @@ async function authedFetch(url: string, init: RequestInit = {}): Promise<Respons
       "content-type": "application/json",
     },
   });
+  if (res.status === 401) { signOut(); throw new Error("unauthorized"); }
+  return res;
 }
 
 export async function listConversations(): Promise<ConversationSummary[]> {
@@ -89,6 +92,7 @@ export async function streamMessage(
     },
   );
 
+  if (res.status === 401) { signOut(); throw new Error("unauthorized"); }
   if (!res.ok) {
     throw new Error(`stream endpoint ${res.status}: ${await res.text()}`);
   }
