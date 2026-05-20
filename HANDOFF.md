@@ -43,12 +43,29 @@ Spec: `docs/superpowers/specs/2026-05-19-sp4-chat-first-design.md`. Plan:
   handler `run.sh` → `uvicorn`). `ChatSessionFn` (REST only) is fine on the
   normal managed runtime.
 
-**Phase 4a demo gate — PENDING KK's authenticated verification.** Deploy
-verified at the unauthenticated level (`/` → `/signin` redirect works,
-sign-in page clean, zero console errors). The full demo (sign in → land on
-chat → type a question → watch the reply stream in → refresh → resume)
-needs KK's Google sign-in. **Next: KK runs the authed demo; then Phase 4b
-(tools + 8 artifact components).**
+**Phase 4a demo gate — first authed test FAILED, root cause fixed, awaiting retest.**
+KK's first sign-in test (2026-05-20): message sent but no reply; refresh
+showed the conversation row but no message text. Root cause: `ChatStreamFn`'s
+`_verify_jwt` crashed importing `cryptography` —
+`_rust.abi3.so: cannot open shared object file`. The `chatStreamAsset`
+bundling installed the `cryptography` wheel (via `PyJWT[crypto]`) for the
+host platform, not Lambda's linux x86_64. Every JWT verification failed →
+streaming endpoint returned `unauthorized` for every request → no replies,
+nothing persisted (the LWA app is what writes both user + assistant rows).
+**Fixed** (commit `7c87069`): added `platform: 'linux/amd64'` + manylinux
+x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
+verified the `.so` import error is gone. **Next: KK retries the authed
+demo; if it passes, Phase 4b (tools + 8 artifact components).**
+
+**Gotcha — Python Lambda native deps:** ANY Python Lambda bundling a
+package with a compiled extension (`cryptography`, `pydantic-core`, etc.)
+MUST bundle with `platform: 'linux/amd64'` + `pip install --platform
+manylinux2014_x86_64 --implementation cp --python-version 3.12
+--only-binary=:all:`. Otherwise pip on an Apple-Silicon Mac installs the
+wrong-arch wheel and the Lambda fails at import. `AiGithubFn` and now
+`ChatStreamFn` do this. Pure-Python deps (starlette, uvicorn, PyJWT
+itself, boto3) don't need it — but `PyJWT[crypto]` pulls `cryptography`,
+which does.
 
 ## 🚀 Slice 1b shipped — what's new since the last update
 
