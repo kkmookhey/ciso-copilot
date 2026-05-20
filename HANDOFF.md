@@ -57,6 +57,19 @@ x86_64 pip flags to the bundling, matching `AiGithubFn`. Redeployed +
 verified the `.so` import error is gone. **Next: KK retries the authed
 demo; if it passes, Phase 4b (tools + 8 artifact components).**
 
+**Post-demo-gate additions (2026-05-20, KK feedback during testing):**
+- **Rename + Delete on conversations** (`ConversationRail` hover → ⋯ menu,
+  inline rename, delete-with-confirm; backend `PATCH`/`DELETE` already
+  existed). Commit `35d6801`.
+- **Legacy screens re-themed to Quiet Paper.** Tailwind `blue`/`slate`/
+  `white` scales remapped in `web/tailwind.config.js` + `index.css` body —
+  flips all ~17 route files to the warm cream/persimmon palette without a
+  per-file sweep. Commit `836c256`. Chat surface (`web/src/chat/*`) stays
+  on its own inline-hex Quiet Paper styling — two styling systems, same
+  palette; a future pass could unify them.
+- **Voice mic** is NOT in Phase 4a — it's Phase 4c by design. The 4a
+  composer is text-only.
+
 **Gotcha — Python Lambda native deps:** ANY Python Lambda bundling a
 package with a compiled extension (`cryptography`, `pydantic-core`, etc.)
 MUST bundle with `platform: 'linux/amd64'` + `pip install --platform
