@@ -132,7 +132,7 @@ export function Dashboard() {
           <ChartCard title="By cloud" subtitle="Open findings per connected cloud">
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={cloudBars} margin={{ top: 8, right: 8, left: -16, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8DFD0" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                 <RTooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
