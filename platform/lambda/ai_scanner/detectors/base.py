@@ -54,6 +54,9 @@ class FindingEmission:
     evidence_packet:            dict[str, Any]
     confidence:                 str
     frameworks:                 dict[str, list[str]] = field(default_factory=dict)
+    domain:                     str        = "ai"
+    status:                     str        = "fail"
+    region:                     str | None = None
 
 
 @dataclass(frozen=True)

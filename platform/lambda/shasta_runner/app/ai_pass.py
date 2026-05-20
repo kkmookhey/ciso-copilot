@@ -105,9 +105,16 @@ def ai_findings_to_emissions(
 ) -> list[FindingEmission]:
     """Map Shasta AI-check Findings (already enriched via
     enrich_findings_with_ai_controls) to FindingEmission rows, pulling
-    AI-framework control IDs from finding.details into .frameworks."""
+    AI-framework control IDs from finding.details into .frameworks.
+
+    not_assessed / not_applicable results are dropped — they are noise
+    ("Unable to check …"), not findings."""
     out: list[FindingEmission] = []
     for f in findings:
+        status = _estr(f.status).lower()
+        if status in ("not_assessed", "not_applicable"):
+            continue
+
         details = getattr(f, "details", None) or {}
 
         frameworks: dict[str, list[str]] = {}
@@ -120,12 +127,17 @@ def ai_findings_to_emissions(
             if vals:
                 frameworks[fw_key] = list(vals)
 
+        domain = _estr(getattr(f, "domain", "")).lower()
+        if domain in ("ai_governance", ""):
+            domain = "ai"
+        region = getattr(f, "region", "") or None
+
         evidence = {
             "version": "0.1",
             "shasta": {
                 "check_id":      f.check_id,
-                "status":        _estr(f.status).lower(),
-                "domain":        _estr(getattr(f, "domain", "")).lower(),
+                "status":        status,
+                "domain":        domain,
                 "region":        getattr(f, "region", ""),
                 "resource_type": getattr(f, "resource_type", ""),
                 "resource_id":   getattr(f, "resource_id", ""),
@@ -145,6 +157,9 @@ def ai_findings_to_emissions(
             evidence_packet=evidence,
             confidence="high",
             frameworks=frameworks,
+            domain=domain,
+            status=status,
+            region=region,
         ))
     return out
 

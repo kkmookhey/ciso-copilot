@@ -89,6 +89,36 @@ def test_ai_findings_to_emissions_pulls_frameworks_from_details():
         "owasp_llm_top10": ["LLM01"],
     }
     assert e.evidence_packet["shasta"]["check_id"] == "bedrock-guardrails-configured"
+    assert e.domain == "ai"      # ai_governance maps to 'ai'
+    assert e.status == "fail"    # real status carried, not hardcoded
+
+
+def test_ai_findings_to_emissions_drops_not_assessed_and_not_applicable():
+    """not_assessed ('Unable to check …') and not_applicable are noise and
+    must not be ingested as findings; pass/fail/partial are kept."""
+    import types
+    from ai_pass import ai_findings_to_emissions
+
+    def mk(status, check):
+        return types.SimpleNamespace(
+            check_id=check, title="t", description="d", severity="medium",
+            status=status, domain="ai_governance", region="us-east-1",
+            resource_type="x", resource_id="r", remediation="",
+            soc2_controls=[], cis_aws_controls=[], iso27001_controls=[],
+            hipaa_controls=[], mcsb_controls=[], details={},
+        )
+
+    findings = [
+        mk("not_assessed",   "unable-1"),
+        mk("not_applicable", "na-1"),
+        mk("fail",           "real-fail"),
+        mk("partial",        "real-partial"),
+        mk("pass",           "real-pass"),
+    ]
+    out = ai_findings_to_emissions(findings, tenant_id="t1")
+    assert sorted(e.finding_type for e in out) == [
+        "real-fail", "real-partial", "real-pass",
+    ]
 
 
 def test_ai_findings_to_emissions_handles_missing_details():

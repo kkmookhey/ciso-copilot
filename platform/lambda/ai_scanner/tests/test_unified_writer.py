@@ -221,3 +221,31 @@ def test_nullable_cast_params_are_typed_not_case_is_null(monkeypatch):
     assert "CASE WHEN :sid IS NULL" not in entity_sql
     assert "CASE WHEN :eid IS NULL" not in finding_sql
     assert "CAST(:eid AS UUID)"     in finding_sql
+
+
+def test_insert_finding_writes_real_domain_status_and_upserts(monkeypatch):
+    """_insert_finding must persist the finding's real domain/status/region
+    (not hardcoded 'ai'/'fail') and UPSERT on the natural key so re-scans
+    refresh rather than accumulate."""
+    import unified_writer
+    from detectors.base import FindingEmission
+    _fake, calls = _stub_rds(monkeypatch)
+
+    f = FindingEmission(
+        tenant_id="t1", finding_type="iam-overbroad", severity="high",
+        title="t", description="d",
+        subject_entity_kind=None, subject_entity_natural_key=None,
+        subject_type="iam-user", subject_ref="arn:aws:iam::1:user/x",
+        evidence_packet={"version": "0.1"}, confidence="high",
+        domain="iam", status="partial", region="us-west-2",
+    )
+    unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    fc = next(c for c in calls if "INSERT INTO findings" in (c.get("sql") or ""))
+    assert "ON CONFLICT" in fc["sql"]
+    assert "'ai'"   not in fc["sql"]   # domain no longer hardcoded
+    assert "'fail'" not in fc["sql"]   # status no longer hardcoded
+    params = {p["name"]: p["value"] for p in fc["parameters"]}
+    assert params["domain"]["stringValue"] == "iam"
+    assert params["status"]["stringValue"] == "partial"
+    assert params["region"]["stringValue"] == "us-west-2"

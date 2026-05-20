@@ -380,6 +380,10 @@ def _convert_findings(
     seen_entity_keys: set[tuple[str, str]] = {(e.kind, e.natural_key) for e in entities}
 
     for f in shasta_findings:
+        # Drop non-actionable results — not_assessed ("Unable to check …")
+        # and not_applicable are noise, not findings.
+        if f.status.value.lower() in ("not_assessed", "not_applicable"):
+            continue
         arn = (getattr(f, "resource_id", "") or "").strip()
         subj_kind: str | None = None
         subj_nk:   str | None = None
@@ -440,12 +444,18 @@ def _shasta_to_emission(
     }
     frameworks = {k: v for k, v in frameworks.items() if v}
 
+    status = f.status.value.lower()
+    domain = f.domain.value.lower()
+    if domain == "ai_governance":
+        domain = "ai"
+    region = f.region or None
+
     evidence = {
         "version":     "0.1",
         "shasta": {
             "check_id":      f.check_id,
-            "status":        f.status.value.lower(),
-            "domain":        f.domain.value.lower(),
+            "status":        status,
+            "domain":        domain,
             "region":        f.region,
             "resource_type": f.resource_type,
             "resource_id":   f.resource_id,
@@ -466,6 +476,10 @@ def _shasta_to_emission(
         subject_ref=(f.resource_id or "")[:500] if f.resource_id else None,
         evidence_packet=evidence,
         confidence="high",
+        frameworks=frameworks,
+        domain=domain,
+        status=status,
+        region=region,
     )
 
 

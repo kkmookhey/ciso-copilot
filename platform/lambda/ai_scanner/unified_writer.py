@@ -231,6 +231,10 @@ def _upsert_edge(tx: str, e: EdgeEmission, source_id: str, target_id: str,
 
 def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
                      scan_id: str, ctx) -> None:
+    """Upsert a finding on its natural key (tenant, conn, check_id, resource,
+    region) so re-scans refresh in place rather than accumulate a fresh row.
+    `first_seen` is preserved on conflict; `last_seen` + mutable state are
+    refreshed and `resolved_at` is cleared (the finding was seen again)."""
     fid = str(uuid.uuid4())
     _rds.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
@@ -241,23 +245,37 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
             "   severity, status, resource_arn, resource_type, region, domain, frameworks, "
             "   remediation, first_seen, last_seen, evidence_packet, subject_entity_id) "
             "VALUES (CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:conn AS UUID), "
-            "        CAST(:sid AS UUID), :ftype, :title, :desc, :sev, 'fail', :subj, "
-            "        :stype, NULL, 'ai', CAST(:fw AS JSONB), NULL, NOW(), NOW(), CAST(:ev AS JSONB), "
-            "        CAST(:eid AS UUID))"
+            "        CAST(:sid AS UUID), :ftype, :title, :desc, :sev, :status, :subj, "
+            "        :stype, :region, :domain, CAST(:fw AS JSONB), NULL, NOW(), NOW(), "
+            "        CAST(:ev AS JSONB), CAST(:eid AS UUID)) "
+            "ON CONFLICT (tenant_id, conn_id, check_id, "
+            "             COALESCE(resource_arn, ''), COALESCE(region, '')) "
+            "  DO UPDATE SET scan_id=EXCLUDED.scan_id, title=EXCLUDED.title, "
+            "                description=EXCLUDED.description, severity=EXCLUDED.severity, "
+            "                status=EXCLUDED.status, resource_type=EXCLUDED.resource_type, "
+            "                domain=EXCLUDED.domain, frameworks=EXCLUDED.frameworks, "
+            "                evidence_packet=EXCLUDED.evidence_packet, "
+            "                subject_entity_id=EXCLUDED.subject_entity_id, "
+            "                last_seen=NOW(), resolved_at=NULL"
         ),
         parameters=[
-            {"name": "fid",   "value": {"stringValue": fid}},
-            {"name": "tid",   "value": {"stringValue": f.tenant_id}},
-            {"name": "conn",  "value": {"stringValue": ctx.connection_id}},
-            {"name": "sid",   "value": {"stringValue": scan_id}},
-            {"name": "ftype", "value": {"stringValue": f.finding_type}},
-            {"name": "title", "value": {"stringValue": f.title}},
-            {"name": "desc",  "value": {"stringValue": f.description}},
-            {"name": "sev",   "value": {"stringValue": f.severity}},
-            {"name": "subj",  "value": {"stringValue": f.subject_ref or ""}},
-            {"name": "stype", "value": {"stringValue": f.subject_type or "ai_module"}},
-            {"name": "ev",    "value": {"stringValue": json.dumps(f.evidence_packet)}},
-            {"name": "fw",    "value": {"stringValue": json.dumps(f.frameworks)}},
+            {"name": "fid",    "value": {"stringValue": fid}},
+            {"name": "tid",    "value": {"stringValue": f.tenant_id}},
+            {"name": "conn",   "value": {"stringValue": ctx.connection_id}},
+            {"name": "sid",    "value": {"stringValue": scan_id}},
+            {"name": "ftype",  "value": {"stringValue": f.finding_type}},
+            {"name": "title",  "value": {"stringValue": f.title}},
+            {"name": "desc",   "value": {"stringValue": f.description}},
+            {"name": "sev",    "value": {"stringValue": f.severity}},
+            {"name": "status", "value": {"stringValue": f.status}},
+            {"name": "subj",   "value": {"stringValue": f.subject_ref or ""}},
+            {"name": "stype",  "value": {"stringValue": f.subject_type or "ai_module"}},
+            {"name": "region",
+             "value": {"isNull": True} if f.region is None
+                      else {"stringValue": f.region}},
+            {"name": "domain", "value": {"stringValue": f.domain}},
+            {"name": "ev",     "value": {"stringValue": json.dumps(f.evidence_packet)}},
+            {"name": "fw",     "value": {"stringValue": json.dumps(f.frameworks)}},
             {"name": "eid",
              "value": {"isNull": True} if entity_id is None
                       else {"stringValue": entity_id}},
