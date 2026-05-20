@@ -15,6 +15,32 @@ from detectors.base import EdgeEmission, EntityEmission, FindingEmission
 _DETECTOR_ID      = "shasta_runner.ai_pass"
 _DETECTOR_VERSION = "0.1.0"
 
+# Standard (non-AI) framework attributes on a Shasta Finding.
+_STD_FRAMEWORK_ATTRS = {
+    "soc2_controls":     "soc2",
+    "cis_aws_controls":  "cis_aws",
+    "iso27001_controls": "iso27001",
+    "hipaa_controls":    "hipaa",
+    "mcsb_controls":     "mcsb",
+}
+
+# AI-framework control lists, written into Finding.details by Shasta's
+# enrich_findings_with_ai_controls(). Maps detail key -> framework key.
+_AI_FRAMEWORK_DETAIL_KEYS = {
+    "nist_ai_rmf":       "nist_ai_rmf",
+    "iso42001_controls": "iso_42001",
+    "eu_ai_act":         "eu_ai_act",
+    "owasp_llm_top10":   "owasp_llm_top10",
+    "owasp_agentic":     "owasp_agentic",
+    "nist_ai_600_1":     "nist_ai_600_1",
+    "mitre_atlas":       "mitre_atlas",
+}
+
+
+def _estr(value: Any) -> str:
+    """Stringify an enum-or-string (Shasta enums expose .value)."""
+    return value.value if hasattr(value, "value") else str(value)
+
 
 def discovery_to_entities(
     discovery: dict[str, Any], *, account_id: str, tenant_id: str,
@@ -72,3 +98,52 @@ def discovery_to_entities(
                    "model_arn": ce.get("model_arn", "")})
 
     return entities, edges
+
+
+def ai_findings_to_emissions(
+    findings: list[Any], *, tenant_id: str,
+) -> list[FindingEmission]:
+    """Map Shasta AI-check Findings (already enriched via
+    enrich_findings_with_ai_controls) to FindingEmission rows, pulling
+    AI-framework control IDs from finding.details into .frameworks."""
+    out: list[FindingEmission] = []
+    for f in findings:
+        details = getattr(f, "details", None) or {}
+
+        frameworks: dict[str, list[str]] = {}
+        for attr, fw_key in _STD_FRAMEWORK_ATTRS.items():
+            vals = getattr(f, attr, None)
+            if vals:
+                frameworks[fw_key] = list(vals)
+        for detail_key, fw_key in _AI_FRAMEWORK_DETAIL_KEYS.items():
+            vals = details.get(detail_key)
+            if vals:
+                frameworks[fw_key] = list(vals)
+
+        evidence = {
+            "version": "0.1",
+            "shasta": {
+                "check_id":      f.check_id,
+                "status":        _estr(f.status).lower(),
+                "domain":        _estr(getattr(f, "domain", "")).lower(),
+                "region":        getattr(f, "region", ""),
+                "resource_type": getattr(f, "resource_type", ""),
+                "resource_id":   getattr(f, "resource_id", ""),
+                "remediation":   (getattr(f, "remediation", "") or "")[:2000],
+            },
+        }
+        out.append(FindingEmission(
+            tenant_id=tenant_id,
+            finding_type=f.check_id,
+            severity=_estr(f.severity).lower(),
+            title=(f.title or "")[:500],
+            description=(getattr(f, "description", "") or "")[:2000],
+            subject_entity_kind=None,
+            subject_entity_natural_key=None,
+            subject_type=(getattr(f, "resource_type", "") or None),
+            subject_ref=((getattr(f, "resource_id", "") or "")[:500] or None),
+            evidence_packet=evidence,
+            confidence="high",
+            frameworks=frameworks,
+        ))
+    return out
