@@ -36,9 +36,24 @@ cloud surface):**
 smoke test passed (all imports load in the Lambda runtime). **28 unit
 tests pass.**
 
-**Demo gate — pending KK's live-scan E2E:** trigger an AWS scan, confirm
-`sagemaker_*`/`comprehend_endpoint` entities, `findings.frameworks` with
-`nist_ai_rmf`, and NIST AI RMF / ISO 42001 in the compliance view.
+**First E2E (scan `053072ba`, 2026-05-20) — exposed a pre-existing
+writer bug, now fixed.** The scan ran cleanly and `ai_pass` succeeded
+(`ai_pass: 0 entities, 255 findings` — KK's account has no SageMaker/
+Comprehend; the 15 AWS-AI checks produced 255 findings). But `commit_scan`
+then failed with Postgres **42P18** (`could not determine data type of
+parameter $8`) and rolled the whole transaction back — zero findings
+written. Root cause: `unified_writer` passed nullable params
+(`evidence_packet`, `subject_entity_id`) as typeless NULLs inside
+`CASE WHEN :x IS NULL` — Postgres can't type a NULL-only param in an
+`IS NULL` test. **This bug has silently broken every cloud scan since
+SP1** (the 2026-05-19 scan failed the same way). Fixed (commit `d17c500`)
+— plain typed `CAST(:x AS T)`; `shasta_runner` + `ai_scanner` images
+rebuilt and redeployed.
+
+**Demo gate — pending KK's re-rescan** (after the writer fix): trigger an
+AWS scan, confirm cloud findings persist again, AI findings appear with
+`findings.frameworks` carrying `nist_ai_rmf`, and NIST AI RMF / ISO 42001
+show in the compliance view.
 
 **Known limitations (documented in the plan's Deviations section):**
 - **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
