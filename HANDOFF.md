@@ -122,6 +122,14 @@ now query real tenant data and render it as cards:
 - **Deferred 4b polish:** the `chart_donut` for compliance posture renders
   but is visually ineffective — revisit the donut component (sizing /
   legend / segment clarity). KK flagged, agreed to improve later.
+- **Deferred 4c polish (prompt tuning):** asked "details for CC 2.1" the
+  assistant declined ("not available from findings"). `TOOL_RULES`
+  over-constrains — it should let the model answer GENERAL compliance/
+  security knowledge (what a control like SOC 2 CC2.1 requires) from its
+  own knowledge, while keeping CUSTOMER-SPECIFIC data (the tenant's status
+  for that control) gated behind tools. Refine the `prompts.py` TOOL_RULES
+  to draw that line. (Bigger future option: a compliance-control reference
+  tool/KB.) KK flagged 2026-05-20, agreed to iron out later.
 
 **Post-4a-demo-gate additions (2026-05-20, KK feedback during testing):**
 - **Rename + Delete on conversations** (`ConversationRail` hover → ⋯ menu,
