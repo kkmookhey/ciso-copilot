@@ -306,7 +306,7 @@ export const api = {
   createRisk: (body: {
     title: string; severity: string;
     description?: string; owner?: string; due_date?: string;
-    finding_id?: string; notes?: string;
+    finding_id?: string; notes?: string; source_approval_id?: string;
   }) => call<{ risk_id: string; status: string }>(`/risks`, {
     method: "POST", body: JSON.stringify(body),
   }),
@@ -318,7 +318,14 @@ export const api = {
   listPolicies: (status?: string) =>
     call<{ policies: PolicySummary[]; count: number }>(`/policies${status ? "?status=" + status : ""}`),
   getPolicy: (id: string) => call<Policy>(`/policies/${id}`),
-  createPolicy: (body: { template_key: string; vars: Record<string, string> }) =>
+  createPolicy: (body: {
+    template_key: string;
+    vars: Record<string, string>;
+    source_approval_id?: string;
+    /** Optional overrides — used by chat approval cards to preserve AI-authored content. */
+    title?: string;
+    content_md?: string;
+  }) =>
     call<{ policy_id: string; status: string }>(`/policies`, {
       method: "POST", body: JSON.stringify(body),
     }),

@@ -74,7 +74,7 @@ export function ChatCenter({
         </div>
       )}
 
-      <MessageStream messages={state.messages} />
+      <MessageStream messages={state.messages} conversationId={state.conversationId} />
       <Composer
         onSend={onSend}
         disabled={state.streaming}

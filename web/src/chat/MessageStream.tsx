@@ -16,7 +16,13 @@ function toolHints(content: any): ArtifactHint[] {
 
 const NEAR_BOTTOM_PX = 80;
 
-export function MessageStream({ messages }: { messages: ChatMessage[] }) {
+export function MessageStream({
+  messages,
+  conversationId,
+}: {
+  messages: ChatMessage[];
+  conversationId: string | null;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   // true when the user is at or near the bottom; start true so first load scrolls down.
@@ -50,7 +56,11 @@ export function MessageStream({ messages }: { messages: ChatMessage[] }) {
               flexDirection: "column", gap: 8 }}>
               {hints.map((h, j) => (
                 <div key={j} style={{ position: "relative" }}>
-                  <Artifact hint={h} />
+                  <Artifact
+                    hint={h}
+                    conversationId={conversationId ?? undefined}
+                    messageId={m.id}
+                  />
                 </div>
               ))}
             </div>

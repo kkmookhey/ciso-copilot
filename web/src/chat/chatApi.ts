@@ -11,6 +11,7 @@ const STREAM_BASE = "https://otc43ep2sidkuyv5uaxpclljsu0rkvbr.lambda-url.us-east
 export type Role = "user" | "assistant" | "tool" | "system";
 
 export interface ChatMessage {
+  id?:        string;
   role:       Role;
   content:    any;
   created_at?: string;
@@ -64,6 +65,18 @@ export async function patchTitle(id: string, title: string): Promise<void> {
     method: "PATCH",
     body:   JSON.stringify({ title }),
   });
+}
+
+/** Persist updated card content (approval state, edited payload) to the message row. */
+export async function patchMessage(
+  conversationId: string,
+  messageId: string,
+  content: any,
+): Promise<void> {
+  await authedFetch(
+    `${REST_BASE}/conversations/${conversationId}/messages/${messageId}`,
+    { method: "PATCH", body: JSON.stringify({ content }) },
+  );
 }
 
 export async function deleteConversation(id: string): Promise<void> {

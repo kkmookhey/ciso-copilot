@@ -22,7 +22,15 @@ export function CitationChip({ source }: { source: Source }) {
   );
 }
 
-export function Artifact({ hint }: { hint: ArtifactHint }) {
+export function Artifact({
+  hint,
+  conversationId,
+  messageId,
+}: {
+  hint: ArtifactHint;
+  conversationId?: string;
+  messageId?: string;
+}) {
   switch (hint.kind) {
     case "kpi_card":           return <KpiCard {...hint} />;
     case "entity_list":        return <EntityList {...hint} />;
@@ -31,7 +39,14 @@ export function Artifact({ hint }: { hint: ArtifactHint }) {
     case "chart_bar":          return <ChartBar {...hint} />;
     case "chart_donut":        return <ChartDonut {...hint} />;
     case "severity_breakdown": return <SeverityBreakdown {...hint} />;
-    case "approval_card":      return <ApprovalCard {...hint} />;
+    case "approval_card":
+      return (
+        <ApprovalCard
+          {...hint}
+          conversationId={conversationId}
+          messageId={messageId}
+        />
+      );
     default:                   return null;
   }
 }

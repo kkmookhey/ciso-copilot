@@ -95,6 +95,8 @@ export type ArtifactHint =
       kind:           "approval_card";
       action_kind:    "add_risk" | "draft_policy";
       current_status: "pending" | "editing" | "approved" | "cancelled" | "error";
+      /** Stable UUID generated at propose-time; used as source_approval_id for idempotent creates. */
+      approval_id?:   string;
       payload:        Record<string, unknown>;
       edit_fields:    Array<{
         key:      string;
@@ -565,6 +567,7 @@ const proposeRiskEntry: Tool = {
       kind:           "approval_card",
       action_kind:    "add_risk",
       current_status: "pending",
+      approval_id:    crypto.randomUUID(),
       payload: {
         title:       args.title       ?? "",
         severity:    args.severity    ?? "medium",
@@ -605,6 +608,7 @@ const proposePolicyDraft: Tool = {
       kind:           "approval_card",
       action_kind:    "draft_policy",
       current_status: "pending",
+      approval_id:    crypto.randomUUID(),
       payload: {
         name:        args.name        ?? "",
         content:     args.content     ?? "",
