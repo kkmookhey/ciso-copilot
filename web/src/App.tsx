@@ -16,6 +16,7 @@ import { InstallCallback } from "./routes/InstallCallback";
 import { RepoPicker } from "./routes/RepoPicker";
 import { AIInventory } from "./routes/AIInventory";
 import { AssetDetail } from "./routes/AssetDetail";
+import { ChatShell } from "./chat/Shell";
 
 export default function App() {
   return (
@@ -26,8 +27,12 @@ export default function App() {
         <Route path="/pending"            element={<PendingApproval />} />
         <Route path="/public/trust/:slug" element={<TrustPublic />} />
 
+        {/* Chat surface — auth-gated inside ChatShell itself; no legacy sidebar */}
+        <Route path="/" element={<ChatShell />} />
+
+        {/* Legacy routes — auth-gated by Shell, which renders the sidebar chrome */}
         <Route element={<Shell />}>
-          <Route path="/"          element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/connect"   element={<ConnectClouds />} />
           <Route path="/findings"  element={<TopRisks />} />
           <Route path="/risks"     element={<Risks />} />
