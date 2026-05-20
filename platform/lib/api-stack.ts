@@ -794,9 +794,20 @@ export class ApiStack extends cdk.Stack {
       {
         bundling: {
           image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          // Force linux/amd64 + manylinux x86_64 wheels. Without this, pip on
+          // Apple-Silicon Macs installs the wrong-arch cryptography wheel
+          // (pulled in by PyJWT[crypto]) and the Lambda fails JWT verification
+          // with "_rust.abi3.so: cannot open shared object file". Same fix as
+          // AiGithubFn above.
+          platform: 'linux/amd64',
           command: [
             'bash', '-c',
-            'pip install -r requirements.txt -t /asset-output && '
+            'pip install --no-cache-dir '
+            + '--platform manylinux2014_x86_64 '
+            + '--implementation cp '
+            + '--python-version 3.12 '
+            + '--only-binary=:all: '
+            + '-r requirements.txt -t /asset-output && '
             + 'cp -au . /asset-output && '
             + 'chmod +x /asset-output/run.sh',
           ],
