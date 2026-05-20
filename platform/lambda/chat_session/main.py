@@ -48,7 +48,7 @@ def handler(event: dict, context) -> dict:
     if method == "POST" and path.endswith("/voice") and cid:
         import voice
         return voice.mint(event, tenant_id, cid)
-    if method == "PATCH" and cid and mid:
+    if method == "PATCH" and cid and mid and "/messages/" in path:
         # PATCH /v1/conversations/{id}/messages/{message_id}
         # Persist updated card content (e.g. approval_card state change).
         # Tenant-scoped: verify the conversation belongs to this tenant first.

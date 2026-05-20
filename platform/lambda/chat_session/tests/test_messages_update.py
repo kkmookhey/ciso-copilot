@@ -27,7 +27,8 @@ def test_update_content_returns_true_when_row_updated(monkeypatch):
         content={"kind": "approval_card", "current_status": "approved"},
     )
     assert result is True
-    assert len(calls) == 1
+    # Two DB calls: UPDATE conversation_messages + UPDATE conversations timestamp bump
+    assert len(calls) == 2
     sql, params = calls[0]
     assert "UPDATE conversation_messages" in sql
     assert "content" in sql
@@ -36,6 +37,11 @@ def test_update_content_returns_true_when_row_updated(monkeypatch):
     # content param is JSON-serialized
     content_val = json.loads(params["content"])
     assert content_val["current_status"] == "approved"
+    # Second call bumps last_activity_at on the parent conversation
+    sql2, params2 = calls[1]
+    assert "UPDATE conversations" in sql2
+    assert "last_activity_at" in sql2
+    assert params2["cid"] == "cid-1"
 
 
 # ---------------------------------------------------------------------------
@@ -55,3 +61,36 @@ def test_update_content_returns_false_when_no_row(monkeypatch):
         content={"current_status": "approved"},
     )
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# update_content — cross-conversation isolation
+# ---------------------------------------------------------------------------
+
+def test_update_content_returns_false_for_valid_mid_wrong_cid(monkeypatch):
+    """update_content with a valid message_id but a conversation_id that does
+    not own that message returns False. This locks the WHERE clause isolation
+    property: a caller cannot update messages belonging to a different
+    conversation even if they know the message_id."""
+    calls = []
+
+    def mock_q(sql, params=None):
+        calls.append((sql, params))
+        # The UPDATE's WHERE conversation_id = :cid clause excludes the row:
+        # RETURNING is empty even though the message_id itself is valid.
+        return []
+
+    monkeypatch.setattr(M, "_q", mock_q)
+
+    result = M.update_content(
+        conversation_id="wrong-cid",          # does not own mid-real
+        message_id="mid-real",                 # valid message that belongs elsewhere
+        content={"kind": "approval_card", "current_status": "approved"},
+    )
+    assert result is False
+    # Only the UPDATE should have been issued — no conversation timestamp bump.
+    assert len(calls) == 1
+    sql, params = calls[0]
+    assert "UPDATE conversation_messages" in sql
+    assert params["cid"] == "wrong-cid"
+    assert params["mid"] == "mid-real"

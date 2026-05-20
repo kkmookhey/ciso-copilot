@@ -34,6 +34,8 @@ def update_content(conversation_id: str, message_id: str, content: dict) -> bool
 
     Scoped to conversation_id so callers cannot update messages that belong
     to a different conversation. Returns True if a row was updated.
+    Also bumps last_activity_at/updated_at on the parent conversation so
+    an approval action is reflected as recent activity.
     """
     rows = _q(
         "UPDATE conversation_messages SET content = :content::jsonb "
@@ -41,4 +43,10 @@ def update_content(conversation_id: str, message_id: str, content: dict) -> bool
         "RETURNING id::text",
         {"content": json.dumps(content), "mid": message_id, "cid": conversation_id},
     )
+    if rows:
+        _q(
+            "UPDATE conversations SET last_activity_at = NOW(), updated_at = NOW() "
+            "WHERE id = :cid::uuid",
+            {"cid": conversation_id},
+        )
     return bool(rows)

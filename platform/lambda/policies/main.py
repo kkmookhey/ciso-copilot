@@ -280,26 +280,6 @@ def _create(tenant_id: str, body: dict) -> dict:
 
     source_approval_id = body.get("source_approval_id")
 
-    # Idempotency check: if source_approval_id provided, return the existing row
-    # for this tenant rather than inserting a duplicate.
-    if source_approval_id:
-        rs = rds_data.execute_statement(
-            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-            sql=("SELECT policy_id::text, status FROM policies "
-                 "WHERE tenant_id = CAST(:t AS UUID) "
-                 "AND source_approval_id = CAST(:said AS UUID) LIMIT 1"),
-            parameters=[
-                {"name": "t",    "value": {"stringValue": tenant_id}},
-                {"name": "said", "value": {"stringValue": source_approval_id}},
-            ],
-        )
-        rows = rs.get("records", [])
-        if rows:
-            existing_id = rows[0][0].get("stringValue")
-            existing_st = rows[0][1].get("stringValue")
-            print(f"INFO: idempotent policy create — returning existing policy_id={existing_id}")
-            return _resp(200, {"policy_id": existing_id, "status": existing_st})
-
     vars_in = body.get("vars") or {}
     rendered = render(template_key, vars_in)
 
@@ -314,19 +294,57 @@ def _create(tenant_id: str, body: dict) -> dict:
         {"name": "soc", "value": {"stringValue": json.dumps(rendered["soc2_controls"])}},
         {"name": "v",   "value": {"stringValue": json.dumps(vars_in)}},
     ]
-    extra_cols = ""
-    extra_vals = ""
+
     if source_approval_id:
-        extra_cols = ", source_approval_id"
-        extra_vals = ", CAST(:said AS UUID)"
+        # Atomic idempotency via ON CONFLICT: the INSERT either creates the row
+        # or no-ops if (tenant_id, source_approval_id) already exists. If it
+        # no-ops (RETURNING is empty), fetch the winner row. This eliminates
+        # the TOCTOU window that a SELECT-then-INSERT pattern has.
         params.append({"name": "said", "value": {"stringValue": source_approval_id}})
+
+        rs = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("INSERT INTO policies (policy_id, tenant_id, template_key, title, content_md, "
+                 "                      soc2_controls, vars, source_approval_id) "
+                 "VALUES (CAST(:p AS UUID), CAST(:t AS UUID), :k, :ti, :body, "
+                 "        CAST(:soc AS JSONB), CAST(:v AS JSONB), CAST(:said AS UUID)) "
+                 "ON CONFLICT (tenant_id, source_approval_id) DO NOTHING "
+                 "RETURNING policy_id::text, status"),
+            parameters=params,
+        )
+        rows = rs.get("records", [])
+        if rows:
+            # Fresh insert succeeded — return the new row.
+            new_id = rows[0][0].get("stringValue")
+            new_st = rows[0][1].get("stringValue")
+            return _resp(200, {"policy_id": new_id, "status": new_st})
+
+        # Conflict: another concurrent request already inserted this row.
+        # Fetch and return the winner.
+        rs2 = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("SELECT policy_id::text, status FROM policies "
+                 "WHERE tenant_id = CAST(:t AS UUID) "
+                 "AND source_approval_id = CAST(:said AS UUID) LIMIT 1"),
+            parameters=[
+                {"name": "t",    "value": {"stringValue": tenant_id}},
+                {"name": "said", "value": {"stringValue": source_approval_id}},
+            ],
+        )
+        existing = rs2.get("records", [])
+        if existing:
+            existing_id = existing[0][0].get("stringValue")
+            existing_st = existing[0][1].get("stringValue")
+            print(f"INFO: idempotent policy create — returning existing policy_id={existing_id}")
+            return _resp(200, {"policy_id": existing_id, "status": existing_st})
+        # Should never reach here, but fall through to plain insert as safety net.
 
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=("INSERT INTO policies (policy_id, tenant_id, template_key, title, content_md, "
-             f"                      soc2_controls, vars{extra_cols}) "
+             "                      soc2_controls, vars) "
              "VALUES (CAST(:p AS UUID), CAST(:t AS UUID), :k, :ti, :body, "
-             f"        CAST(:soc AS JSONB), CAST(:v AS JSONB){extra_vals})"),
+             "        CAST(:soc AS JSONB), CAST(:v AS JSONB))"),
         parameters=params,
     )
     return _resp(200, {"policy_id": policy_id, "status": "draft"})

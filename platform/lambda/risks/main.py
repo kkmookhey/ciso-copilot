@@ -80,26 +80,6 @@ def _create(tenant_id: str, body: dict) -> dict:
 
     source_approval_id = body.get("source_approval_id")
 
-    # Idempotency check: if source_approval_id provided, return the existing row
-    # for this tenant rather than inserting a duplicate.
-    if source_approval_id:
-        rs = rds_data.execute_statement(
-            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-            sql=("SELECT risk_id::text, status FROM risks "
-                 "WHERE tenant_id = CAST(:tid AS UUID) "
-                 "AND source_approval_id = CAST(:said AS UUID) LIMIT 1"),
-            parameters=[
-                {"name": "tid",  "value": {"stringValue": tenant_id}},
-                {"name": "said", "value": {"stringValue": source_approval_id}},
-            ],
-        )
-        rows = rs.get("records", [])
-        if rows:
-            existing_id  = rows[0][0].get("stringValue")
-            existing_st  = rows[0][1].get("stringValue")
-            print(f"INFO: idempotent risk create — returning existing risk_id={existing_id}")
-            return _resp(200, {"risk_id": existing_id, "status": existing_st})
-
     risk_id = str(uuid.uuid4())
 
     params = [
@@ -125,12 +105,52 @@ def _create(tenant_id: str, body: dict) -> dict:
     if body.get("notes"):
         optional_cols.append("notes"); optional_vals.append(":notes")
         params.append({"name": "notes", "value": {"stringValue": body["notes"][:5000]}})
-    if source_approval_id:
-        optional_cols.append("source_approval_id"); optional_vals.append("CAST(:said AS UUID)")
-        params.append({"name": "said", "value": {"stringValue": source_approval_id}})
 
     cols_sql = ", ".join(["risk_id", "tenant_id", "title", "severity"] + optional_cols)
     vals_sql = ", ".join(["CAST(:rid AS UUID)", "CAST(:tid AS UUID)", ":title", ":sev"] + optional_vals)
+
+    if source_approval_id:
+        # Atomic idempotency via ON CONFLICT: the INSERT either creates the row
+        # or no-ops if (tenant_id, source_approval_id) already exists. If it
+        # no-ops (RETURNING is empty), fetch the winner row. This eliminates
+        # the TOCTOU window that a SELECT-then-INSERT pattern has.
+        cols_sql += ", source_approval_id"
+        vals_sql += ", CAST(:said AS UUID)"
+        params.append({"name": "said", "value": {"stringValue": source_approval_id}})
+
+        rs = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=(f"INSERT INTO risks ({cols_sql}) VALUES ({vals_sql}) "
+                 "ON CONFLICT (tenant_id, source_approval_id) DO NOTHING "
+                 "RETURNING risk_id::text, status"),
+            parameters=params,
+        )
+        rows = rs.get("records", [])
+        if rows:
+            # Fresh insert succeeded — return the new row.
+            new_id = rows[0][0].get("stringValue")
+            new_st = rows[0][1].get("stringValue")
+            return _resp(200, {"risk_id": new_id, "status": new_st})
+
+        # Conflict: another concurrent request already inserted this row.
+        # Fetch and return the winner.
+        rs2 = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("SELECT risk_id::text, status FROM risks "
+                 "WHERE tenant_id = CAST(:tid AS UUID) "
+                 "AND source_approval_id = CAST(:said AS UUID) LIMIT 1"),
+            parameters=[
+                {"name": "tid",  "value": {"stringValue": tenant_id}},
+                {"name": "said", "value": {"stringValue": source_approval_id}},
+            ],
+        )
+        existing = rs2.get("records", [])
+        if existing:
+            existing_id = existing[0][0].get("stringValue")
+            existing_st = existing[0][1].get("stringValue")
+            print(f"INFO: idempotent risk create — returning existing risk_id={existing_id}")
+            return _resp(200, {"risk_id": existing_id, "status": existing_st})
+        # Should never reach here, but fall through to plain insert as safety net.
 
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
