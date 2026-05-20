@@ -727,8 +727,17 @@ export class ApiStack extends cdk.Stack {
       ANTHROPIC_SECRET_NAME: 'ciso-copilot/anthropic-api-key',
       USER_POOL_ID:          props.userPool.userPoolId,
     };
+    // ChatSessionFn's code asset. The streaming-only files (app.py, run.sh,
+    // messages_stream.py) live in the same source directory but are NOT
+    // imported by main.handler — excluding them keeps ChatSessionFn's asset
+    // hash (and thus its deployed artifact) unchanged when the streaming
+    // rework adds/edits those files.
     const chatCodeAsset = lambda.Code.fromAsset(
       path.join(__dirname, '..', 'lambda', 'chat_session'),
+      { exclude: [
+        'app.py', 'run.sh', 'messages_stream.py', 'requirements.txt',
+        'tests', '__pycache__', '.pytest_cache', '*.pyc',
+      ] },
     );
     const anthropicSecretRead = new iam.PolicyStatement({
       actions:   ['secretsmanager:GetSecretValue'],
@@ -762,15 +771,52 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(chatSessionFn), authedOpts,
     );
 
-    // Streaming text turn — Lambda Function URL, RESPONSE_STREAM. JWT is
-    // verified inside messages_stream.py (no API Gateway authorizer here).
+    // Streaming text turn — Lambda Function URL, RESPONSE_STREAM.
+    //
+    // Managed Python runtimes CANNOT stream a response (AWS-confirmed), so
+    // this Lambda runs the Lambda Web Adapter (LWA): a Starlette ASGI app
+    // (app.py) is served by uvicorn, and the LWA layer proxies the Function
+    // URL request to it. With InvokeMode=RESPONSE_STREAM on the Function URL
+    // and AWS_LWA_INVOKE_MODE=response_stream, a Starlette StreamingResponse
+    // is flushed chunk-by-chunk — real token-by-token SSE.
+    //
+    // The code asset is bundled SEPARATELY from ChatSessionFn's chatCodeAsset
+    // so adding starlette+uvicorn here does not change ChatSessionFn's asset
+    // hash. ChatSessionFn keeps its plain (unbundled) chatCodeAsset.
+    //
+    // LWA layer ARN: official AWS layer, account 753240598075, x86_64.
+    const lwaLayer = lambda.LayerVersion.fromLayerVersionArn(
+      this, 'LwaLayer',
+      `arn:aws:lambda:${this.region}:753240598075:layer:LambdaAdapterLayerX86:27`,
+    );
+    const chatStreamAsset = lambda.Code.fromAsset(
+      path.join(__dirname, '..', 'lambda', 'chat_session'),
+      {
+        bundling: {
+          image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          command: [
+            'bash', '-c',
+            'pip install -r requirements.txt -t /asset-output && '
+            + 'cp -au . /asset-output && '
+            + 'chmod +x /asset-output/run.sh',
+          ],
+        },
+      },
+    );
     const chatStreamFn = new lambda.Function(this, 'ChatStreamFn', {
       runtime:    lambda.Runtime.PYTHON_3_12,
-      handler:    'messages_stream.handler',
-      code:       chatCodeAsset,
+      // LWA: the handler is the startup script that launches the web server.
+      handler:    'run.sh',
+      code:       chatStreamAsset,
+      layers:     [lwaLayer],
       timeout:    cdk.Duration.seconds(60),   // Anthropic streaming is slower
       memorySize: 512,
-      environment: chatEnv,
+      environment: {
+        ...chatEnv,
+        AWS_LAMBDA_EXEC_WRAPPER:  '/opt/bootstrap',
+        AWS_LWA_INVOKE_MODE:      'response_stream',
+        AWS_LWA_PORT:             '8080',
+      },
     });
     props.dbCluster.grantDataApiAccess(chatStreamFn);
     chatStreamFn.addToRolePolicy(anthropicSecretRead);
