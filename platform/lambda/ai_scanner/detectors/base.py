@@ -53,6 +53,7 @@ class FindingEmission:
     subject_ref:                str | None
     evidence_packet:            dict[str, Any]
     confidence:                 str
+    frameworks:                 dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

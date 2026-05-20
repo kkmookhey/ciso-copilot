@@ -242,7 +242,7 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
             "   remediation, first_seen, last_seen, evidence_packet, subject_entity_id) "
             "VALUES (CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:conn AS UUID), "
             "        CAST(:sid AS UUID), :ftype, :title, :desc, :sev, 'fail', :subj, "
-            "        :stype, NULL, 'ai', '{}'::jsonb, NULL, NOW(), NOW(), CAST(:ev AS JSONB), "
+            "        :stype, NULL, 'ai', CAST(:fw AS JSONB), NULL, NOW(), NOW(), CAST(:ev AS JSONB), "
             "        CASE WHEN :eid IS NULL THEN NULL ELSE CAST(:eid AS UUID) END)"
         ),
         parameters=[
@@ -257,6 +257,7 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
             {"name": "subj",  "value": {"stringValue": f.subject_ref or ""}},
             {"name": "stype", "value": {"stringValue": f.subject_type or "ai_module"}},
             {"name": "ev",    "value": {"stringValue": json.dumps(f.evidence_packet)}},
+            {"name": "fw",    "value": {"stringValue": json.dumps(f.frameworks)}},
             {"name": "eid",
              "value": {"isNull": True} if entity_id is None
                       else {"stringValue": entity_id}},

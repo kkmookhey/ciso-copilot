@@ -154,3 +154,35 @@ def test_rollback_on_error(monkeypatch):
 
     fake.rollback_transaction.assert_called_once()
     fake.commit_transaction.assert_not_called()
+
+
+def test_insert_finding_persists_frameworks(monkeypatch):
+    """unified_writer must write FindingEmission.frameworks into the
+    findings.frameworks column — compliance_summary rolls that column up."""
+    import unified_writer
+    from detectors.base import FindingEmission
+    _fake, calls = _stub_rds(monkeypatch)
+
+    f = FindingEmission(
+        tenant_id="t1",
+        finding_type="bedrock-guardrails-configured",
+        severity="medium",
+        title="Bedrock guardrails not configured",
+        description="No guardrails found on the account.",
+        subject_entity_kind=None,
+        subject_entity_natural_key=None,
+        subject_type=None,
+        subject_ref=None,
+        evidence_packet={"version": "0.1"},
+        confidence="high",
+        frameworks={"nist_ai_rmf": ["MANAGE-2"], "iso_42001": ["AI-8.3"]},
+    )
+    unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    finding_calls = [c for c in calls if "INSERT INTO findings" in (c.get("sql") or "")]
+    assert len(finding_calls) == 1
+    params = {p["name"]: p["value"] for p in finding_calls[0]["parameters"]}
+    assert json.loads(params["fw"]["stringValue"]) == {
+        "nist_ai_rmf": ["MANAGE-2"],
+        "iso_42001":   ["AI-8.3"],
+    }
