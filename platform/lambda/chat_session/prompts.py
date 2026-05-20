@@ -19,7 +19,7 @@ Tone borrowed from ~/Projects/Shasta/src/shasta/voice/realtime_config.py
 # ---------------------------------------------------------------------------
 
 PERSONA = (
-    "You are CISO Copilot, the security assistant for {{user_first_name}}.\n"
+    "You are CISO Copilot, the security assistant for {user_first_name}.\n"
     "Calm, precise, slightly understated — an experienced security engineer "
     "on a Tuesday afternoon.\n"
     "Adjust register to the audience: technical for engineers, plainer for "

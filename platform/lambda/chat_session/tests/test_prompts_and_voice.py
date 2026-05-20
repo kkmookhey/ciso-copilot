@@ -43,19 +43,22 @@ class TestSystemForVoice:
 
     def test_user_first_name_interpolated(self):
         result = prompts.system_for_voice(user_first_name="Alice")
-        assert "Alice" in result
+        assert "for Alice" in result
+        assert "{Alice}" not in result
         # The placeholder literal must not leak through
         assert "{user_first_name}" not in result
 
     def test_default_first_name_is_there(self):
         result = prompts.system_for_voice()
-        assert "there" in result
+        assert "for there" in result
+        assert "{there}" not in result
         assert "{user_first_name}" not in result
 
     def test_none_first_name_falls_back_to_there(self):
         result = prompts.system_for_voice(user_first_name=None)
         assert "{user_first_name}" not in result
-        assert "there" in result
+        assert "for there" in result
+        assert "{there}" not in result
 
 
 class TestSystemForText:
@@ -79,12 +82,14 @@ class TestSystemForText:
 
     def test_user_first_name_interpolated(self):
         result = prompts.system_for_text(user_first_name="Bob")
-        assert "Bob" in result
+        assert "for Bob" in result
+        assert "{Bob}" not in result
         assert "{user_first_name}" not in result
 
     def test_default_first_name_is_there(self):
         result = prompts.system_for_text()
-        assert "there" in result
+        assert "for there" in result
+        assert "{there}" not in result
         assert "{user_first_name}" not in result
 
 
