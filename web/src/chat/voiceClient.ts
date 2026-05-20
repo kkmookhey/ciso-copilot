@@ -52,8 +52,7 @@ const REALTIME_BASE = "https://api.openai.com/v1/realtime/calls";
 // ---------------------------------------------------------------------------
 
 /** The four states the voice client cycles through. */
-export type VoiceState = "off" | "connecting" | "on" | "off";
-// (TSC note: two "off" literals collapse to one — kept as documentation.)
+export type VoiceState = "off" | "connecting" | "on";
 
 /** Callbacks the UI (4c.3) subscribes to. All are optional except onStateChange. */
 export interface VoiceClientCallbacks {
@@ -287,18 +286,10 @@ export class VoiceClient {
 
       // -----------------------------------------------------------------------
       // User transcript (Whisper transcription)
+      // GA API delivers the full transcript in a single .completed event.
+      // There is no .delta / .done pair for user input transcription.
       // -----------------------------------------------------------------------
-      case "conversation.item.input_audio_transcription.delta": {
-        const ev = event as unknown as { item_id: string; delta: string };
-        const cur  = this.userTranscriptByItem.get(ev.item_id) ?? "";
-        const next = cur + ev.delta;
-        this.userTranscriptByItem.set(ev.item_id, next);
-        this.latestUserItemId = ev.item_id;
-        this.callbacks.onUserTranscript?.(next, false);
-        break;
-      }
-
-      case "conversation.item.input_audio_transcription.done": {
+      case "conversation.item.input_audio_transcription.completed": {
         const ev = event as unknown as { item_id: string; transcript: string };
         this.userTranscriptByItem.set(ev.item_id, ev.transcript);
         this.latestUserItemId = ev.item_id;

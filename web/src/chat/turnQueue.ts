@@ -31,9 +31,8 @@ export interface SealedTurnUser {
 }
 
 export interface SealedTurnAssistant {
-  text:       string;
-  modality:   VoiceModality;
-  tool_calls?: unknown[];
+  text:     string;
+  modality: VoiceModality;
 }
 
 export interface SealedTurnToolResult {
