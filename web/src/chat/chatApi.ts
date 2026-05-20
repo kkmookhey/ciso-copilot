@@ -3,6 +3,7 @@
 // Mirrors web/src/lib/api.ts: Bearer token via validIdToken(), hardcoded base URLs.
 
 import { validIdToken, signOut } from "../lib/cognito";
+import type { ArtifactHint, Source } from "./tools";
 
 const REST_BASE  = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
 const STREAM_BASE = "https://otc43ep2sidkuyv5uaxpclljsu0rkvbr.lambda-url.us-east-1.on.aws";
@@ -69,16 +70,38 @@ export async function deleteConversation(id: string): Promise<void> {
   await authedFetch(`${REST_BASE}/conversations/${id}`, { method: "DELETE" });
 }
 
+/** A server-side tool-result event surfaced over SSE (SP4 Task 4b.3). */
+export interface ToolResultEvent {
+  tool_name:       string;
+  artifact_hint?:  ArtifactHint;
+  artifact_hints?: ArtifactHint[];
+  source?:         Source;
+  /** Present for side-effect tools (navigate_to / filter_findings_view). */
+  side_effect?:    Record<string, unknown>;
+}
+
+/** Callbacks for the streaming turn. onDelta is required; the rest optional. */
+export interface StreamCallbacks {
+  onDelta:        (t: string) => void;
+  onToolResult?:  (ev: ToolResultEvent) => void;
+  onSideEffect?:  (toolName: string, intent: Record<string, unknown>) => void;
+}
+
 /**
  * Streaming text turn via SSE.
- * Calls onDelta for each text-delta token.
+ * Runs the server-side agentic tool-use loop — emits text-delta tokens,
+ * tool-result events (artifact hints), and a final done frame.
+ *
+ * Accepts either a bare onDelta callback (legacy) or a StreamCallbacks object.
  * Throws on error frames so callers can surface the message.
  */
 export async function streamMessage(
   conversationId: string,
   text: string,
-  onDelta: (t: string) => void,
+  callbacks: ((t: string) => void) | StreamCallbacks,
 ): Promise<void> {
+  const cb: StreamCallbacks =
+    typeof callbacks === "function" ? { onDelta: callbacks } : callbacks;
   const token = await validIdToken();
   const res = await fetch(
     `${STREAM_BASE}/v1/conversations/${conversationId}/stream`,
@@ -111,7 +134,19 @@ export async function streamMessage(
       if (!line.startsWith("data: ")) continue;
       const ev = JSON.parse(line.slice(6));
       if (ev.type === "text-delta") {
-        onDelta(ev.text);
+        cb.onDelta(ev.text);
+      } else if (ev.type === "tool-result") {
+        const tre: ToolResultEvent = {
+          tool_name:      ev.tool_name,
+          artifact_hint:  ev.artifact_hint,
+          artifact_hints: ev.artifact_hints,
+          source:         ev.source,
+          side_effect:    ev.side_effect,
+        };
+        cb.onToolResult?.(tre);
+        if (ev.side_effect) {
+          cb.onSideEffect?.(ev.tool_name, ev.side_effect);
+        }
       } else if (ev.error) {
         throw new Error(`stream error: ${ev.error}`);
       }

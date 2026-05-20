@@ -105,11 +105,32 @@ export function ChatShell() {
     dispatch({ type: "append", message: { role: "assistant", content: { text: "" } } });
     dispatch({ type: "streaming", on: true });
     try {
-      await chatApi.streamMessage(
-        state.conversationId,
-        text,
-        (t) => dispatch({ type: "streamDelta", text: t }),
-      );
+      await chatApi.streamMessage(state.conversationId, text, {
+        onDelta: (t) => dispatch({ type: "streamDelta", text: t }),
+        onToolResult: (ev) => {
+          // Skip side-effect tools — they carry no artifact and are handled
+          // by onSideEffect below.
+          if (ev.side_effect && !ev.artifact_hint && !ev.artifact_hints) return;
+          dispatch({
+            type: "appendTool",
+            content: {
+              tool_name:       ev.tool_name,
+              _artifact_hint:  ev.artifact_hint,
+              _artifact_hints: ev.artifact_hints,
+              source:          ev.source,
+            },
+          });
+        },
+        onSideEffect: (toolName, intent) => {
+          if (toolName === "navigate_to" && typeof intent.navigated_to === "string") {
+            nav(intent.navigated_to);
+          } else {
+            // filter_findings_view and any future side-effect tools — full
+            // behaviour lands later; a log keeps the stream non-crashing.
+            console.log("chat side-effect", toolName, intent);
+          }
+        },
+      });
     } finally {
       dispatch({ type: "streaming", on: false });
     }

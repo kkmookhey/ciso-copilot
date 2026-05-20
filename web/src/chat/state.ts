@@ -17,6 +17,7 @@ export const initialState: ChatState = {
 export type ChatAction =
   | { type: "load"; id: string; title: string; messages: ChatMessage[] }
   | { type: "append"; message: ChatMessage }
+  | { type: "appendTool"; content: any }
   | { type: "streamDelta"; text: string }
   | { type: "streaming"; on: boolean }
   | { type: "setTitle"; title: string };
@@ -29,6 +30,20 @@ export function chatReducer(s: ChatState, a: ChatAction): ChatState {
       return { ...s, title: a.title };
     case "append":
       return { ...s, messages: [...s.messages, a.message] };
+    case "appendTool": {
+      // Insert the tool message BEFORE a trailing assistant bubble so the
+      // streaming assistant text (which keeps arriving as text deltas) stays
+      // the last message and streamDelta keeps landing on it.
+      const msgs = s.messages.slice();
+      const toolMsg: ChatMessage = { role: "tool", content: a.content };
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === "assistant") {
+        msgs.splice(msgs.length - 1, 0, toolMsg);
+      } else {
+        msgs.push(toolMsg);
+      }
+      return { ...s, messages: msgs };
+    }
     case "streamDelta": {
       const msgs = s.messages.slice();
       const last = msgs[msgs.length - 1];

@@ -35,6 +35,36 @@ describe("chatReducer", () => {
     expect(s2.streaming).toBe(false);
   });
 
+  it("appendTool inserts a tool message before a trailing assistant bubble", () => {
+    // user + (empty) assistant — the streaming layout before any tool result.
+    let s = chatReducer(initialState, {
+      type: "append", message: { role: "user", content: { text: "hi" } },
+    });
+    s = chatReducer(s, {
+      type: "append", message: { role: "assistant", content: { text: "" } },
+    });
+    s = chatReducer(s, {
+      type: "appendTool",
+      content: { tool_name: "get_severity_breakdown",
+                 _artifact_hint: { kind: "severity_breakdown", total: 3 } },
+    });
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "tool", "assistant"]);
+    // streamDelta still lands on the trailing assistant message.
+    s = chatReducer(s, { type: "streamDelta", text: "done" });
+    expect(s.messages[2].content.text).toBe("done");
+  });
+
+  it("appendTool pushes to the end when there is no trailing assistant", () => {
+    let s = chatReducer(initialState, {
+      type: "append", message: { role: "user", content: { text: "hi" } },
+    });
+    s = chatReducer(s, {
+      type: "appendTool",
+      content: { tool_name: "navigate_to" },
+    });
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "tool"]);
+  });
+
   it("setTitle updates the title without touching messages", () => {
     const base = chatReducer(initialState, {
       type: "load", id: "conv-1", title: "Old title",
