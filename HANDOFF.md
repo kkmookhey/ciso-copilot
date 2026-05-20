@@ -72,10 +72,17 @@ voice via OpenAI Realtime over WebRTC:
 - **Voice UI** — mic toggle in the composer (off/connecting/on), persimmon
   breathing dot in the header, live transcripts into the stream, barge-in
   (`response.cancel` on user speech), sync-warning banner.
-- **Phase 4c demo gate — pending KK's mic test:** toggle the mic, hold a
-  spoken conversation, verify transcripts stream + persist + tools work +
-  barge-in. Spec §15 verification: ask the same questions in text vs voice
-  → same tool calls / same results.
+- **Gotcha — OpenAI Realtime rejects `session.metadata`.** The first mic
+  test failed: every `/v1/realtime/client_secrets` mint 400'd with
+  `"Unknown parameter: 'session.metadata'"`. `voice.py` had bound
+  `conversation_id` into `session.metadata` — OpenAI's Realtime API has no
+  such field. Removed it (commit `9735d36`); `conversation_id` doesn't need
+  to reach OpenAI — the browser owns the conversation binding. Lesson:
+  validate the FULL session payload against the live API, not a minimal one.
+- **Phase 4c demo gate — pending KK's mic retest** (after the metadata fix):
+  toggle the mic, hold a spoken conversation, verify transcripts stream +
+  persist + tools work + barge-in. Spec §15: same questions in text vs
+  voice → same tool calls / same results.
 
 **SP4 Phase 4b deployed (2026-05-20) — tools + artifacts.** The chat can
 now query real tenant data and render it as cards:
