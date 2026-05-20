@@ -32,7 +32,7 @@ const FRAMEWORK_LABEL: Record<string, string> = {
   hipaa:     "HIPAA",
 };
 
-export function Welcome() {
+export function Dashboard() {
   const nav = useNavigate();
   const [conns,      setConns]      = useState<Connection[] | null>(null);
   const [findings,   setFindings]   = useState<number | null>(null);
