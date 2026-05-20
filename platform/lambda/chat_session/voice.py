@@ -110,8 +110,6 @@ def mint(event: dict, tenant_id: str, conversation_id: str) -> dict:
             },
             "tools":       tools,
             "tool_choice": "auto",
-            # Bind the conversation so voice events can be correlated back.
-            "metadata": {"conversation_id": conversation_id},
         },
     }
 

@@ -253,17 +253,18 @@ def test_mint_instructions_non_empty(mock_openai_http, mock_db_no_user):
 
 
 # ---------------------------------------------------------------------------
-# Test: conversation_id bound in metadata
+# Test: metadata must NOT be in the session payload (OpenAI rejects it with 400)
+# conversation_id is returned in the response envelope but never sent to OpenAI.
 # ---------------------------------------------------------------------------
 
-def test_mint_conversation_id_in_metadata(mock_openai_http, mock_db_no_user):
+def test_mint_no_metadata_in_session_payload(mock_openai_http, mock_db_no_user):
     event = _event({})
     voice.mint(event, "tenant-uuid-123", "conv-uuid-abc")
 
     call_args = mock_openai_http.call_args
     req_obj = call_args[0][0]
     sent_payload = json.loads(req_obj.data)
-    assert sent_payload["session"]["metadata"]["conversation_id"] == "conv-uuid-abc"
+    assert "metadata" not in sent_payload["session"]
 
 
 # ---------------------------------------------------------------------------
