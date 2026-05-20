@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type QuestionnaireSummary, type QuestionnaireDetail, type QuestionnaireItem } from "../lib/api";
-import { parseExcel, writeBackAndDownload, colLetter, type ExcelParseResult } from "../voice/excelHelpers";
+import { parseExcel, writeBackAndDownload, colLetter, type ExcelParseResult } from "../lib/excelHelpers";
 
 export function Questionnaires() {
   const [list,       setList]       = useState<QuestionnaireSummary[] | null>(null);

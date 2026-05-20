@@ -1,6 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { VoiceChat } from "../voice/VoiceChat";
 import {
   PieChart, Pie, Cell, Tooltip as RTooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -40,7 +39,6 @@ export function Dashboard() {
   const [critical,   setCritical]   = useState<number | null>(null);
   const [compliance, setCompliance] = useState<ComplianceSummary | null>(null);
   const [summary,    setSummary]    = useState<FindingsSummary | null>(null);
-  const [showVoice,  setShowVoice]  = useState(false);
   const [openAlert,  setOpenAlert]  = useState<AlertEvent | null>(null);
 
   useEffect(() => {
@@ -77,20 +75,8 @@ export function Dashboard() {
             Live posture, real-time signals, and compliance snapshot across your connected clouds.
           </p>
         </div>
-        <button
-          onClick={() => setShowVoice(true)}
-          className="mt-1 flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-sm transition"
-          aria-label="Open voice chat"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-            <path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3z" />
-            <path d="M19 11a1 1 0 10-2 0 5 5 0 11-10 0 1 1 0 10-2 0 7 7 0 006 6.92V21h-2a1 1 0 100 2h6a1 1 0 100-2h-2v-3.08A7 7 0 0019 11z" />
-          </svg>
-          Voice
-        </button>
       </div>
 
-      {showVoice && <VoiceChat onClose={() => setShowVoice(false)} />}
       {openAlert && <AlertDetailModal event={openAlert} onClose={() => setOpenAlert(null)} />}
 
       {/* Headline stats */}
