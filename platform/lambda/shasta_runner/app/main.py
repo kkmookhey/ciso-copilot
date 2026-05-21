@@ -60,6 +60,7 @@ from ai_pass           import run_ai_pass
 from arn_to_entity     import parse_arn
 from aws_config        import SCAN_BOTO_CONFIG
 from assumed_role      import build_refreshable_credentials, session_from_credentials
+from botocore.credentials import RefreshableCredentials
 from coverage.engine   import run_coverage
 from enumerate_compute import enumerate_compute
 from enumerate_iam     import enumerate_iam
@@ -126,7 +127,7 @@ class AssumedRoleAWSClient(AWSClient):
     `account_info` so per-check sts:GetCallerIdentity calls aren't needed.
     """
 
-    def __init__(self, credentials: dict[str, str], region: str, account_id: str,
+    def __init__(self, credentials: RefreshableCredentials, region: str, account_id: str,
                  scan_regions: list[str] | None = None):
         super().__init__(region=region)
         self._credentials = credentials
