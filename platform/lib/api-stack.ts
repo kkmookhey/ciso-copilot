@@ -24,8 +24,14 @@ interface ApiStackProps extends cdk.StackProps {
   shastaRunnerAzure:  lambda.IFunction;
   shastaRunnerEntra:  lambda.IFunction;
   shastaRunnerGcp:    lambda.IFunction;
-  scanCluster:             ecs.Cluster;
-  scanTaskDef:             ecs.FargateTaskDefinition;
+  scanCluster:                 ecs.Cluster;
+  // Task def family name (e.g. "ciso-copilot-aws-scan"). Passed as a plain
+  // string to avoid a cross-stack CFN export on an ARN that changes every
+  // revision. ECS RunTask accepts the family name and picks the latest active
+  // revision; the IAM policy uses a wildcard (:*) over all revisions.
+  scanTaskDefFamily:           string;
+  scanTaskDefTaskRoleArn:      string;
+  scanTaskDefExecutionRoleArn: string;
   vpc:                     ec2.IVpc;
   scanTaskSecurityGroupId: string;
   entraAppId:         string;
@@ -124,7 +130,9 @@ export class ApiStack extends cdk.Stack {
         ...dbEnv,
         CENTRAL_EVENT_BUS_ARN:  props.eventBus.eventBusArn,
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
-        SCAN_TASK_DEF_ARN:      props.scanTaskDef.taskDefinitionArn,
+        // Pass the family name; ECS RunTask resolves to the latest active
+        // revision. This avoids a cross-stack CFN export on a revision ARN.
+        SCAN_TASK_DEF_ARN:      props.scanTaskDefFamily,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
         SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
       },
@@ -143,15 +151,17 @@ export class ApiStack extends cdk.Stack {
       resources: [props.eventBus.eventBusArn],
     }));
     // Allow starting the scanner Fargate task to kick off the initial scan.
+    // Wildcard over all revisions (:*) so this policy survives task-def updates
+    // without a cross-stack CFN export dependency.
     onboardingCompleteFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['ecs:RunTask'],
-      resources: [props.scanTaskDef.taskDefinitionArn],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.scanTaskDefFamily}:*`],
     }));
     onboardingCompleteFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['iam:PassRole'],
       resources: [
-        props.scanTaskDef.taskRole.roleArn,
-        props.scanTaskDef.executionRole!.roleArn,
+        props.scanTaskDefTaskRoleArn,
+        props.scanTaskDefExecutionRoleArn,
       ],
     }));
 
