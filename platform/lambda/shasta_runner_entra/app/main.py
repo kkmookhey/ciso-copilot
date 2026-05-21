@@ -23,6 +23,8 @@ import uuid
 
 import boto3
 
+from framework_map import merge_framework_map
+
 DB_CLUSTER_ARN              = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN               = os.environ["DB_SECRET_ARN"]
 DB_NAME                     = os.environ["DB_NAME"]
@@ -125,6 +127,7 @@ def _finding_to_params(f, scan_id, tenant_id, conn_id, entra_tenant_id):
         "hipaa":     f.hipaa_controls,
     }
     frameworks = {k: v for k, v in frameworks.items() if v}
+    frameworks = merge_framework_map(f.check_id, frameworks)
     return [
         {"name": "fid",           "value": {"stringValue": str(uuid.uuid4())}},
         {"name": "tid",           "value": {"stringValue": tenant_id}},

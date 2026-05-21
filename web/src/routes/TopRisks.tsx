@@ -34,6 +34,7 @@ const DOMAIN_LABEL: Record<string, string> = {
 const FRAMEWORK_LABEL: Record<string, string> = {
   soc2: "SOC 2", cis_aws: "CIS AWS", cis_azure: "CIS Azure", cis_gcp: "CIS GCP",
   mcsb: "MCSB", iso27001: "ISO 27001", hipaa: "HIPAA",
+  fedramp: "FedRAMP", pci_dss: "PCI DSS",
   nist_ai_rmf: "NIST AI RMF", iso_42001: "ISO 42001", eu_ai_act: "EU AI Act",
   owasp_llm_top10: "OWASP LLM Top 10", owasp_agentic: "OWASP Agentic",
   nist_ai_600_1: "NIST AI 600-1", mitre_atlas: "MITRE ATLAS",

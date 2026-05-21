@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from detectors.base import EdgeEmission, EntityEmission, FindingEmission
+from framework_map import merge_framework_map
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,7 @@ def ai_findings_to_emissions(
             vals = details.get(detail_key)
             if vals:
                 frameworks[fw_key] = list(vals)
+        frameworks = merge_framework_map(f.check_id, frameworks)
 
         domain = _estr(getattr(f, "domain", "")).lower()
         if domain in ("ai_governance", ""):

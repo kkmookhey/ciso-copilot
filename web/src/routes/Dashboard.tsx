@@ -29,6 +29,8 @@ const FRAMEWORK_LABEL: Record<string, string> = {
   mcsb:      "MCSB",
   iso27001:  "ISO 27001",
   hipaa:     "HIPAA",
+  fedramp:   "FedRAMP",
+  pci_dss:   "PCI DSS",
 };
 
 export function Dashboard() {

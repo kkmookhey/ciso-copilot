@@ -229,6 +229,7 @@ def test_ai_findings_to_emissions_pulls_frameworks_from_details():
         "nist_ai_rmf":     ["MANAGE-2"],
         "iso_42001":       ["AI-8.3"],
         "owasp_llm_top10": ["LLM01"],
+        "fedramp":         ["SI-4"],   # merged in from framework_map
     }
     assert e.evidence_packet["shasta"]["check_id"] == "bedrock-guardrails-configured"
     assert e.domain == "ai"      # ai_governance maps to 'ai'
@@ -268,8 +269,8 @@ def test_ai_findings_to_emissions_handles_missing_details():
     from ai_pass import ai_findings_to_emissions
 
     finding = types.SimpleNamespace(
-        check_id="sagemaker-endpoint-encryption",
-        title="SageMaker endpoint not encrypted",
+        check_id="ai-check-not-in-framework-map",   # unmapped: isolates the
+        title="SageMaker endpoint not encrypted",   # missing-details path
         description="",
         severity="high",
         status="fail",
@@ -288,3 +289,21 @@ def test_ai_findings_to_emissions_handles_missing_details():
 
     emissions = ai_findings_to_emissions([finding], tenant_id="tnt-1")
     assert emissions[0].frameworks == {}
+
+
+def test_ai_findings_to_emissions_merges_fedramp_pci_from_framework_map():
+    """A mapped check carries its FedRAMP / PCI controls even when Shasta
+    supplies no framework attributes or details."""
+    import types
+    from ai_pass import ai_findings_to_emissions
+
+    finding = types.SimpleNamespace(
+        check_id="sagemaker-endpoint-encryption", title="t", description="d",
+        severity="high", status="fail", domain="ai_governance",
+        region="us-east-1", resource_type="x", resource_id="r", remediation="",
+        soc2_controls=[], cis_aws_controls=[], iso27001_controls=[],
+        hipaa_controls=[], mcsb_controls=[], details={},
+    )
+
+    e = ai_findings_to_emissions([finding], tenant_id="t1")[0]
+    assert e.frameworks == {"fedramp": ["SC-28"], "pci_dss": ["3.5.1"]}

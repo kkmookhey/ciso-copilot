@@ -62,6 +62,7 @@ from enumerate_compute import enumerate_compute
 from enumerate_iam     import enumerate_iam
 from enumerate_network import enumerate_network
 from enumerate_storage import enumerate_storage
+from framework_map     import merge_framework_map
 
 # === Shared writer + emission types (copied in by build.sh) ===
 from detectors.base import EdgeEmission, EntityEmission, FindingEmission
@@ -443,6 +444,7 @@ def _shasta_to_emission(
         "hipaa":     f.hipaa_controls,
     }
     frameworks = {k: v for k, v in frameworks.items() if v}
+    frameworks = merge_framework_map(f.check_id, frameworks)
 
     status = f.status.value.lower()
     domain = f.domain.value.lower()
