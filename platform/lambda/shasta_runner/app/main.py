@@ -58,6 +58,7 @@ from shasta.aws import (
 # === Entity-emission helpers (this module) ===
 from ai_pass           import run_ai_pass
 from arn_to_entity     import parse_arn
+from coverage.engine   import run_coverage
 from enumerate_compute import enumerate_compute
 from enumerate_iam     import enumerate_iam
 from enumerate_network import enumerate_network
@@ -283,6 +284,29 @@ def handler(event: dict, context) -> dict:
             print(f"ai_pass FAILED: {e}\n{traceback.format_exc()}")
             module_stats["ai_pass"] = {"error": str(e)[:200]}
 
+        # --- Coverage engine: in-repo posture checks, tier-filtered.
+        # Wrapped like every other pass so one failure doesn't kill the scan.
+        coverage_finding_emissions: list[FindingEmission] = []
+        try:
+            coverage_result = run_coverage(
+                lambda region: _make_session(credentials, region),
+                account_id=account_id, tenant_id=tenant_id,
+                regions=regions, scan_tier=scan_tier,
+            )
+            entities.extend(coverage_result["entities"])
+            edges.extend(coverage_result["edges"])
+            coverage_finding_emissions = coverage_result["findings"]
+            module_stats["coverage"] = {
+                "entities": len(coverage_result["entities"]),
+                "findings": len(coverage_result["findings"]),
+                "tier":     scan_tier,
+            }
+            print(f"coverage: {len(coverage_result['entities'])} entities, "
+                  f"{len(coverage_result['findings'])} findings (tier={scan_tier})")
+        except Exception as e:
+            print(f"coverage FAILED: {e}\n{traceback.format_exc()}")
+            module_stats["coverage"] = {"error": str(e)[:200]}
+
         # --- Convert Shasta findings to FindingEmission, derive ARN→entity FKs
         finding_emissions = _convert_findings(
             all_shasta_findings, tenant_id, account_id, entities, edges,
@@ -290,9 +314,11 @@ def handler(event: dict, context) -> dict:
 
         # --- Single transactional write
         commit_scan(ctx, entities=entities, edges=edges,
-                    findings=finding_emissions + ai_finding_emissions)
+                    findings=finding_emissions + ai_finding_emissions
+                             + coverage_finding_emissions)
 
-        total_findings = len(finding_emissions) + len(ai_finding_emissions)
+        total_findings = (len(finding_emissions) + len(ai_finding_emissions)
+                          + len(coverage_finding_emissions))
         _update_scan(scan_id, status="completed", stats={
             "entities":      len(entities),
             "edges":         len(edges),
