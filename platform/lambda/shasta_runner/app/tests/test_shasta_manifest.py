@@ -7,8 +7,9 @@ from coverage.shasta_manifest import SHASTA_CHECKS
 _BENCHMARKS = {"cis_aws", "fsbp", "pci_dss", "nist_800_53"}
 
 
-def test_manifest_is_non_empty():
-    assert len(SHASTA_CHECKS) > 0
+def test_manifest_covers_every_shasta_check():
+    # 113 = the complete set of non-ai_checks Shasta AWS check_ids (spec §6 gap analysis).
+    assert len(SHASTA_CHECKS) >= 113
 
 
 def test_manifest_entries_are_well_formed():

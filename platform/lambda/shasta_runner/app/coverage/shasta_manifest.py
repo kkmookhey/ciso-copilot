@@ -261,7 +261,7 @@ SHASTA_CHECKS: dict[str, dict[str, list[str]]] = {
         "fsbp":        ["RDS.36"],
     },
 
-    # --- Encryption: EFS, SNS, SQS, Secrets Manager, ACM, EBS, RDS (encryption.py) ---
+    # --- Encryption: EFS, SNS, SQS, Secrets Manager, EBS, RDS (encryption.py) ---
     "efs-encryption": {
         "cis_aws":     ["2.4.1"],
         "nist_800_53": ["SC-28"],
