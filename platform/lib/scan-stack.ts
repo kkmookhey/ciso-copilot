@@ -13,7 +13,7 @@ import { Construct } from 'constructs';
 import { config } from './config';
 
 interface ScanStackProps extends cdk.StackProps {
-  vpc:                   ec2.Vpc;
+  vpc:                   ec2.IVpc;
   dbCluster:             rds.DatabaseCluster;
   shastaRunnerRepo:      ecr.Repository;
   shastaRunnerAzureRepo: ecr.Repository;
