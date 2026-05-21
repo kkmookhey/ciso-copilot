@@ -133,7 +133,7 @@ def _enqueue_initial_scan(
             {"name": "sid",   "value": {"stringValue": scan_id}},
             {"name": "tid",   "value": {"stringValue": tenant_id}},
             {"name": "cid",   "value": {"stringValue": conn_id}},
-            {"name": "scope", "value": {"stringValue": json.dumps({"regions": ["us-east-1"]})}},
+            {"name": "scope", "value": {"stringValue": json.dumps({})}},
         ],
     )
 
@@ -159,7 +159,6 @@ def _enqueue_initial_scan(
                         {"name": "ROLE_ARN",    "value": role_arn},
                         {"name": "EXTERNAL_ID", "value": external_id},
                         {"name": "ACCOUNT_ID",  "value": account_id},
-                        {"name": "REGIONS",     "value": "us-east-1"},
                         {"name": "SCAN_TIER",   "value": "quick"},
                     ],
                 }],
