@@ -58,6 +58,7 @@ from shasta.aws import (
 # === Entity-emission helpers (this module) ===
 from ai_pass           import run_ai_pass
 from arn_to_entity     import parse_arn
+from aws_config        import SCAN_BOTO_CONFIG
 from coverage.engine   import run_coverage
 from enumerate_compute import enumerate_compute
 from enumerate_iam     import enumerate_iam
@@ -147,6 +148,18 @@ class AssumedRoleAWSClient(AWSClient):
     def account_info(self) -> AWSAccountInfo:
         return self._account_info
 
+    def client(self, service_name: str, **kwargs):
+        """Build a client with the shared timeout Config (a slow regional
+        endpoint must never hang a scan). A caller-supplied config wins."""
+        kwargs.setdefault("config", SCAN_BOTO_CONFIG)
+        return super().client(service_name, **kwargs)
+
+    def for_region(self, region: str) -> "AssumedRoleAWSClient":
+        """Return an AssumedRoleAWSClient for `region`, preserving the
+        assumed-role credentials. Shasta's base for_region drops them and
+        returns a credential-less, timeout-less base client."""
+        return AssumedRoleAWSClient(self._credentials, region, self._account_info.account_id)
+
 
 def handler(event: dict, context) -> dict:
     scan_id     = event["scan_id"]
@@ -175,7 +188,7 @@ def handler(event: dict, context) -> dict:
         # --- Global enums (IAM + S3, single pass) -------------------------
         try:
             iam_out = enumerate_iam(
-                boto_session.client("iam"),
+                boto_session.client("iam", config=SCAN_BOTO_CONFIG),
                 account_id=account_id, tenant_id=tenant_id,
             )
             entities.extend(iam_out["entities"])
@@ -190,7 +203,7 @@ def handler(event: dict, context) -> dict:
 
         try:
             s3_out = enumerate_storage(
-                boto_session.client("s3"),
+                boto_session.client("s3", config=SCAN_BOTO_CONFIG),
                 account_id=account_id, tenant_id=tenant_id,
             )
             entities.extend(s3_out["entities"])
@@ -222,8 +235,8 @@ def handler(event: dict, context) -> dict:
             # Compute enum
             try:
                 comp_out = enumerate_compute(
-                    region_session.client("ec2"),
-                    region_session.client("lambda"),
+                    region_session.client("ec2", config=SCAN_BOTO_CONFIG),
+                    region_session.client("lambda", config=SCAN_BOTO_CONFIG),
                     account_id=account_id, tenant_id=tenant_id, region=region,
                 )
                 entities.extend(comp_out["entities"])
@@ -239,7 +252,7 @@ def handler(event: dict, context) -> dict:
             # Network enum
             try:
                 net_out = enumerate_network(
-                    region_session.client("ec2"),
+                    region_session.client("ec2", config=SCAN_BOTO_CONFIG),
                     account_id=account_id, tenant_id=tenant_id, region=region,
                 )
                 entities.extend(net_out["entities"])

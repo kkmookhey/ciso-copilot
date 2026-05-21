@@ -8,7 +8,7 @@ from coverage.model import Resource
 class _FakeSession:
     """Stands in for a boto3 Session — .client(name) is never actually
     used because we monkeypatch the collectors."""
-    def client(self, name):
+    def client(self, name, **kwargs):
         return f"client:{name}"
 
 

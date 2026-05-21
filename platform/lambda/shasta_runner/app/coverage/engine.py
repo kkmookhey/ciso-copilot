@@ -11,6 +11,7 @@ from __future__ import annotations
 import traceback
 from typing import Any, Callable
 
+from aws_config import SCAN_BOTO_CONFIG
 from detectors.base import EdgeEmission, EntityEmission, FindingEmission
 
 from coverage.registry import COLLECTORS, checks_for_tier
@@ -42,7 +43,7 @@ def run_coverage(
         session = make_session(region)
         for service, service_checks in checks_by_service.items():
             try:
-                client = session.client(service)
+                client = session.client(service, config=SCAN_BOTO_CONFIG)
                 resources = COLLECTORS[service](
                     client, account_id=account_id, region=region)
             except Exception as e:
