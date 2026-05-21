@@ -1,0 +1,1482 @@
+[
+  {
+    "id": "Account.1",
+    "title": "Security contact information should be provided for an AWS account"
+  },
+  {
+    "id": "ACM.1",
+    "title": "Imported and ACM-issued certificates should be renewed after a specified time period"
+  },
+  {
+    "id": "ACM.2",
+    "title": "RSA certificates managed by ACM should use a key length of at least 2,048 bits"
+  },
+  {
+    "id": "APIGateway.1",
+    "title": "API Gateway REST and WebSocket API execution logging should be enabled"
+  },
+  {
+    "id": "APIGateway.2",
+    "title": "API Gateway REST API stages should be configured to use SSL certificates for backend authentication"
+  },
+  {
+    "id": "APIGateway.3",
+    "title": "API Gateway REST API stages should have AWS X-Ray tracing enabled"
+  },
+  {
+    "id": "APIGateway.4",
+    "title": "API Gateway should be associated with a WAF Web ACL"
+  },
+  {
+    "id": "APIGateway.5",
+    "title": "API Gateway REST API cache data should be encrypted at rest"
+  },
+  {
+    "id": "APIGateway.8",
+    "title": "API Gateway routes should specify an authorization type"
+  },
+  {
+    "id": "APIGateway.9",
+    "title": "Access logging should be configured for API Gateway V2 Stages"
+  },
+  {
+    "id": "APIGateway.10",
+    "title": "API Gateway V2 integrations should use HTTPS for private connections"
+  },
+  {
+    "id": "APIGateway.11",
+    "title": "API Gateway domain names should use recommended security policies"
+  },
+  {
+    "id": "AppSync.1",
+    "title": "AWS AppSync API caches should be encrypted at rest"
+  },
+  {
+    "id": "AppSync.2",
+    "title": "AWS AppSync should have field-level logging enabled"
+  },
+  {
+    "id": "AppSync.5",
+    "title": "AWS AppSync GraphQL APIs should not be authenticated with API keys"
+  },
+  {
+    "id": "AppSync.6",
+    "title": "AWS AppSync API caches should be encrypted in transit"
+  },
+  {
+    "id": "Athena.4",
+    "title": "Athena workgroups should have logging enabled"
+  },
+  {
+    "id": "AutoScaling.1",
+    "title": "Auto Scaling groups associated with a load balancer should use ELB health checks"
+  },
+  {
+    "id": "AutoScaling.2",
+    "title": "Amazon EC2 Auto Scaling group should cover multiple Availability Zones"
+  },
+  {
+    "id": "AutoScaling.3",
+    "title": "Auto Scaling group launch configurations should configure EC2 instances to require Instance Metadata Service Version 2 (IMDSv2)"
+  },
+  {
+    "id": "Autoscaling.5",
+    "title": "Amazon EC2 instances launched using Auto Scaling group launch configurations should not have Public IP addresses"
+  },
+  {
+    "id": "AutoScaling.6",
+    "title": "Auto Scaling groups should use multiple instance types in multiple Availability Zones"
+  },
+  {
+    "id": "AutoScaling.9",
+    "title": "Amazon EC2 Auto Scaling groups should use Amazon EC2 launch templates"
+  },
+  {
+    "id": "Backup.1",
+    "title": "AWS Backup recovery points should be encrypted at rest"
+  },
+  {
+    "id": "BedrockAgentCore.1",
+    "title": "Bedrock AgentCore runtimes should be configured with VPC network mode"
+  },
+  {
+    "id": "BedrockAgentCore.2",
+    "title": "Bedrock AgentCore Gateways should require authorization for inbound requests"
+  },
+  {
+    "id": "BedrockAgentCore.5",
+    "title": "Bedrock AgentCore custom browsers should not use public network mode"
+  },
+  {
+    "id": "BedrockAgentCore.6",
+    "title": "Bedrock AgentCore custom browsers should have session recording enabled"
+  },
+  {
+    "id": "CloudFormation.3",
+    "title": "CloudFormation stacks should have termination protection enabled"
+  },
+  {
+    "id": "CloudFormation.4",
+    "title": "CloudFormation stacks should have associated service roles"
+  },
+  {
+    "id": "CloudFront.1",
+    "title": "CloudFront distributions should have a default root object configured"
+  },
+  {
+    "id": "CloudFront.3",
+    "title": "CloudFront distributions should require encryption in transit"
+  },
+  {
+    "id": "CloudFront.4",
+    "title": "CloudFront distributions should have origin failover configured"
+  },
+  {
+    "id": "CloudFront.5",
+    "title": "CloudFront distributions should have logging enabled"
+  },
+  {
+    "id": "CloudFront.6",
+    "title": "CloudFront distributions should have WAF enabled"
+  },
+  {
+    "id": "CloudFront.7",
+    "title": "CloudFront distributions should use custom SSL/TLS certificates"
+  },
+  {
+    "id": "CloudFront.8",
+    "title": "CloudFront distributions should use SNI to serve HTTPS requests"
+  },
+  {
+    "id": "CloudFront.9",
+    "title": "CloudFront distributions should encrypt traffic to custom origins"
+  },
+  {
+    "id": "CloudFront.10",
+    "title": "CloudFront distributions should not use deprecated SSL protocols between edge locations and custom origins"
+  },
+  {
+    "id": "CloudFront.12",
+    "title": "CloudFront distributions should not point to non-existent S3 origins"
+  },
+  {
+    "id": "CloudFront.13",
+    "title": "CloudFront distributions should use origin access control"
+  },
+  {
+    "id": "CloudFront.15",
+    "title": "CloudFront distributions should use the recommended TLS security policy"
+  },
+  {
+    "id": "CloudFront.16",
+    "title": "CloudFront distributions should use origin access control for Lambda function URL origins"
+  },
+  {
+    "id": "CloudFront.17",
+    "title": "CloudFront distributions should use trusted key groups for signed URLs and cookies"
+  },
+  {
+    "id": "CloudTrail.1",
+    "title": "CloudTrail should be enabled and configured with at least one multi-Region trail that includes read and write management events"
+  },
+  {
+    "id": "CloudTrail.2",
+    "title": "CloudTrail should have encryption at-rest enabled"
+  },
+  {
+    "id": "CloudTrail.4",
+    "title": "CloudTrail log file validation should be enabled"
+  },
+  {
+    "id": "CloudTrail.5",
+    "title": "CloudTrail trails should be integrated with Amazon CloudWatch Logs"
+  },
+  {
+    "id": "CodeBuild.1",
+    "title": "CodeBuild Bitbucket source repository URLs should not contain sensitive credentials"
+  },
+  {
+    "id": "CodeBuild.2",
+    "title": "CodeBuild project environment variables should not contain clear text credentials"
+  },
+  {
+    "id": "CodeBuild.3",
+    "title": "CodeBuild S3 logs should be encrypted"
+  },
+  {
+    "id": "CodeBuild.4",
+    "title": "CodeBuild project environments should have a logging AWS Configuration"
+  },
+  {
+    "id": "CodeBuild.7",
+    "title": "CodeBuild report group exports should be encrypted at rest"
+  },
+  {
+    "id": "Cognito.2",
+    "title": "Cognito identity pools should not allow unauthenticated identities"
+  },
+  {
+    "id": "Cognito.3",
+    "title": "Password policies for Cognito user pools should have strong configurations"
+  },
+  {
+    "id": "Cognito.4",
+    "title": "Cognito user pools should have threat protection activated with full function enforcement mode for custom authentication"
+  },
+  {
+    "id": "Cognito.5",
+    "title": "MFA should be enabled for Cognito user pools"
+  },
+  {
+    "id": "Cognito.6",
+    "title": "Cognito user pools should have deletion protection enabled"
+  },
+  {
+    "id": "Config.1",
+    "title": "AWS Config should be enabled and use the service-linked role for resource recording"
+  },
+  {
+    "id": "Connect.2",
+    "title": "Connect Customer instances should have CloudWatch logging enabled"
+  },
+  {
+    "id": "DataFirehose.1",
+    "title": "Firehose delivery streams should be encrypted at rest"
+  },
+  {
+    "id": "DataSync.1",
+    "title": "DataSync tasks should have logging enabled"
+  },
+  {
+    "id": "DMS.1",
+    "title": "Database Migration Service replication instances should not be public"
+  },
+  {
+    "id": "DMS.6",
+    "title": "DMS replication instances should have automatic minor version upgrade enabled"
+  },
+  {
+    "id": "DMS.7",
+    "title": "DMS replication tasks for the target database should have logging enabled"
+  },
+  {
+    "id": "DMS.8",
+    "title": "DMS replication tasks for the source database should have logging enabled"
+  },
+  {
+    "id": "DMS.9",
+    "title": "DMS endpoints should use SSL"
+  },
+  {
+    "id": "DMS.10",
+    "title": "DMS endpoints for Neptune databases should have IAM authorization enabled"
+  },
+  {
+    "id": "DMS.11",
+    "title": "DMS endpoints for MongoDB should have an authentication mechanism enabled"
+  },
+  {
+    "id": "DMS.12",
+    "title": "DMS endpoints for Redis OSS should have TLS enabled"
+  },
+  {
+    "id": "DMS.13",
+    "title": "DMS replication instances should be configured to use multiple Availability Zones"
+  },
+  {
+    "id": "DocumentDB.1",
+    "title": "Amazon DocumentDB clusters should be encrypted at rest"
+  },
+  {
+    "id": "DocumentDB.2",
+    "title": "Amazon DocumentDB clusters should have an adequate backup retention period"
+  },
+  {
+    "id": "DocumentDB.3",
+    "title": "Amazon DocumentDB manual cluster snapshots should not be public"
+  },
+  {
+    "id": "DocumentDB.4",
+    "title": "Amazon DocumentDB clusters should publish audit logs to CloudWatch Logs"
+  },
+  {
+    "id": "DocumentDB.5",
+    "title": "Amazon DocumentDB clusters should have deletion protection enabled"
+  },
+  {
+    "id": "DocumentDB.6",
+    "title": "Amazon DocumentDB clusters should be encrypted in transit"
+  },
+  {
+    "id": "DynamoDB.1",
+    "title": "DynamoDB tables should automatically scale capacity with demand"
+  },
+  {
+    "id": "DynamoDB.2",
+    "title": "DynamoDB tables should have point-in-time recovery enabled"
+  },
+  {
+    "id": "DynamoDB.3",
+    "title": "DynamoDB Accelerator (DAX) clusters should be encrypted at rest"
+  },
+  {
+    "id": "DynamoDB.6",
+    "title": "DynamoDB tables should have deletion protection enabled"
+  },
+  {
+    "id": "DynamoDB.7",
+    "title": "DynamoDB Accelerator clusters should be encrypted in transit"
+  },
+  {
+    "id": "EC2.1",
+    "title": "Amazon EBS snapshots should not be configured to be publicly restorable"
+  },
+  {
+    "id": "EC2.2",
+    "title": "VPC default security groups should not allow inbound or outbound traffic"
+  },
+  {
+    "id": "EC2.3",
+    "title": "Attached Amazon EBS volumes should be encrypted at-rest"
+  },
+  {
+    "id": "EC2.4",
+    "title": "Stopped EC2 instances should be removed after a specified time period"
+  },
+  {
+    "id": "EC2.6",
+    "title": "VPC flow logging should be enabled in all VPCs"
+  },
+  {
+    "id": "EC2.7",
+    "title": "EBS default encryption should be enabled"
+  },
+  {
+    "id": "EC2.8",
+    "title": "EC2 instances should use Instance Metadata Service Version 2 (IMDSv2)"
+  },
+  {
+    "id": "EC2.9",
+    "title": "Amazon EC2 instances should not have a public IPv4 address"
+  },
+  {
+    "id": "EC2.10",
+    "title": "Amazon EC2 should be configured to use VPC endpoints that are created for the Amazon EC2 service"
+  },
+  {
+    "id": "EC2.15",
+    "title": "Amazon EC2 subnets should not automatically assign public IP addresses"
+  },
+  {
+    "id": "EC2.16",
+    "title": "Unused Network Access Control Lists should be removed"
+  },
+  {
+    "id": "EC2.17",
+    "title": "Amazon EC2 instances should not use multiple ENIs"
+  },
+  {
+    "id": "EC2.18",
+    "title": "Security groups should only allow unrestricted incoming traffic for authorized ports"
+  },
+  {
+    "id": "EC2.19",
+    "title": "Security groups should not allow unrestricted access to ports with high risk"
+  },
+  {
+    "id": "EC2.20",
+    "title": "Both VPN tunnels for an AWS Site-to-Site VPN connection should be up"
+  },
+  {
+    "id": "EC2.21",
+    "title": "Network ACLs should not allow ingress from 0.0.0.0/0 to port 22 or port 3389"
+  },
+  {
+    "id": "EC2.23",
+    "title": "Amazon EC2 Transit Gateways should not automatically accept VPC attachment requests"
+  },
+  {
+    "id": "EC2.24",
+    "title": "Amazon EC2 paravirtual instance types should not be used"
+  },
+  {
+    "id": "EC2.25",
+    "title": "Amazon EC2 launch templates should not assign public IPs to network interfaces"
+  },
+  {
+    "id": "EC2.51",
+    "title": "EC2 Client VPN endpoints should have client connection logging enabled"
+  },
+  {
+    "id": "EC2.55",
+    "title": "VPCs should be configured with an interface endpoint for ECR API"
+  },
+  {
+    "id": "EC2.56",
+    "title": "VPCs should be configured with an interface endpoint for Docker Registry"
+  },
+  {
+    "id": "EC2.57",
+    "title": "VPCs should be configured with an interface endpoint for Systems Manager"
+  },
+  {
+    "id": "EC2.58",
+    "title": "VPCs should be configured with an interface endpoint for Systems Manager Incident Manager Contacts"
+  },
+  {
+    "id": "EC2.60",
+    "title": "VPCs should be configured with an interface endpoint for Systems Manager Incident Manager"
+  },
+  {
+    "id": "EC2.170",
+    "title": "EC2 launch templates should use Instance Metadata Service Version 2 (IMDSv2)"
+  },
+  {
+    "id": "EC2.171",
+    "title": "EC2 VPN connections should have logging enabled"
+  },
+  {
+    "id": "EC2.172",
+    "title": "EC2 VPC Block Public Access settings should block internet gateway traffic"
+  },
+  {
+    "id": "EC2.173",
+    "title": "EC2 Spot Fleet requests with launch parameters should enable encryption for attached EBS volumes"
+  },
+  {
+    "id": "EC2.180",
+    "title": "EC2 network interfaces should have source/destination checking enabled"
+  },
+  {
+    "id": "EC2.181",
+    "title": "EC2 launch templates should enable encryption for attached EBS volumes"
+  },
+  {
+    "id": "EC2.182",
+    "title": "Block public access settings should be enabled for Amazon EBS snapshots"
+  },
+  {
+    "id": "EC2.183",
+    "title": "EC2 VPN connections should use IKEv2 protocol"
+  },
+  {
+    "id": "ECR.1",
+    "title": "ECR private repositories should have image scanning configured"
+  },
+  {
+    "id": "ECR.2",
+    "title": "ECR private repositories should have tag immutability configured"
+  },
+  {
+    "id": "ECR.3",
+    "title": "ECR repositories should have at least one lifecycle policy configured"
+  },
+  {
+    "id": "ECS.1",
+    "title": "Amazon ECS task definitions should have secure networking modes and user definitions"
+  },
+  {
+    "id": "ECS.2",
+    "title": "ECS services should not have public IP addresses assigned to them automatically"
+  },
+  {
+    "id": "ECS.3",
+    "title": "ECS task definitions should not share the host's process namespace"
+  },
+  {
+    "id": "ECS.4",
+    "title": "ECS containers should run as non-privileged"
+  },
+  {
+    "id": "ECS.5",
+    "title": "ECS task definitions should configure containers to be limited to read-only access to root filesystems"
+  },
+  {
+    "id": "ECS.8",
+    "title": "Secrets should not be passed as container environment variables"
+  },
+  {
+    "id": "ECS.9",
+    "title": "ECS task definitions should have a logging configuration"
+  },
+  {
+    "id": "ECS.10",
+    "title": "ECS Fargate services should run on the latest Fargate platform version"
+  },
+  {
+    "id": "ECS.12",
+    "title": "ECS clusters should use Container Insights"
+  },
+  {
+    "id": "ECS.16",
+    "title": "ECS task sets should not automatically assign public IP addresses"
+  },
+  {
+    "id": "ECS.18",
+    "title": "ECS Task Definitions should use in-transit encryption for EFS volumes"
+  },
+  {
+    "id": "ECS.19",
+    "title": "ECS capacity providers should have managed termination protection enabled"
+  },
+  {
+    "id": "ECS.20",
+    "title": "ECS Task Definitions should configure non-root users in Linux container definitions"
+  },
+  {
+    "id": "ECS.21",
+    "title": "ECS Task Definitions should configure non-administrator users in Windows container definitions"
+  },
+  {
+    "id": "EFS.1",
+    "title": "Elastic File System should be configured to encrypt file data at-rest using AWS KMS"
+  },
+  {
+    "id": "EFS.2",
+    "title": "Amazon EFS volumes should be in backup plans"
+  },
+  {
+    "id": "EFS.3",
+    "title": "EFS access points should enforce a root directory"
+  },
+  {
+    "id": "EFS.4",
+    "title": "EFS access points should enforce a user identity"
+  },
+  {
+    "id": "EFS.6",
+    "title": "EFS mount targets should not be associated with subnets that assign public IP addresses on launch"
+  },
+  {
+    "id": "EFS.7",
+    "title": "EFS file systems should have automatic backups enabled"
+  },
+  {
+    "id": "EFS.8",
+    "title": "EFS file systems should be encrypted at rest"
+  },
+  {
+    "id": "EKS.1",
+    "title": "EKS cluster endpoints should not be publicly accessible"
+  },
+  {
+    "id": "EKS.2",
+    "title": "EKS clusters should run on a supported Kubernetes version"
+  },
+  {
+    "id": "EKS.3",
+    "title": "EKS clusters should use encrypted Kubernetes secrets"
+  },
+  {
+    "id": "EKS.8",
+    "title": "EKS clusters should have audit logging enabled"
+  },
+  {
+    "id": "EKS.9",
+    "title": "EKS node groups should run on a supported Kubernetes version"
+  },
+  {
+    "id": "ElastiCache.1",
+    "title": "ElastiCache (Redis OSS) clusters should have automatic backups enabled"
+  },
+  {
+    "id": "ElastiCache.2",
+    "title": "ElastiCache clusters should have automatic minor version upgrades enabled"
+  },
+  {
+    "id": "ElastiCache.3",
+    "title": "ElastiCache replication groups should have automatic failover enabled"
+  },
+  {
+    "id": "ElastiCache.4",
+    "title": "ElastiCache replication groups should be encrypted at rest"
+  },
+  {
+    "id": "ElastiCache.5",
+    "title": "ElastiCache replication groups should be encrypted in transit"
+  },
+  {
+    "id": "ElastiCache.6",
+    "title": "ElastiCache (Redis OSS) replication groups of earlier versions should have Redis OSS AUTH enabled"
+  },
+  {
+    "id": "ElastiCache.7",
+    "title": "ElastiCache clusters should not use the default subnet group"
+  },
+  {
+    "id": "ElasticBeanstalk.1",
+    "title": "Elastic Beanstalk environments should have enhanced health reporting enabled"
+  },
+  {
+    "id": "ElasticBeanstalk.2",
+    "title": "Elastic Beanstalk managed platform updates should be enabled"
+  },
+  {
+    "id": "ElasticBeanstalk.3",
+    "title": "Elastic Beanstalk should stream logs to CloudWatch"
+  },
+  {
+    "id": "ELB.1",
+    "title": "Application Load Balancer should be configured to redirect all HTTP requests to HTTPS"
+  },
+  {
+    "id": "ELB.2",
+    "title": "Classic Load Balancers with SSL/HTTPS listeners should use a certificate provided by AWS Certificate Manager"
+  },
+  {
+    "id": "ELB.3",
+    "title": "Classic Load Balancer listeners should be configured with HTTPS or TLS termination"
+  },
+  {
+    "id": "ELB.4",
+    "title": "Application Load Balancer should be configured to drop invalid http headers"
+  },
+  {
+    "id": "ELB.5",
+    "title": "Application and Classic Load Balancers logging should be enabled"
+  },
+  {
+    "id": "ELB.6",
+    "title": "Application, Gateway, and Network Load Balancers should have deletion protection enabled"
+  },
+  {
+    "id": "ELB.7",
+    "title": "Classic Load Balancers should have connection draining enabled"
+  },
+  {
+    "id": "ELB.8",
+    "title": "Classic Load Balancers with SSL listeners should use a predefined security policy that has strong AWS Configuration"
+  },
+  {
+    "id": "ELB.9",
+    "title": "Classic Load Balancers should have cross-zone load balancing enabled"
+  },
+  {
+    "id": "ELB.10",
+    "title": "Classic Load Balancer should span multiple Availability Zones"
+  },
+  {
+    "id": "ELB.12",
+    "title": "Application Load Balancer should be configured with defensive or strictest desync mitigation mode"
+  },
+  {
+    "id": "ELB.13",
+    "title": "Application, Network and Gateway Load Balancers should span multiple Availability Zones"
+  },
+  {
+    "id": "ELB.14",
+    "title": "Classic Load Balancer should be configured with defensive or strictest desync mitigation mode"
+  },
+  {
+    "id": "ELB.17",
+    "title": "Application and Network Load Balancers with listeners should use recommended security policies"
+  },
+  {
+    "id": "ELB.18",
+    "title": "Application and Network Load Balancer listeners should use secure protocols to encrypt data in transit"
+  },
+  {
+    "id": "ELB.21",
+    "title": "Application and Network Load Balancer target groups should use encrypted health check protocols"
+  },
+  {
+    "id": "ELB.22",
+    "title": "ELB target groups should use encrypted transport protocols"
+  },
+  {
+    "id": "EMR.1",
+    "title": "Amazon EMR cluster primary nodes should not have public IP addresses"
+  },
+  {
+    "id": "EMR.2",
+    "title": "Amazon EMR block public access setting should be enabled"
+  },
+  {
+    "id": "EMR.3",
+    "title": "Amazon EMR security configurations should be encrypted at rest"
+  },
+  {
+    "id": "EMR.4",
+    "title": "Amazon EMR security configurations should be encrypted in transit"
+  },
+  {
+    "id": "ES.1",
+    "title": "Elasticsearch domains should have encryption at-rest enabled"
+  },
+  {
+    "id": "ES.2",
+    "title": "Elasticsearch domains should not be publicly accessible"
+  },
+  {
+    "id": "ES.3",
+    "title": "Elasticsearch domains should encrypt data sent between nodes"
+  },
+  {
+    "id": "ES.4",
+    "title": "Elasticsearch domain error logging to CloudWatch Logs should be enabled"
+  },
+  {
+    "id": "ES.5",
+    "title": "Elasticsearch domains should have audit logging enabled"
+  },
+  {
+    "id": "ES.6",
+    "title": "Elasticsearch domains should have at least three data nodes"
+  },
+  {
+    "id": "ES.7",
+    "title": "Elasticsearch domains should be configured with at least three dedicated master nodes"
+  },
+  {
+    "id": "ES.8",
+    "title": "Connections to Elasticsearch domains should be encrypted using the latest TLS security policy"
+  },
+  {
+    "id": "EventBridge.3",
+    "title": "EventBridge custom event buses should have a resource-based policy attached"
+  },
+  {
+    "id": "FSx.1",
+    "title": "FSx for OpenZFS file systems should be configured to copy tags to backups and volumes"
+  },
+  {
+    "id": "FSx.2",
+    "title": "FSx for Lustre file systems should be configured to copy tags to backups"
+  },
+  {
+    "id": "FSx.3",
+    "title": "FSx for OpenZFS file systems should be configured for Multi-AZ deployment"
+  },
+  {
+    "id": "FSx.4",
+    "title": "FSx for NetApp ONTAP file systems should be configured for Multi-AZ deployment"
+  },
+  {
+    "id": "FSx.5",
+    "title": "FSx for Windows File Server file systems should be configured for Multi-AZ deployment"
+  },
+  {
+    "id": "Glue.3",
+    "title": "AWS Glue machine learning transforms should be encrypted at rest"
+  },
+  {
+    "id": "Glue.4",
+    "title": "AWS Glue Spark jobs should run on supported versions of AWS Glue"
+  },
+  {
+    "id": "GuardDuty.1",
+    "title": "GuardDuty should be enabled"
+  },
+  {
+    "id": "GuardDuty.5",
+    "title": "GuardDuty EKS Audit Log Monitoring should be enabled"
+  },
+  {
+    "id": "GuardDuty.6",
+    "title": "GuardDuty Lambda Protection should be enabled"
+  },
+  {
+    "id": "GuardDuty.7",
+    "title": "GuardDuty EKS Runtime Monitoring should be enabled"
+  },
+  {
+    "id": "GuardDuty.8",
+    "title": "GuardDuty Malware Protection for EC2 should be enabled"
+  },
+  {
+    "id": "GuardDuty.9",
+    "title": "GuardDuty RDS Protection should be enabled"
+  },
+  {
+    "id": "GuardDuty.10",
+    "title": "GuardDuty S3 Protection should be enabled"
+  },
+  {
+    "id": "GuardDuty.11",
+    "title": "GuardDuty Runtime Monitoring should be enabled"
+  },
+  {
+    "id": "GuardDuty.12",
+    "title": "GuardDuty ECS Runtime Monitoring should be enabled"
+  },
+  {
+    "id": "GuardDuty.13",
+    "title": "GuardDuty EC2 Runtime Monitoring should be enabled"
+  },
+  {
+    "id": "IAM.1",
+    "title": "IAM policies should not allow full \"*\" administrative privileges"
+  },
+  {
+    "id": "IAM.2",
+    "title": "IAM users should not have IAM policies attached"
+  },
+  {
+    "id": "IAM.3",
+    "title": "IAM users' access keys should be rotated every 90 days or less"
+  },
+  {
+    "id": "IAM.4",
+    "title": "IAM root user access key should not exist"
+  },
+  {
+    "id": "IAM.5",
+    "title": "MFA should be enabled for all IAM users that have a console password"
+  },
+  {
+    "id": "IAM.6",
+    "title": "Hardware MFA should be enabled for the root user"
+  },
+  {
+    "id": "IAM.7",
+    "title": "Password policies for IAM users should have strong configurations"
+  },
+  {
+    "id": "IAM.8",
+    "title": "Unused IAM user credentials should be removed"
+  },
+  {
+    "id": "IAM.21",
+    "title": "IAM customer managed policies that you create should not allow wildcard actions for services"
+  },
+  {
+    "id": "Inspector.1",
+    "title": "Amazon Inspector EC2 scanning should be enabled"
+  },
+  {
+    "id": "Inspector.2",
+    "title": "Amazon Inspector ECR scanning should be enabled"
+  },
+  {
+    "id": "Inspector.3",
+    "title": "Amazon Inspector Lambda code scanning should be enabled"
+  },
+  {
+    "id": "Inspector.4",
+    "title": "Amazon Inspector Lambda standard scanning should be enabled"
+  },
+  {
+    "id": "Kinesis.1",
+    "title": "Kinesis streams should be encrypted at rest"
+  },
+  {
+    "id": "Kinesis.3",
+    "title": "Kinesis streams should have an adequate data retention period"
+  },
+  {
+    "id": "KMS.1",
+    "title": "IAM customer managed policies should not allow decryption actions on all KMS keys"
+  },
+  {
+    "id": "KMS.2",
+    "title": "IAM principals should not have IAM inline policies that allow decryption actions on all KMS keys"
+  },
+  {
+    "id": "KMS.3",
+    "title": "AWS KMS keys should not be deleted unintentionally"
+  },
+  {
+    "id": "KMS.5",
+    "title": "KMS keys should not be publicly accessible"
+  },
+  {
+    "id": "Lambda.1",
+    "title": "Lambda function policies should prohibit public access"
+  },
+  {
+    "id": "Lambda.2",
+    "title": "Lambda functions should use supported runtimes"
+  },
+  {
+    "id": "Lambda.5",
+    "title": "VPC Lambda functions should operate in multiple Availability Zones"
+  },
+  {
+    "id": "Macie.1",
+    "title": "Amazon Macie should be enabled"
+  },
+  {
+    "id": "Macie.2",
+    "title": "Macie automated sensitive data discovery should be enabled"
+  },
+  {
+    "id": "MQ.2",
+    "title": "ActiveMQ brokers should stream audit logs to CloudWatch"
+  },
+  {
+    "id": "MQ.3",
+    "title": "Amazon MQ brokers should have automatic minor version upgrade enabled"
+  },
+  {
+    "id": "MSK.1",
+    "title": "MSK clusters should be encrypted in transit among broker nodes"
+  },
+  {
+    "id": "MSK.3",
+    "title": "MSK Connect connectors should be encrypted in transit"
+  },
+  {
+    "id": "MSK.4",
+    "title": "MSK clusters should have public access disabled"
+  },
+  {
+    "id": "MSK.5",
+    "title": "MSK connectors should have logging enabled"
+  },
+  {
+    "id": "MSK.6",
+    "title": "MSK clusters should disable unauthenticated access"
+  },
+  {
+    "id": "Neptune.1",
+    "title": "Neptune DB clusters should be encrypted at rest"
+  },
+  {
+    "id": "Neptune.2",
+    "title": "Neptune DB clusters should publish audit logs to CloudWatch Logs"
+  },
+  {
+    "id": "Neptune.3",
+    "title": "Neptune DB cluster snapshots should not be public"
+  },
+  {
+    "id": "Neptune.4",
+    "title": "Neptune DB clusters should have deletion protection enabled"
+  },
+  {
+    "id": "Neptune.5",
+    "title": "Neptune DB clusters should have automated backups enabled"
+  },
+  {
+    "id": "Neptune.6",
+    "title": "Neptune DB cluster snapshots should be encrypted at rest"
+  },
+  {
+    "id": "Neptune.7",
+    "title": "Neptune DB clusters should have IAM database authentication enabled"
+  },
+  {
+    "id": "Neptune.8",
+    "title": "Neptune DB clusters should be configured to copy tags to snapshots"
+  },
+  {
+    "id": "NetworkFirewall.2",
+    "title": "Network Firewall logging should be enabled"
+  },
+  {
+    "id": "NetworkFirewall.3",
+    "title": "Network Firewall policies should have at least one rule group associated"
+  },
+  {
+    "id": "NetworkFirewall.4",
+    "title": "The default stateless action for Network Firewall policies should be drop or forward for full packets"
+  },
+  {
+    "id": "NetworkFirewall.5",
+    "title": "The default stateless action for Network Firewall policies should be drop or forward for fragmented packets"
+  },
+  {
+    "id": "NetworkFirewall.6",
+    "title": "Stateless Network Firewall rule group should not be empty"
+  },
+  {
+    "id": "NetworkFirewall.9",
+    "title": "Network Firewall firewalls should have deletion protection enabled"
+  },
+  {
+    "id": "NetworkFirewall.10",
+    "title": "Network Firewall firewalls should have subnet change protection enabled"
+  },
+  {
+    "id": "Opensearch.1",
+    "title": "OpenSearch domains should have encryption at rest enabled"
+  },
+  {
+    "id": "Opensearch.2",
+    "title": "OpenSearch domains should not be publicly accessible"
+  },
+  {
+    "id": "Opensearch.3",
+    "title": "OpenSearch domains should encrypt data sent between nodes"
+  },
+  {
+    "id": "Opensearch.4",
+    "title": "OpenSearch domain error logging to CloudWatch Logs should be enabled"
+  },
+  {
+    "id": "Opensearch.5",
+    "title": "OpenSearch domains should have audit logging enabled"
+  },
+  {
+    "id": "Opensearch.6",
+    "title": "OpenSearch domains should have at least three data nodes"
+  },
+  {
+    "id": "Opensearch.7",
+    "title": "OpenSearch domains should have fine-grained access control enabled"
+  },
+  {
+    "id": "Opensearch.8",
+    "title": "Connections to OpenSearch domains should be encrypted using the latest TLS security policy"
+  },
+  {
+    "id": "Opensearch.10",
+    "title": "OpenSearch domains should have the latest software update installed"
+  },
+  {
+    "id": "PCA.1",
+    "title": "AWS Private CA root certificate authority should be disabled"
+  },
+  {
+    "id": "Route53.2",
+    "title": "Route 53 public hosted zones should log DNS queries"
+  },
+  {
+    "id": "RDS.1",
+    "title": "RDS snapshot should be private"
+  },
+  {
+    "id": "RDS.2",
+    "title": "RDS DB Instances should prohibit public access, as determined by the PubliclyAccessible configuration"
+  },
+  {
+    "id": "RDS.3",
+    "title": "RDS DB instances should have encryption at-rest enabled"
+  },
+  {
+    "id": "RDS.4",
+    "title": "RDS cluster snapshots and database snapshots should be encrypted at rest"
+  },
+  {
+    "id": "RDS.5",
+    "title": "RDS DB instances should be configured with multiple Availability Zones"
+  },
+  {
+    "id": "RDS.6",
+    "title": "Enhanced monitoring should be configured for RDS DB instances"
+  },
+  {
+    "id": "RDS.7",
+    "title": "RDS clusters should have deletion protection enabled"
+  },
+  {
+    "id": "RDS.8",
+    "title": "RDS DB instances should have deletion protection enabled"
+  },
+  {
+    "id": "RDS.9",
+    "title": "RDS DB instances should publish logs to CloudWatch Logs"
+  },
+  {
+    "id": "RDS.10",
+    "title": "IAM authentication should be configured for RDS instances"
+  },
+  {
+    "id": "RDS.11",
+    "title": "RDS instances should have automatic backups enabled"
+  },
+  {
+    "id": "RDS.12",
+    "title": "IAM authentication should be configured for RDS clusters"
+  },
+  {
+    "id": "RDS.13",
+    "title": "RDS automatic minor version upgrades should be enabled"
+  },
+  {
+    "id": "RDS.14",
+    "title": "Amazon Aurora clusters should have backtracking enabled"
+  },
+  {
+    "id": "RDS.15",
+    "title": "RDS DB clusters should be configured for multiple Availability Zones"
+  },
+  {
+    "id": "RDS.16",
+    "title": "Aurora DB clusters should be configured to copy tags to DB snapshots"
+  },
+  {
+    "id": "RDS.17",
+    "title": "RDS DB instances should be configured to copy tags to snapshots"
+  },
+  {
+    "id": "RDS.19",
+    "title": "Existing RDS event notification subscriptions should be configured for critical cluster events"
+  },
+  {
+    "id": "RDS.20",
+    "title": "Existing RDS event notification subscriptions should be configured for critical database instance events"
+  },
+  {
+    "id": "RDS.21",
+    "title": "An RDS event notifications subscription should be configured for critical database parameter group events"
+  },
+  {
+    "id": "RDS.22",
+    "title": "An RDS event notifications subscription should be configured for critical database security group events"
+  },
+  {
+    "id": "RDS.23",
+    "title": "RDS instances should not use a database engine default port"
+  },
+  {
+    "id": "RDS.24",
+    "title": "RDS Database clusters should use a custom administrator username"
+  },
+  {
+    "id": "RDS.25",
+    "title": "RDS database instances should use a custom administrator username"
+  },
+  {
+    "id": "RDS.27",
+    "title": "RDS DB clusters should be encrypted at rest"
+  },
+  {
+    "id": "RDS.34",
+    "title": "Aurora MySQL DB clusters should publish audit logs to CloudWatch Logs"
+  },
+  {
+    "id": "RDS.35",
+    "title": "RDS DB clusters should have automatic minor version upgrade enabled"
+  },
+  {
+    "id": "RDS.36",
+    "title": "RDS for PostgreSQL DB instances should publish logs to CloudWatch Logs"
+  },
+  {
+    "id": "RDS.37",
+    "title": "Aurora PostgreSQL DB clusters should publish logs to CloudWatch Logs"
+  },
+  {
+    "id": "RDS.40",
+    "title": "RDS for SQL Server DB instances should publish logs to CloudWatch Logs"
+  },
+  {
+    "id": "RDS.41",
+    "title": "RDS for SQL Server DB instances should be encrypted in transit"
+  },
+  {
+    "id": "RDS.42",
+    "title": "RDS for MariaDB DB instances should publish logs to CloudWatch Logs"
+  },
+  {
+    "id": "RDS.43",
+    "title": "RDS DB proxies should require TLS encryption for connections"
+  },
+  {
+    "id": "RDS.44",
+    "title": "RDS for MariaDB DB instances should be encrypted in transit"
+  },
+  {
+    "id": "RDS.45",
+    "title": "Aurora MySQL DB clusters should have audit logging enabled"
+  },
+  {
+    "id": "RDS.46",
+    "title": "RDS DB instances should not be deployed in public subnets with routes to internet gateways"
+  },
+  {
+    "id": "RDS.47",
+    "title": "RDS for PostgreSQL DB clusters should be configured to copy tags to DB snapshots"
+  },
+  {
+    "id": "RDS.48",
+    "title": "RDS for MySQL DB clusters should be configured to copy tags to DB snapshots"
+  },
+  {
+    "id": "RDS.50",
+    "title": "RDS DB clusters should have enough backup retention period set"
+  },
+  {
+    "id": "RDS.51",
+    "title": "RDS global clusters should run on a supported Aurora MySQL version"
+  },
+  {
+    "id": "Redshift.1",
+    "title": "Amazon Redshift clusters should prohibit public access"
+  },
+  {
+    "id": "Redshift.2",
+    "title": "Connections to Amazon Redshift clusters should be encrypted in transit"
+  },
+  {
+    "id": "Redshift.3",
+    "title": "Amazon Redshift clusters should have automatic snapshots enabled"
+  },
+  {
+    "id": "Redshift.4",
+    "title": "Amazon Redshift clusters should have audit logging enabled"
+  },
+  {
+    "id": "Redshift.6",
+    "title": "Amazon Redshift should have automatic upgrades to major versions enabled"
+  },
+  {
+    "id": "Redshift.7",
+    "title": "Redshift clusters should use enhanced VPC routing"
+  },
+  {
+    "id": "Redshift.8",
+    "title": "Amazon Redshift clusters should not use the default Admin username"
+  },
+  {
+    "id": "Redshift.10",
+    "title": "Redshift clusters should be encrypted at rest"
+  },
+  {
+    "id": "Redshift.15",
+    "title": "Redshift security groups should allow ingress on the cluster port only from restricted origins"
+  },
+  {
+    "id": "Redshift.18",
+    "title": "Redshift clusters should have Multi-AZ deployments enabled"
+  },
+  {
+    "id": "RedshiftServerless.1",
+    "title": "Amazon Redshift Serverless workgroups should use enhanced VPC routing"
+  },
+  {
+    "id": "RedshiftServerless.2",
+    "title": "Connections to Redshift Serverless workgroups should be required to use SSL"
+  },
+  {
+    "id": "RedshiftServerless.3",
+    "title": "Redshift Serverless workgroups should prohibit public access"
+  },
+  {
+    "id": "RedshiftServerless.5",
+    "title": "Redshift Serverless namespaces should not use the default admin username"
+  },
+  {
+    "id": "RedshiftServerless.6",
+    "title": "Redshift Serverless namespaces should export logs to CloudWatch Logs"
+  },
+  {
+    "id": "S3.1",
+    "title": "S3 general purpose buckets should have block public access settings enabled"
+  },
+  {
+    "id": "S3.2",
+    "title": "S3 general purpose buckets should block public read access"
+  },
+  {
+    "id": "S3.3",
+    "title": "S3 general purpose buckets should block public write access"
+  },
+  {
+    "id": "S3.5",
+    "title": "S3 general purpose buckets should require requests to use SSL"
+  },
+  {
+    "id": "S3.6",
+    "title": "S3 general purpose bucket policies should restrict access to other AWS accounts"
+  },
+  {
+    "id": "S3.8",
+    "title": "S3 general purpose buckets should block public access"
+  },
+  {
+    "id": "S3.9",
+    "title": "S3 general purpose buckets should have server access logging enabled"
+  },
+  {
+    "id": "S3.12",
+    "title": "ACLs should not be used to manage user access to S3 general purpose buckets"
+  },
+  {
+    "id": "S3.13",
+    "title": "S3 general purpose buckets should have Lifecycle configurations"
+  },
+  {
+    "id": "S3.19",
+    "title": "S3 access points should have block public access settings enabled"
+  },
+  {
+    "id": "S3.24",
+    "title": "S3 Multi-Region Access Points should have block public access settings enabled"
+  },
+  {
+    "id": "S3.25",
+    "title": "S3 directory buckets should have lifecycle configurations"
+  },
+  {
+    "id": "SageMaker.1",
+    "title": "Amazon SageMaker notebook instances should not have direct internet access"
+  },
+  {
+    "id": "SageMaker.2",
+    "title": "SageMaker notebook instances should be launched in a custom VPC"
+  },
+  {
+    "id": "SageMaker.3",
+    "title": "Users should not have root access to SageMaker notebook instances"
+  },
+  {
+    "id": "SageMaker.4",
+    "title": "SageMaker endpoint production variants should have an initial instance count greater than 1"
+  },
+  {
+    "id": "SageMaker.5",
+    "title": "SageMaker models should have network isolation enabled"
+  },
+  {
+    "id": "SageMaker.8",
+    "title": "SageMaker notebook instances should run on supported platforms"
+  },
+  {
+    "id": "SageMaker.9",
+    "title": "SageMaker data quality job definitions should have inter-container traffic encryption enabled"
+  },
+  {
+    "id": "SageMaker.10",
+    "title": "SageMaker model explainability job definitions should have inter-container traffic encryption enabled"
+  },
+  {
+    "id": "SageMaker.11",
+    "title": "SageMaker data quality job definitions should have network isolation enabled"
+  },
+  {
+    "id": "SageMaker.12",
+    "title": "SageMaker model bias job definitions should have network isolation enabled"
+  },
+  {
+    "id": "SageMaker.13",
+    "title": "SageMaker model quality job definitions should have inter-container traffic encryption enabled"
+  },
+  {
+    "id": "SageMaker.14",
+    "title": "SageMaker monitoring schedules should have network isolation enabled"
+  },
+  {
+    "id": "SageMaker.15",
+    "title": "SageMaker model bias job definitions should have inter-container traffic encryption enabled"
+  },
+  {
+    "id": "SageMaker.16",
+    "title": "SageMaker models should use private registry in VPC for primary containers"
+  },
+  {
+    "id": "SageMaker.17",
+    "title": "SageMaker feature group offline stores should be encrypted with AWS KMS keys"
+  },
+  {
+    "id": "SageMaker.19",
+    "title": "SageMaker models should use private registry in VPC for multi-container inference pipelines"
+  },
+  {
+    "id": "SecretsManager.1",
+    "title": "Secrets Manager secrets should have automatic rotation enabled"
+  },
+  {
+    "id": "SecretsManager.2",
+    "title": "Secrets Manager secrets configured with automatic rotation should rotate successfully"
+  },
+  {
+    "id": "SecretsManager.3",
+    "title": "Remove unused Secrets Manager secrets"
+  },
+  {
+    "id": "SecretsManager.4",
+    "title": "Secrets Manager secrets should be rotated within a specified number of days"
+  },
+  {
+    "id": "ServiceCatalog.1",
+    "title": "Service Catalog portfolios should be shared within an AWS organization only"
+  },
+  {
+    "id": "SES.3",
+    "title": "SES configuration sets should have TLS enabled for sending emails"
+  },
+  {
+    "id": "SNS.4",
+    "title": "SNS topic access policies should not allow public access"
+  },
+  {
+    "id": "SQS.1",
+    "title": "Amazon SQS queues should be encrypted at rest"
+  },
+  {
+    "id": "SQS.3",
+    "title": "SQS queue access policies should not allow public access"
+  },
+  {
+    "id": "SSM.1",
+    "title": "Amazon EC2 instances should be managed by AWS Systems Manager"
+  },
+  {
+    "id": "SSM.2",
+    "title": "Amazon EC2 instances managed by Systems Manager should have a patch compliance status of COMPLIANT after a patch installation"
+  },
+  {
+    "id": "SSM.3",
+    "title": "Amazon EC2 instances managed by Systems Manager should have an association compliance status of COMPLIANT"
+  },
+  {
+    "id": "SSM.4",
+    "title": "SSM documents should not be public"
+  },
+  {
+    "id": "SSM.6",
+    "title": "SSM Automation should have CloudWatch logging enabled"
+  },
+  {
+    "id": "SSM.7",
+    "title": "SSM documents should have the block public sharing setting enabled"
+  },
+  {
+    "id": "StepFunctions.1",
+    "title": "Step Functions state machines should have logging turned on"
+  },
+  {
+    "id": "Transfer.2",
+    "title": "Transfer Family servers should not use FTP protocol for endpoint connection"
+  },
+  {
+    "id": "Transfer.3",
+    "title": "Transfer Family connectors should have logging enabled"
+  },
+  {
+    "id": "WAF.1",
+    "title": "AWS WAF Classic Global Web ACL logging should be enabled"
+  },
+  {
+    "id": "WAF.2",
+    "title": "AWS WAF Classic Regional rules should have at least one condition"
+  },
+  {
+    "id": "WAF.3",
+    "title": "AWS WAF Classic Regional rule groups should have at least one rule"
+  },
+  {
+    "id": "WAF.4",
+    "title": "AWS WAF Classic Regional web ACLs should have at least one rule or rule group"
+  },
+  {
+    "id": "WAF.6",
+    "title": "AWS WAF Classic global rules should have at least one condition"
+  },
+  {
+    "id": "WAF.7",
+    "title": "AWS WAF Classic global rule groups should have at least one rule"
+  },
+  {
+    "id": "WAF.8",
+    "title": "AWS WAF Classic global web ACLs should have at least one rule or rule group"
+  },
+  {
+    "id": "WAF.10",
+    "title": "AWS WAF web ACLs should have at least one rule or rule group"
+  },
+  {
+    "id": "WAF.12",
+    "title": "AWS WAF rules should have CloudWatch metrics enabled"
+  },
+  {
+    "id": "WorkSpaces.1",
+    "title": "WorkSpaces user volumes should be encrypted at rest"
+  },
+  {
+    "id": "WorkSpaces.2",
+    "title": "WorkSpaces root volumes should be encrypted at rest"
+  }
+]
