@@ -1,6 +1,6 @@
 # Scan Execution v2 — Three-Stage, Parallel, Tier-Aware Scanning — Design
 
-> Status: draft for review (revision 2) · 2026-05-21
+> Status: draft for review (revision 3) · 2026-05-21
 > Part of the AWS scanner comprehensiveness uplift. Implements AWS; the
 > architecture is **deliberately cloud-agnostic** — the Azure and GCP
 > scanner uplifts will adopt the same three-stage pattern (see §11).
@@ -95,7 +95,7 @@ Non-goals (v1):
   structured so an accelerator can later slot in as an opportunistic
   fast path — but v1 does not build them, and the scanner must never
   *depend* on them (it must work in immature accounts where Config /
-  Security Hub / Resource Explorer are not enabled). See §14.
+  Security Hub / Resource Explorer are not enabled). See §15.
 - Building the Deep-tier capability modules — AWS uplift Slices 3-6.
 
 ## 4. The three-stage scan strategy
@@ -350,7 +350,68 @@ Plus a top-level summary (tier, phase, region-state counts, overall
 regions fully, M at baseline, K with gaps" — turning every speed
 trade-off into a defensible, inspectable engineering decision.
 
-## 10. Observability & task sizing
+## 10. Scan progress & scan-type UX
+
+A fast two-phase Quick scan and a coverage map are only valuable if the
+user can see them. Today, after connecting a cloud and returning to the
+app, the user faces a blank screen with no sign a scan is running.
+
+### 10.1 Backend contract
+
+The scan row already carries `tier`, `status`
+(`queued|running|partial|completed|failed`) and `scope` (the coverage
+map). Two additions:
+
+- A **`phase`** field on the `scans` row — `region_discovery` |
+  `first_signal` | `crown_jewel` | `full` | `done` — so the app can show
+  *what* the scan is doing, not merely that it is running. The pipeline
+  updates `phase` (and the coverage map in `scope`) as it advances.
+- A **scan-status API** the app polls — returns `tier`, `status`,
+  `phase`, the coverage map, and running finding counts. Either a new
+  `GET /v1/scans/{id}` or an extension of the existing scans API (the
+  implementation plan confirms which against the current API surface).
+
+### 10.2 Progress visibility — chunked results + a progress view
+
+The two-phase Quick design gives a safe hybrid of the two options KK
+raised (stream results vs. progress bar) — with **no risky per-finding
+incremental writes**:
+
+- Quick **Phase 1 commits** (~30-90 s) → its findings appear in the app,
+  labelled as a partial / in-progress result.
+- While Phase 2 runs, the app shows a **progress view** driven by
+  polling `phase` + the coverage map: "Discovering regions… → Found 16
+  active regions, 1 empty → Phase 1: account posture ✓ → Phase 2:
+  crown-jewel checks across 16 regions…".
+- Phase 2 commits → the full Quick result renders.
+
+Results populate in two visible chunks *and* a progress view explains
+the gap — both of the user's options, without per-finding streaming.
+
+### 10.3 Results labelled by scan type
+
+Every findings / dashboard view shows the scan behind it — "Quick Scan ·
+<when>" or "Medium Scan · <when>" — so the user always knows the depth
+of the results they are looking at. (`tier` is on the scan row.)
+
+### 10.4 Scan-type picker on rescan
+
+For an already-connected cloud, the **Scan** control becomes a
+split-button / dropdown offering **Quick · Medium · Deep**, each with a
+short info element on what it implies and roughly how long it takes
+(Quick — crown-jewel, ~5 min; Medium — full posture, ~20 min; Deep —
++ code & vulnerability review). Selecting **Deep** routes the user to a
+**Contact Us** page — the interim face of the Deep-tier entitlement gate
+(AWS uplift spec §11), later replaced by a payment gateway.
+
+### 10.5 Surface scope
+
+The progress view and scan-type picker are **web-app** features. iOS,
+per its companion-app direction, shows results with the scan-type label
+only — the progress view and picker are not ported. (Assumption — flag
+if iOS should do more.)
+
+## 11. Observability & task sizing
 
 - **`PYTHONUNBUFFERED=1`** in the scanner Dockerfile — the scanner
   block-buffers stdout in the container, so a running scan is currently
@@ -363,7 +424,7 @@ trade-off into a defensible, inspectable engineering decision.
 - **Credentials** — `RefreshableCredentials` (shipped); parallelism also
   shortens scans. No further action.
 
-## 11. Cross-cloud applicability
+## 12. Cross-cloud applicability
 
 The three-stage architecture is **cloud-agnostic by design**; the Azure
 and GCP scanner uplifts will adopt it:
@@ -381,7 +442,7 @@ and GCP scanner uplifts will adopt it:
 This spec keeps `scan_pipeline.py` AWS-free precisely so that lift is
 clean.
 
-## 12. Testing
+## 13. Testing
 
 - **`scan_pipeline.run_units`** — unit-tested: fake units, assert every
   unit runs, the merge is correct, a raising unit is isolated, a unit
@@ -400,7 +461,7 @@ clean.
   end-to-end scan in the build/deploy task (`main.py` is not importable
   in the test venv).
 
-## 13. Phasing
+## 14. Phasing
 
 A single implementation plan, executed as ordered tasks:
 
@@ -415,14 +476,24 @@ A single implementation plan, executed as ordered tasks:
 6. Resilience — `adaptive` retry config, per-service caps wired,
    per-unit timeouts, `partial` status.
 7. Dockerfile `PYTHONUNBUFFERED` + `scan-stack.ts` task resize.
-8. Build + deploy + end-to-end verification.
+8. Backend progress contract (§10.1) — the `scans.phase` field
+   (migration) + the scan-status API the app polls.
+9. Web UX (§10) — the in-progress scan view (region census + phase
+   progress, chunked Phase-1/Phase-2 results), scan-type labels on
+   findings/dashboard views, and the Quick/Medium/Deep scan-type picker
+   with info elements + the Deep → Contact Us route.
+10. Build + deploy + end-to-end verification.
 
-The E2E verification is the clean, fast scan that closes the open RD-7
-and S1-9 verification loose ends: it confirms Quick Phase 1 in ~30-90 s,
-full Quick in budget, a Medium scan covering all regions with the
-coverage map populated, and `partial` handling on an induced error.
+Tasks 1-8 + 10 are the scanner/backend group; task 9 is the web-app
+group — they can be reviewed and executed as two groups (the web group
+depends on task 8's API). The E2E verification is the clean, fast scan
+that closes the open RD-7 and S1-9 verification loose ends: it confirms
+Quick Phase 1 in ~30-90 s, full Quick in budget, a Medium scan covering
+all regions with the coverage map populated, `partial` handling on an
+induced error, and the web progress view + scan-type picker working
+against a live scan.
 
-## 14. Open questions / risks
+## 15. Open questions / risks
 
 - **Probe cost.** The Stage-2 probe is ~8-12 `list`/`describe` calls per
   region. Across ~17 regions in parallel that is bounded and cheap, but
