@@ -7,10 +7,12 @@ import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
-// Pre-issued ACM cert for app.settlingforless.com (DNS-validated 2026-05-18).
+// ACM cert covering both the canonical shasta.transilience.cloud domain and
+// the legacy app.settlingforless.com stop-gap domain (DNS-validated 2026-05-21).
 // Lives in us-east-1 by necessity (CloudFront only accepts certs from us-east-1).
-const APP_CERT_ARN = 'arn:aws:acm:us-east-1:470226123496:certificate/83a22317-a1b9-498d-861a-253deaaff973';
-const APP_DOMAIN   = 'app.settlingforless.com';
+const APP_CERT_ARN  = 'arn:aws:acm:us-east-1:470226123496:certificate/28690c41-24bc-4eb8-b925-87820a2fb605';
+const APP_DOMAIN    = 'app.settlingforless.com';      // legacy stop-gap domain
+const SHASTA_DOMAIN = 'shasta.transilience.cloud';    // canonical domain
 
 /// Static hosting for:
 ///  • cdn.settlingforless.com — public CloudFormation templates customers
@@ -94,7 +96,7 @@ export class StaticStack extends cdk.Stack {
         { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html', ttl: cdk.Duration.seconds(0) },
       ],
       priceClass:  cloudfront.PriceClass.PRICE_CLASS_100,
-      domainNames: [APP_DOMAIN],
+      domainNames: [SHASTA_DOMAIN, APP_DOMAIN],
       certificate: appCert,
     });
 

@@ -343,7 +343,7 @@ export class ApiStack extends cdk.Stack {
         GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
         STATE_JWT_SECRET_ARN:  `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key`,
         GITHUB_APP_SLUG:       'ciso-copilot',
-        WEB_CALLBACK_URL:      'https://app.settlingforless.com/ai/install/callback',
+        WEB_CALLBACK_URL:      'https://shasta.transilience.cloud/ai/install/callback',
       },
     });
     props.dbCluster.grantDataApiAccess(aiGithubFn);

@@ -37,7 +37,7 @@ COGNITO_DOMAIN       = os.environ["COGNITO_DOMAIN"]           # ciso-copilot.aut
 MICROSOFT_CLIENT_ID  = os.environ["MICROSOFT_CLIENT_ID"]      # our multi-tenant app reg
 MICROSOFT_SECRET_ARN = os.environ["MICROSOFT_CLIENT_SECRET_ARN"]
 IOS_REDIRECT_URI     = os.environ.get("IOS_REDIRECT_URI",     "cisocopilot://auth/callback")
-WEB_REDIRECT_URI     = os.environ.get("WEB_REDIRECT_URI",     "https://dil1ztnjosz43.cloudfront.net/callback")
+WEB_REDIRECT_URI     = os.environ.get("WEB_REDIRECT_URI",     "https://shasta.transilience.cloud/callback")
 
 cidp = boto3.client("cognito-idp")
 sm   = boto3.client("secretsmanager")

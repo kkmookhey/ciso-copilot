@@ -69,5 +69,5 @@ new ApiStack(app, 'CisoCopilotApi', {
   openaiApiKeySecret: scanStack.openaiApiKeySecret,
   aiScanQueue:        scanStack.aiScanQueue,
   cognitoDomain:      `ciso-copilot.auth.${config.awsRegion}.amazoncognito.com`,
-  webRedirectUri:     'https://app.settlingforless.com/callback',
+  webRedirectUri:     'https://shasta.transilience.cloud/callback',
 });
