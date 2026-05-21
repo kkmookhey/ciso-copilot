@@ -24,8 +24,8 @@
       ]
     },
     "fsbp": {
-      "coverage_pct": 20.5,
-      "covered": 76,
+      "coverage_pct": 21.1,
+      "covered": 78,
       "total": 370,
       "uncovered": [
         "Account.1",
@@ -117,8 +117,6 @@
         "EC2.181",
         "EC2.182",
         "EC2.183",
-        "ECR.1",
-        "ECR.2",
         "ECR.3",
         "ECS.1",
         "ECS.2",

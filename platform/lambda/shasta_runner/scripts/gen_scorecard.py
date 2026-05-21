@@ -17,16 +17,11 @@ from pathlib import Path
 _APP = Path(__file__).resolve().parent.parent / "app"
 sys.path.insert(0, str(_APP))
 
-from coverage.scorecard import compute_scorecard, load_catalogs, render_markdown
-from coverage.shasta_manifest import SHASTA_CHECKS
+from coverage.scorecard import (build_coverage_map, compute_scorecard,
+                                load_catalogs, render_markdown)
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _OUT_DIR = _REPO_ROOT / "docs" / "coverage"
-
-
-def build_coverage_map() -> dict[str, dict[str, list[str]]]:
-    """The coverage map the scorecard scores. Today: Shasta only."""
-    return dict(SHASTA_CHECKS)
 
 
 def main() -> None:

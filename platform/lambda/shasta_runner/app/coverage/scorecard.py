@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from coverage.registry import ALL_CHECKS
+from coverage.shasta_manifest import SHASTA_CHECKS
+
 _BENCH_DIR = Path(__file__).resolve().parent / "benchmarks"
 _BENCHMARK_NAMES = ["cis_aws", "fsbp", "pci_dss", "nist_800_53"]
 _BENCHMARK_LABELS = {
@@ -20,6 +23,21 @@ _BENCHMARK_LABELS = {
     "pci_dss":     "PCI DSS v4.0",
     "nist_800_53": "NIST SP 800-53 Rev 5",
 }
+
+
+def build_coverage_map() -> dict[str, dict[str, list[str]]]:
+    """The coverage map the scorecard scores.
+
+    Two sources, no overlap in check_ids: Shasta's existing checks (the
+    static manifest) and the in-repo coverage engine's checks (the
+    registry — each Check declares its own `frameworks`). This is the
+    single definition shared by scripts/gen_scorecard.py and the
+    scorecard freshness test, so the committed scorecard cannot drift.
+    """
+    coverage_map: dict[str, dict[str, list[str]]] = dict(SHASTA_CHECKS)
+    for check in ALL_CHECKS:
+        coverage_map[check.check_id] = dict(check.frameworks)
+    return coverage_map
 
 
 def load_catalogs() -> dict[str, list[dict[str, str]]]:
