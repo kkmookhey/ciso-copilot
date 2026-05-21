@@ -40,5 +40,10 @@ in v4.0.1). One control (9.5.1.2.1) uses its parent section title as the PDF
 extraction returned the same text block for both. Appendix controls (A1.x, A3.x)
 are not included in this catalog — the Azure Policy source does not include them.
 
+~38 titles are truncated PDF-extraction artifacts (the sentence ends mid-clause,
+e.g. `"Configuration standards for NSC rulesets are"`). The scorecard matches on
+control IDs, not titles, so this does not affect correctness. A full refresh
+should re-extract from the PDF with better line-joining to recover the full text.
+
 To refresh: re-source the publication, re-run the transform to the shape
 above, replace the JSON, update the version/date in this table.
