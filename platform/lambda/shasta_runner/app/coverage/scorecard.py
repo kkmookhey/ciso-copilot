@@ -2,9 +2,9 @@
 """Coverage scorecard — maps the controls our checks cover against the
 vendored benchmark catalogs and reports coverage per benchmark.
 
-compute_scorecard is pure (testable). load_catalogs / render_markdown /
-the __main__ block read and write files; scripts/gen_scorecard.py is the
-CLI entry point. See spec §8.
+compute_scorecard and render_markdown are pure (testable). load_catalogs
+reads the vendored catalog files. scripts/gen_scorecard.py is the CLI
+entry point that writes the committed report. See spec §8.
 """
 from __future__ import annotations
 
