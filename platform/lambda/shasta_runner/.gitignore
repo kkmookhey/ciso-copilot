@@ -1,4 +1,5 @@
 .build/
+.venv/
 
 # Build-time copies of shared modules from ../ai_scanner (see build.sh).
 # Source of truth lives in ai_scanner; don't commit the runtime copies.
