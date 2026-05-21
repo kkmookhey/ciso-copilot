@@ -190,7 +190,7 @@ private struct GroupRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Text(group.title).font(.subheadline.weight(.medium))
+            Text(group.check_title ?? group.title).font(.subheadline.weight(.medium))
             HStack(spacing: 10) {
                 Label("\(group.count) resource\(group.count == 1 ? "" : "s")", systemImage: "shippingbox")
                     .labelStyle(.titleAndIcon)
@@ -225,7 +225,7 @@ private struct GroupDetailView: View {
                         .font(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                 }
-                Text(group.title).font(.title3.bold())
+                Text(group.check_title ?? group.title).font(.title3.bold())
 
                 if !group.frameworks.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {

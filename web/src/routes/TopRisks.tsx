@@ -41,20 +41,13 @@ const FRAMEWORK_LABEL: Record<string, string> = {
 
 interface CheckGroup {
   check_id:   string;
-  title:      string;                    // generic — resource names stripped
+  title:      string;                    // generic — from the check-title catalog
   domain:     string;
   cloud:      string;
   severity:   Finding["severity"];       // worst across findings
   status:     Status;                    // worst across findings
   frameworks: Record<string, string[]>;  // merged
   findings:   Finding[];
-}
-
-/** Strip quoted resource names so the card title is generic. Shasta titles
- *  embed the resource in single quotes — "User 'alice' has broad perms". */
-function genericizeTitle(t: string): string {
-  const stripped = t.replace(/\s*'[^']*'/g, "").replace(/\s{2,}/g, " ").trim();
-  return stripped || t;
 }
 
 /** Single-cloud today; derive from the ARN so this still works once
@@ -88,7 +81,7 @@ function rollUp(findings: Finding[]): CheckGroup[] {
     }
     return {
       check_id: fs[0].check_id,
-      title:    genericizeTitle(fs[0].title),
+      title:    fs[0].check_title,
       domain:   fs[0].domain || "other",
       cloud:    cloudOf(fs[0]),
       severity, status, frameworks,

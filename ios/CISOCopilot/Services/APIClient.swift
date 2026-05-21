@@ -545,6 +545,7 @@ struct FindingGroup: Decodable, Identifiable, Hashable {
     let domain:           String
     let check_id:         String
     let title:            String
+    let check_title:      String?
     let severity:         String
     let count:            Int
     let frameworks:       [String: [String]]
@@ -749,6 +750,7 @@ struct Finding: Decodable, Identifiable, Hashable {
     let finding_id: String
     let check_id: String
     let title: String
+    let check_title: String?
     let description: String?
     let severity: String     // "critical" | "high" | "medium" | "low" | "info"
     let status: String

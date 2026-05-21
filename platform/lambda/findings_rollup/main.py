@@ -33,6 +33,8 @@ import os
 
 import boto3
 
+from check_titles import resolve_check_title
+
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
@@ -111,6 +113,7 @@ def handler(event: dict, context) -> dict:
                 "domain":           domain,
                 "check_id":         check_id,
                 "title":            title,
+                "check_title":      resolve_check_title(check_id, title),
                 "severity":         severity,
                 "count":            0,
                 "frameworks":       fw,

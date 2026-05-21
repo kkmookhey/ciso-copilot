@@ -22,6 +22,8 @@ import os
 
 import boto3
 
+from check_titles import resolve_check_title
+
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
@@ -105,10 +107,13 @@ def handler(event: dict, context) -> dict:
 
     findings = []
     for r in rs.get("records", []):
+        check_id = r[1].get("stringValue")
+        title    = r[2].get("stringValue")
         findings.append({
             "finding_id":    r[0].get("stringValue"),
-            "check_id":      r[1].get("stringValue"),
-            "title":         r[2].get("stringValue"),
+            "check_id":      check_id,
+            "title":         title,
+            "check_title":   resolve_check_title(check_id, title),
             "description":   r[3].get("stringValue") if not r[3].get("isNull") else None,
             "severity":      r[4].get("stringValue"),
             "status":        r[5].get("stringValue"),

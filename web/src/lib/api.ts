@@ -39,6 +39,7 @@ export interface FindingGroup {
   domain:           string;
   check_id:         string;
   title:            string;
+  check_title:      string;
   severity:         "critical" | "high" | "medium" | "low" | "info";
   count:            number;
   frameworks:       Record<string, string[]>;
@@ -49,6 +50,7 @@ export interface Finding {
   finding_id:    string;
   check_id:      string;
   title:         string;
+  check_title:   string;
   description:   string | null;
   severity:      "critical" | "high" | "medium" | "low" | "info";
   status:        "fail" | "partial" | "pass" | "not_assessed" | "not_applicable";
