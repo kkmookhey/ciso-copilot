@@ -124,9 +124,11 @@ class AssumedRoleAWSClient(AWSClient):
     `account_info` so per-check sts:GetCallerIdentity calls aren't needed.
     """
 
-    def __init__(self, credentials: dict[str, str], region: str, account_id: str):
+    def __init__(self, credentials: dict[str, str], region: str, account_id: str,
+                 scan_regions: list[str] | None = None):
         super().__init__(region=region)
         self._credentials = credentials
+        self._scan_regions = scan_regions
         self._account_info = AWSAccountInfo(
             account_id=account_id,
             account_aliases=[],
@@ -154,11 +156,22 @@ class AssumedRoleAWSClient(AWSClient):
         kwargs.setdefault("config", SCAN_BOTO_CONFIG)
         return super().client(service_name, **kwargs)
 
+    def get_enabled_regions(self) -> list[str]:
+        """Scope AI discovery (and any region-iterating Shasta check) to
+        the scan's discovered active regions, not all ~17 enabled regions.
+        Falls back to Shasta's all-enabled enumeration if no scan scope
+        was supplied."""
+        if self._scan_regions:
+            return list(self._scan_regions)
+        return super().get_enabled_regions()
+
     def for_region(self, region: str) -> "AssumedRoleAWSClient":
         """Return an AssumedRoleAWSClient for `region`, preserving the
         assumed-role credentials. Shasta's base for_region drops them and
         returns a credential-less, timeout-less base client."""
-        return AssumedRoleAWSClient(self._credentials, region, self._account_info.account_id)
+        return AssumedRoleAWSClient(self._credentials, region,
+                                    self._account_info.account_id,
+                                    scan_regions=self._scan_regions)
 
 
 def handler(event: dict, context) -> dict:
