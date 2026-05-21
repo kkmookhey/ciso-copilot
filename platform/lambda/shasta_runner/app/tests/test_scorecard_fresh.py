@@ -2,7 +2,6 @@
 """The committed scorecard must match a fresh regeneration — so coverage
 % cannot silently rot. If this fails, run: python scripts/gen_scorecard.py"""
 import json
-import sys
 from pathlib import Path
 
 from coverage.scorecard import compute_scorecard, load_catalogs
