@@ -24,10 +24,12 @@ interface ScanStackProps extends cdk.StackProps {
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
 /// platform/lambda/shasta_runner/build.sh). Invoked by:
-///   1. onboarding_aws_complete (for the initial scan when a customer
-///      finishes connecting their AWS account)
-///   2. POST /scans/trigger (manual re-scan)
-///   3. EventBridge cron (nightly scheduled scans — Phase A.5 later)
+///   1. POST /scans/trigger (manual re-scan via connectionsListFn)
+///   2. EventBridge cron (nightly scheduled scans — Phase A.5 later)
+///
+/// NOTE: the initial onboarding scan (triggered by onboarding_aws_complete)
+/// now runs as the `ciso-copilot-aws-scan` ECS Fargate task defined later
+/// in this stack, not this Lambda. (Task B4 cutover.)
 ///
 /// Permissions:
 ///   - sts:AssumeRole on any arn:aws:iam::*:role/CISOCopilotReader (scoped
