@@ -4,7 +4,66 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-20 (AI Discovery cloud-AI connector deployed).
+> Last updated: 2026-05-20b (incremental hardening #1–#4 shipped + deployed).
+
+## 🚀 Incremental hardening — #1–#4 shipped + deployed (2026-05-20b)
+
+Four scoped fixes, each TDD'd, committed, and deployed.
+
+**▶ NEXT SESSION starts here: incremental #6 — APNs push end-to-end test.**
+Fire a synthetic "act now" finding and confirm the push notification
+lands on KK's iPhone (APNs via SNS Mobile Push is wired but never
+verified since the v2 cutover). After #6 the major roadmap begins —
+see "Roadmap" below.
+
+**Shipped this session:**
+- **#1 — `ai_scanner` test rot fixed.** Deleted dead `writer.py` +
+  `test_writer.py` (superseded by `unified_writer.py`); regenerated 4
+  detector golden fixtures for SP1's `FindingEmission` schema. No deploy
+  needed. Commit `6ab40af`.
+- **#2 — `check_id → title` catalog.** `scripts/check_titles.py` — 292
+  curated generic titles, served as `check_title` by `findings_list` /
+  `findings_rollup`; web + iOS consume it; the old strip-heuristic is
+  gone. Read-time (no rescan). Commit `7b0b614`. Deployed: API hotswap +
+  web.
+- **#3 — Bedrock / AI-Lambda inventory.** Shasta's
+  `discover_aws_ai_services` drops Bedrock guardrails + AI-Lambda
+  functions; the scanner now discovers them itself
+  (`ai_pass.discover_bedrock_and_ai_lambdas`) and emits
+  `bedrock_guardrail` / `lambda_ai_function` entities. Commit `361a559`.
+  Deployed: `shasta-runner` image.
+- **#4 — FedRAMP + PCI DSS mappings.** `scripts/framework_map.py` —
+  287/292 checks mapped to NIST 800-53 Rev 5 + PCI DSS v4.0.1 controls;
+  `merge_framework_map` applied at scan time in all 4 scanners + the AI
+  pass. Commit `9f13b4b`. Deployed: web + all 4 scanner images. FedRAMP/
+  PCI controls appear on findings at each cloud's next scan.
+
+**#5 (iOS Policies / Questionnaires / Trust views) — cancelled.** iOS is
+being rethought as a lightweight companion app (push alerting + hand-off
+to Slack / Teams / Jira), not a web-feature port. See Roadmap → item 7.
+
+**Shasta is reference-only.** `~/Projects/Shasta` (and the Shasta GitHub
+repo) is a read-only dependency — never edit it. Shasta bugs are worked
+around in *this* repo; #3 is the worked example.
+
+### Roadmap
+
+Incremental list: #1–#4 done, #5 cancelled, **#6 = APNs push test (next)**.
+
+Major items, each its own brainstorm → spec → plan before build:
+1. **Scanner comprehensiveness uplift** — AWS Security Hub parity, then
+   bring Azure / GCP / Entra to the same depth + accuracy. (The first
+   big change after #6.)
+2. **Dynamic dashboards & reports** generated from chat.
+3. **Tech-stack-aware threat-intel feeds** — beyond KEV: EPSS, NVD,
+   vendor advisories, filtered per tenant.
+4. **Unified vulnerability / risk prioritisation register.**
+5. **Attack-path analysis** — graph-based, to crown-jewel assets.
+6. **AI-powered MDR** — agentic detection + managed (reversible) response
+   on the real-time event pipeline.
+7. **iOS revamp** — companion app: push alerting + hand-off findings /
+   issues to the team over Slack / Teams / Jira (MCP-based). Done after
+   the first six majors.
 
 ## 🚀 AI Discovery — cloud-AI connector + findings overhaul (2026-05-20)
 
@@ -12,7 +71,7 @@
 `docs/superpowers/specs/2026-05-20-ai-discovery-connectors-design.md`.
 Plan: `docs/superpowers/plans/2026-05-20-ai-discovery-cloud-ai.md`.
 
-**▶ NEXT SESSION starts here:** Plan 2 — the **OpenAI / Anthropic provider
+**Deferred — blocked:** Plan 2 — the **OpenAI / Anthropic provider
 connectors** (spec §7). The spec is written; the implementation plan is
 NOT. Blocked on KK obtaining enterprise/admin API access to OpenAI +
 Anthropic. Once unblocked: research the two admin APIs, write
@@ -84,15 +143,12 @@ names stripped; the real title + ARN are in the drill-in). Backend:
 `ALLOWED_STATUSES`. This resolves the AI-group-overcount and Bug 5.
 
 **Known limitations / open items:**
-- **Bedrock model inventory deferred** — Shasta's `discover_aws_ai_services`
-  has a key-name mismatch that drops Bedrock model lists. Bedrock
-  *findings* (the 15 checks) are unaffected. A Shasta-side fix.
-- **Generic finding titles are a heuristic** — display-time stripping of
-  single-quoted resource names. Covers Shasta's common title pattern; a
-  curated `check_id → title` catalog is the clean long-term fix.
-- **Pre-existing test rot:** `ai_scanner`'s stale `writer.py`
-  (`AssetEmission`/`RelEmission`, renamed in SP1) breaks 6 tests in
-  `test_writer.py` / `test_detectors.py`. Unrelated; worth a cleanup.
+- ~~Bedrock model inventory~~ ✅ RESOLVED — incremental #3 (2026-05-20b).
+  The scanner discovers Bedrock guardrails + AI-Lambda functions itself
+  (`ai_pass.discover_bedrock_and_ai_lambdas`); Shasta untouched.
+- ~~Generic finding titles heuristic~~ ✅ RESOLVED — incremental #2;
+  replaced by the curated `check_id → title` catalog.
+- ~~`ai_scanner` test rot~~ ✅ RESOLVED — incremental #1.
 - No route-level web tests for `Dashboard.tsx` / `TopRisks.tsx` — the repo
   has no route-test precedent; verified via type-check + a live endpoint
   smoke test.

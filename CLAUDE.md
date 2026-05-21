@@ -107,9 +107,13 @@ xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
 - **Today's mode**: testing + bugfix only. Do not add new features until
   the existing flows are self-service-ready from the web app.
 - **Single CDK app, all in `platform/`.** Don't fragment.
-- **Shasta lives at `~/Projects/Shasta` and ships as a sub-package** — do
-  not rewrite checks to TypeScript. Install in scanner images via
-  `pip install --no-deps` to avoid the xhtml2pdf → pycairo build chain.
+- **Shasta is a read-only reference — never edit it.** Shasta lives at
+  `~/Projects/Shasta`, ships as a sub-package, and is installed into
+  scanner images via `pip install --no-deps` (avoids the xhtml2pdf →
+  pycairo build chain). Do NOT modify Shasta — not the local checkout,
+  not its GitHub repo. If a Shasta function is wrong, work around it in
+  *this* repo (see the scanner's `ai_pass.py`). Don't rewrite Shasta
+  checks to TypeScript either.
 - **WebRTC for voice on iOS, not WebSocket.** The platform AEC is what
   prevents the speakerphone echo loop. Reference working code at
   `~/Projects/shasta-ios-poc/ios/ShastaPOC/Voice/RealtimeClient.swift`.
@@ -129,6 +133,8 @@ xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
 - ❌ Skip tests or disable hooks. Fix the underlying issue.
 - ❌ Invent function names, library APIs, or version numbers. Check or say
   "I don't know — let me look it up."
+- ❌ Edit Shasta. `~/Projects/Shasta` and the Shasta GitHub repo are
+  read-only references. Work around Shasta bugs in *this* repo.
 
 ---
 
