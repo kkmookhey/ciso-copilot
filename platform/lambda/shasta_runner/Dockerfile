@@ -3,6 +3,10 @@
 
 FROM public.ecr.aws/lambda/python:3.12
 
+# Stream stdout live to CloudWatch — the scanner block-buffers otherwise,
+# making a running scan unobservable until it exits.
+ENV PYTHONUNBUFFERED=1
+
 # Install ONLY the runtime deps shasta.aws.* + shasta.evidence actually use.
 # Shasta's full deps include xhtml2pdf → pycairo which needs gcc to build and
 # is unrelated to scanning (used by reports/). Skipping all of that.

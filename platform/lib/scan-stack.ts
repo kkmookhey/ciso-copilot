@@ -93,8 +93,8 @@ export class ScanStack extends cdk.Stack {
 
     const scanTaskDef = new ecs.FargateTaskDefinition(this, 'ScanTaskDef', {
       family:         'ciso-copilot-aws-scan',
-      cpu:            2048,   // 2 vCPU — headroom for Medium; Deep tunes later
-      memoryLimitMiB: 4096,
+      cpu:            4096,   // 4 vCPU — I/O-bound but ~16 worker threads each holding boto3 clients want the headroom
+      memoryLimitMiB: 8192,
     });
 
     scanTaskDef.addContainer('scanner', {
