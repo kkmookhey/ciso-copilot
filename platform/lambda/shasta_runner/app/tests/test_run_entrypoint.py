@@ -20,14 +20,15 @@ def test_build_event_maps_env_to_event():
     assert event["scan_tier"] == "medium"
 
 
-def test_scan_tier_defaults_to_quick():
+def test_no_regions_env_omits_regions_so_scanner_discovers():
     env = {
         "SCAN_ID": "s1", "TENANT_ID": "t1", "CONN_ID": "c1",
         "ROLE_ARN": "r", "EXTERNAL_ID": "x", "ACCOUNT_ID": "111111111111",
     }
     event = build_event(env)
     assert event["scan_tier"] == "quick"
-    assert event["regions"] == ["us-east-1"]
+    # No REGIONS env -> 'regions' is absent so main.py runs region discovery.
+    assert "regions" not in event
 
 
 def test_missing_required_var_raises():

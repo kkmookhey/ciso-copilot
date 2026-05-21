@@ -26,6 +26,7 @@ _REQUIRED = ("SCAN_ID", "TENANT_ID", "CONN_ID", "ROLE_ARN", "EXTERNAL_ID", "ACCO
 
 def build_event(env: dict[str, str]) -> dict:
     """Map scanner env vars to the event dict main.handler expects.
+    REGIONS is comma-split into an explicit override, or omitted so the scanner discovers regions.
     Raises KeyError if a required var is missing."""
     event = {
         "scan_id":     env["SCAN_ID"],
@@ -36,8 +37,11 @@ def build_event(env: dict[str, str]) -> dict:
         "account_id":  env["ACCOUNT_ID"],
         "scan_tier":   env.get("SCAN_TIER", "quick"),
     }
-    regions = env.get("REGIONS", "").strip()
-    event["regions"] = [r.strip() for r in regions.split(",") if r.strip()] or ["us-east-1"]
+    regions = [r.strip() for r in env.get("REGIONS", "").split(",") if r.strip()]
+    if regions:
+        # An explicit REGIONS override; otherwise omit 'regions' so the
+        # scanner's region-discovery pre-pass picks the scan scope.
+        event["regions"] = regions
     return event
 
 
