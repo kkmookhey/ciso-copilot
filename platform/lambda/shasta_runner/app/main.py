@@ -59,6 +59,7 @@ from shasta.aws import (
 from ai_pass           import run_ai_pass
 from arn_to_entity     import parse_arn
 from aws_config        import SCAN_BOTO_CONFIG
+from assumed_role      import build_refreshable_credentials, session_from_credentials
 from coverage.engine   import run_coverage
 from enumerate_compute import enumerate_compute
 from enumerate_iam     import enumerate_iam
@@ -140,12 +141,7 @@ class AssumedRoleAWSClient(AWSClient):
         )
 
     def _create_session(self) -> boto3.Session:
-        return boto3.Session(
-            aws_access_key_id     = self._credentials["AccessKeyId"],
-            aws_secret_access_key = self._credentials["SecretAccessKey"],
-            aws_session_token     = self._credentials["SessionToken"],
-            region_name           = self._region,
-        )
+        return session_from_credentials(self._credentials, self._region)
 
     @property
     def account_info(self) -> AWSAccountInfo:
@@ -190,7 +186,7 @@ def handler(event: dict, context) -> dict:
     _update_scan(scan_id, status="running")
 
     try:
-        credentials = _assume_role(role_arn, external_id)
+        credentials = build_refreshable_credentials(sts, role_arn, external_id)
         boto_session = _make_session(credentials, "us-east-1")
 
         # --- Step 0: region discovery. Pick the regions to scan from the
@@ -396,26 +392,11 @@ def handler(event: dict, context) -> dict:
 
 
 # ============================================================================
-# STS assume role + session helper
+# Session helper
 # ============================================================================
 
-def _assume_role(role_arn: str, external_id: str) -> dict[str, str]:
-    resp = sts.assume_role(
-        RoleArn=role_arn,
-        RoleSessionName="CISOCopilotScan",
-        ExternalId=external_id,
-        DurationSeconds=3600,
-    )
-    return resp["Credentials"]
-
-
-def _make_session(credentials: dict[str, str], region: str) -> boto3.Session:
-    return boto3.Session(
-        aws_access_key_id     = credentials["AccessKeyId"],
-        aws_secret_access_key = credentials["SecretAccessKey"],
-        aws_session_token     = credentials["SessionToken"],
-        region_name           = region,
-    )
+def _make_session(credentials, region: str) -> boto3.Session:
+    return session_from_credentials(credentials, region)
 
 
 # ============================================================================
