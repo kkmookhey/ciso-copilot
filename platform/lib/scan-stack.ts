@@ -1,7 +1,10 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -10,6 +13,7 @@ import { Construct } from 'constructs';
 import { config } from './config';
 
 interface ScanStackProps extends cdk.StackProps {
+  vpc:                   ec2.Vpc;
   dbCluster:             rds.DatabaseCluster;
   shastaRunnerRepo:      ecr.Repository;
   shastaRunnerAzureRepo: ecr.Repository;
@@ -41,6 +45,8 @@ export class ScanStack extends cdk.Stack {
   public readonly openaiApiKeySecret: secretsmanager.Secret;
   public readonly aiScanQueue:        sqs.Queue;
   public readonly aiScanner:          lambda.DockerImageFunction;
+  public readonly scanCluster:        ecs.Cluster;
+  public readonly scanTaskDef:        ecs.FargateTaskDefinition;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -71,6 +77,52 @@ export class ScanStack extends cdk.Stack {
       actions:   ['secretsmanager:GetSecretValue'],
       resources: [secretsArn],
     }));
+
+    // ===== AWS scanner — Fargate task =====
+    // The uplifted scan (Medium/Deep tiers) exceeds Lambda's 15-min ceiling,
+    // so the scanner also runs as a Fargate task. Same image, different
+    // entrypoint: the task overrides entryPoint+command to `python run.py`,
+    // which reads scan params from container env overrides set by RunTask.
+    const scanCluster = new ecs.Cluster(this, 'ScanCluster', {
+      clusterName: 'ciso-copilot-scan',
+      vpc:         props.vpc,
+    });
+
+    const scanTaskDef = new ecs.FargateTaskDefinition(this, 'ScanTaskDef', {
+      family:         'ciso-copilot-aws-scan',
+      cpu:            2048,   // 2 vCPU — headroom for Medium; Deep tunes later
+      memoryLimitMiB: 4096,
+    });
+
+    scanTaskDef.addContainer('scanner', {
+      image: ecs.ContainerImage.fromEcrRepository(props.shastaRunnerRepo, 'latest'),
+      // Override the Lambda base-image entrypoint — run the Fargate script.
+      entryPoint: ['python'],
+      command:    ['run.py'],
+      environment: dbEnv,
+      logging: ecs.LogDriver.awsLogs({
+        streamPrefix: 'aws-scan',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+    });
+
+    // Same permissions the scanner Lambda has: assume the customer reader
+    // role, Aurora Data API, read connection secrets.
+    props.dbCluster.grantDataApiAccess(scanTaskDef.taskRole);
+    scanTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions:   ['sts:AssumeRole'],
+      resources: ['arn:aws:iam::*:role/CISOCopilotReader'],
+    }));
+    scanTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [secretsArn],
+    }));
+
+    this.scanCluster = scanCluster;
+    this.scanTaskDef = scanTaskDef;
+
+    new cdk.CfnOutput(this, 'ScanClusterArn', { value: scanCluster.clusterArn });
+    new cdk.CfnOutput(this, 'ScanTaskDefArn', { value: scanTaskDef.taskDefinitionArn });
 
     // ===== Azure scanner =====
     // No cross-cloud assume-role needed (Azure SDK uses SP credentials directly

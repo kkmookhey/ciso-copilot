@@ -29,6 +29,7 @@ const staticStack = new StaticStack(app, 'CisoCopilotStatic', { env });
 const eventsStack = new EventsStack(app, 'CisoCopilotEvents', { env, dbCluster: data.cluster });
 const scanStack   = new ScanStack(app, 'CisoCopilotScan', {
   env,
+  vpc:                   network.vpc,
   dbCluster:             data.cluster,
   shastaRunnerRepo:      ecrStack.shastaRunner,
   shastaRunnerAzureRepo: ecrStack.shastaRunnerAzure,
