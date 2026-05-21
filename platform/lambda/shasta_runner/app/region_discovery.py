@@ -1,25 +1,27 @@
 # app/region_discovery.py
-"""AWS region discovery — the scanner's step 0.
+"""AWS region footprint probe — the scanner's Stage 1 + 2.
 
-Before scanning, determine which regions the account actually uses, so
-the scan covers the customer's real footprint: never the hardcoded
-us-east-1 default, never a blind sweep of all ~17 enabled regions.
+Stage 1: enumerate the account's enabled regions.
+Stage 2: probe each region in parallel with a few cheap list/describe
+calls and classify it active / default_only / empty / unknown.
 
-Detection: list enabled regions, then one resourcegroupstaggingapi
-GetResources call per region — a region is active if it returns any
-resource. See docs/superpowers/specs/2026-05-21-region-discovery-design.md.
+Every enabled region is still scanned (no region blind spot); the
+classification lets Stage 3 vary scan *depth* per region. See
+docs/superpowers/specs/2026-05-21-scan-performance-design.md §5-6.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-# Always scanned: global services (IAM, CloudFront, Route 53, STS) anchor
-# in us-east-1.
-_GLOBAL_ANCHOR = "us-east-1"
+ACTIVE       = "active"
+DEFAULT_ONLY = "default_only"
+EMPTY        = "empty"
+UNKNOWN      = "unknown"
 
-# Used only when region enumeration itself fails — a documented, non-silent
-# fallback (method is reported as 'degraded_default'). The common high-use
-# AWS regions; better an over-broad scan than a silent miss.
+# Used only when region enumeration itself fails — a documented,
+# non-silent fallback. All marked 'unknown' so Stage 3 scans them
+# conservatively (never a silent miss).
 _DEGRADED_DEFAULT_REGIONS = (
     "us-east-1", "us-east-2", "us-west-1", "us-west-2",
     "eu-west-1", "eu-central-1", "ap-south-1",
@@ -29,43 +31,71 @@ _DEGRADED_DEFAULT_REGIONS = (
 
 @dataclass(frozen=True)
 class RegionDiscovery:
-    """Outcome of region discovery for one scan."""
-    active_regions:  list[str]   # regions to scan (sorted; includes us-east-1)
-    enabled_regions: list[str]   # all opted-in regions enumerated
-    skipped_empty:   list[str]   # enabled, swept clean, deliberately skipped
-    errored_regions: list[str]   # sweep errored — included in active_regions
-    method:          str         # 'tagging_api' | 'degraded_default'
+    """Outcome of Stage 1 + 2."""
+    region_states:   dict[str, str]   # region -> active|default_only|empty|unknown
+    enabled_regions: list[str]        # all enabled regions enumerated
+    method:          str              # 'footprint_probe' | 'degraded_default'
 
 
-def classify_regions(
-    enabled_regions: list[str],
-    probe: dict[str, bool | None],
-) -> RegionDiscovery:
-    """Turn per-region probe results into a RegionDiscovery.
+def classify_region(*, has_real: bool, has_default_vpc: bool,
+                     errored: bool) -> str:
+    """Classify one region from its probe signals.
 
-    probe[region] is True (has resources), False (empty), or None (the
-    sweep errored). A region is active if it is NOT a positive 'empty'
-    result — i.e. True or None both count as active. us-east-1 is always
-    active and never appears in skipped_empty.
+    `errored` always wins → 'unknown' (an undetermined region is never
+    silently treated as empty). Otherwise: any real resource → active;
+    only a default VPC → default_only; nothing → empty.
     """
-    active = {_GLOBAL_ANCHOR}
-    skipped: list[str] = []
-    errored: list[str] = []
-    for region, has_resources in probe.items():
-        if has_resources is None:
-            errored.append(region)
-            active.add(region)
-        elif has_resources:
-            active.add(region)
-        elif region != _GLOBAL_ANCHOR:
-            skipped.append(region)
-    return RegionDiscovery(
-        active_regions=sorted(active),
-        enabled_regions=sorted(enabled_regions),
-        skipped_empty=sorted(skipped),
-        errored_regions=sorted(errored),
-        method="tagging_api",
-    )
+    if errored:
+        return UNKNOWN
+    if has_real:
+        return ACTIVE
+    if has_default_vpc:
+        return DEFAULT_ONLY
+    return EMPTY
+
+
+def _has_any(client, op: str, key: str, **kwargs) -> bool:
+    resp = getattr(client, op)(**kwargs)
+    return bool(resp.get(key))
+
+
+def probe_region(make_client, region: str) -> str:
+    """Probe one region and return its state.
+
+    `make_client(service)` returns a boto3 client for `service` bound to
+    this region. Any exception → 'unknown' (the anti-blind-spot rule).
+    """
+    try:
+        has_real = False
+        has_default_vpc = False
+
+        for vpc in make_client("ec2").describe_vpcs().get("Vpcs", []):
+            if vpc.get("IsDefault"):
+                has_default_vpc = True
+            else:
+                has_real = True
+
+        if not has_real:
+            probes = [
+                ("ec2",    "describe_instances",       "Reservations"),
+                ("lambda", "list_functions",           "Functions"),
+                ("rds",    "describe_db_instances",    "DBInstances"),
+                ("elbv2",  "describe_load_balancers",  "LoadBalancers"),
+                ("ecs",    "list_clusters",            "clusterArns"),
+                ("eks",    "list_clusters",            "clusters"),
+            ]
+            for service, op, key in probes:
+                if _has_any(make_client(service), op, key):
+                    has_real = True
+                    break
+
+        return classify_region(has_real=has_real,
+                                has_default_vpc=has_default_vpc,
+                                errored=False)
+    except Exception as e:
+        print(f"region_discovery: probe failed in {region} ({e}); "
+              f"region state = unknown (scanned conservatively)")
+        return UNKNOWN
 
 
 def _list_enabled_regions(ec2_client) -> list[str]:
@@ -77,22 +107,13 @@ def _list_enabled_regions(ec2_client) -> list[str]:
     return [r["RegionName"] for r in resp.get("Regions", [])]
 
 
-def _region_has_resources(tagging_client, region: str) -> bool:
-    """True if the region holds at least one taggable resource."""
-    resp = tagging_client.get_resources(ResourcesPerPage=1)
-    return bool(resp.get("ResourceTagMappingList"))
+def discover_regions(ec2_client, make_client_for_region) -> RegionDiscovery:
+    """Stage 1 + 2. `make_client_for_region(region)` returns a callable
+    make_client(service) -> boto3 client for that service in that region.
 
-
-def discover_regions(ec2_client, tagging_client_for_region) -> RegionDiscovery:
-    """Discover the account's active regions.
-
-    `ec2_client` is a boto3 EC2 client (any region). `tagging_client_for_region`
-    is a callable region -> boto3 resourcegroupstaggingapi client bound to
-    that region.
-
-    If region enumeration itself fails, returns a RegionDiscovery with
-    method='degraded_default' over a documented fallback region set —
-    never a silent narrowing.
+    If region enumeration fails, returns a degraded RegionDiscovery —
+    the documented fallback region set, all 'unknown' — never a silent
+    narrowing.
     """
     try:
         enabled = _list_enabled_regions(ec2_client)
@@ -100,20 +121,25 @@ def discover_regions(ec2_client, tagging_client_for_region) -> RegionDiscovery:
         print(f"region_discovery: describe_regions failed ({e}); "
               f"falling back to degraded default region set")
         return RegionDiscovery(
-            active_regions=sorted(_DEGRADED_DEFAULT_REGIONS),
+            region_states={r: UNKNOWN for r in _DEGRADED_DEFAULT_REGIONS},
             enabled_regions=[],
-            skipped_empty=[],
-            errored_regions=[],
             method="degraded_default",
         )
 
-    probe: dict[str, bool | None] = {}
-    for region in enabled:
-        try:
-            probe[region] = _region_has_resources(
-                tagging_client_for_region(region), region)
-        except Exception as e:
-            print(f"region_discovery: sweep failed in {region} ({e}); "
-                  f"treating region as active")
-            probe[region] = None
-    return classify_regions(enabled, probe)
+    states: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=min(len(enabled), 16) or 1) as ex:
+        futures = {
+            ex.submit(probe_region, make_client_for_region(r), r): r
+            for r in enabled
+        }
+        for future, region in futures.items():
+            try:
+                states[region] = future.result()
+            except Exception:
+                states[region] = UNKNOWN
+
+    return RegionDiscovery(
+        region_states=states,
+        enabled_regions=sorted(enabled),
+        method="footprint_probe",
+    )

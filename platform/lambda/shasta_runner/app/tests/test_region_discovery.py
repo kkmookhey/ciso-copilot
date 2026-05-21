@@ -1,92 +1,117 @@
 # app/tests/test_region_discovery.py
-"""Region discovery — classify_regions turns per-region probe results
-into the active/skipped/errored breakdown the scanner scopes itself to."""
-from region_discovery import RegionDiscovery, classify_regions
-
-
-def test_active_regions_are_those_with_resources_plus_us_east_1():
-    enabled = ["us-east-1", "us-west-2", "eu-west-1"]
-    probe = {"us-east-1": False, "us-west-2": True, "eu-west-1": False}
-    rd = classify_regions(enabled, probe)
-    # us-west-2 has resources; us-east-1 is always included (global anchor).
-    assert rd.active_regions == ["us-east-1", "us-west-2"]
-    assert rd.skipped_empty == ["eu-west-1"]
-    assert rd.errored_regions == []
-    assert rd.method == "tagging_api"
-
-
-def test_errored_region_is_treated_as_active_never_skipped():
-    enabled = ["us-east-1", "ap-south-1"]
-    probe = {"us-east-1": True, "ap-south-1": None}  # None = sweep errored
-    rd = classify_regions(enabled, probe)
-    assert "ap-south-1" in rd.active_regions
-    assert rd.errored_regions == ["ap-south-1"]
-    assert rd.skipped_empty == []
-
-
-def test_us_east_1_active_even_when_empty_and_never_in_skipped():
-    rd = classify_regions(["us-east-1"], {"us-east-1": False})
-    assert rd.active_regions == ["us-east-1"]
-    assert rd.skipped_empty == []
-
-
-def test_account_empty_everywhere_still_scans_us_east_1():
-    enabled = ["us-east-1", "us-west-2"]
-    rd = classify_regions(enabled, {"us-east-1": False, "us-west-2": False})
-    assert rd.active_regions == ["us-east-1"]
-
-
+"""Four-state region footprint probe: classify each enabled region
+active / default_only / empty / unknown."""
 import boto3
 from botocore.stub import Stubber
 
-from region_discovery import discover_regions
+from region_discovery import (RegionDiscovery, classify_region,
+                              discover_regions, probe_region)
 
 
-def _ec2_stub(region_names):
+# ---- classify_region (pure) ----
+
+def test_classify_active_when_real_resources():
+    assert classify_region(has_real=True, has_default_vpc=True, errored=False) == "active"
+    assert classify_region(has_real=True, has_default_vpc=False, errored=False) == "active"
+
+
+def test_classify_default_only():
+    assert classify_region(has_real=False, has_default_vpc=True, errored=False) == "default_only"
+
+
+def test_classify_empty():
+    assert classify_region(has_real=False, has_default_vpc=False, errored=False) == "empty"
+
+
+def test_classify_unknown_on_error_regardless_of_signals():
+    assert classify_region(has_real=True, has_default_vpc=True, errored=True) == "unknown"
+    assert classify_region(has_real=False, has_default_vpc=False, errored=True) == "unknown"
+
+
+# ---- probe_region ----
+
+def _ec2_with(vpcs, instances):
     ec2 = boto3.client("ec2", region_name="us-east-1",
                        aws_access_key_id="x", aws_secret_access_key="x")
     stub = Stubber(ec2)
-    stub.add_response(
-        "describe_regions",
-        {"Regions": [{"RegionName": r} for r in region_names]},
-    )
+    stub.add_response("describe_vpcs", {"Vpcs": vpcs})
+    stub.add_response("describe_instances",
+                      {"Reservations": [{"Instances": instances}] if instances else []})
     stub.activate()
     return ec2
 
 
-def _tagging_stub(has_resources: bool):
-    tag = boto3.client("resourcegroupstaggingapi", region_name="us-east-1",
-                       aws_access_key_id="x", aws_secret_access_key="x")
-    stub = Stubber(tag)
-    mappings = [{"ResourceARN": "arn:aws:sqs:...:q"}] if has_resources else []
-    stub.add_response("get_resources", {"ResourceTagMappingList": mappings})
+def _empty_client(service, op, key):
+    c = boto3.client(service, region_name="us-east-1",
+                     aws_access_key_id="x", aws_secret_access_key="x")
+    stub = Stubber(c)
+    stub.add_response(op, {key: []})
     stub.activate()
-    return tag
+    return c
 
 
-def test_discover_regions_splits_active_and_empty():
-    ec2 = _ec2_stub(["us-east-1", "eu-west-1"])
-    clients = {"us-east-1": _tagging_stub(True), "eu-west-1": _tagging_stub(False)}
-    rd = discover_regions(ec2, lambda r: clients[r])
-    assert rd.active_regions == ["us-east-1"]
-    assert rd.skipped_empty == ["eu-west-1"]
-    assert rd.method == "tagging_api"
+def _make_client_factory(ec2):
+    """Returns make_client(service) — ec2 is the stubbed one; the other
+    services return empty so the test isolates the VPC/EC2 signal."""
+    empties = {
+        "lambda": lambda: _empty_client("lambda", "list_functions", "Functions"),
+        "rds":    lambda: _empty_client("rds", "describe_db_instances", "DBInstances"),
+        "elbv2":  lambda: _empty_client("elbv2", "describe_load_balancers", "LoadBalancers"),
+        "ecs":    lambda: _empty_client("ecs", "list_clusters", "clusterArns"),
+        "eks":    lambda: _empty_client("eks", "list_clusters", "clusters"),
+    }
+    def _make(service):
+        if service == "ec2":
+            return ec2
+        return empties[service]()
+    return _make
 
 
-def test_discover_regions_treats_sweep_error_as_active():
-    ec2 = _ec2_stub(["us-east-1", "ap-south-1"])
-
-    def tagging_for(region):
-        if region == "ap-south-1":
-            raise RuntimeError("AccessDenied")
-        return _tagging_stub(True)
-
-    rd = discover_regions(ec2, tagging_for)
-    assert "ap-south-1" in rd.active_regions
-    assert rd.errored_regions == ["ap-south-1"]
+def test_probe_region_active_with_nondefault_vpc():
+    ec2 = _ec2_with([{"VpcId": "vpc-1", "IsDefault": False}], [])
+    state = probe_region(_make_client_factory(ec2), "us-east-1")
+    assert state == "active"
 
 
-def test_discover_regions_degrades_when_region_listing_fails():
+def test_probe_region_default_only():
+    ec2 = _ec2_with([{"VpcId": "vpc-d", "IsDefault": True}], [])
+    state = probe_region(_make_client_factory(ec2), "us-east-1")
+    assert state == "default_only"
+
+
+def test_probe_region_empty_when_no_vpc_no_resources():
+    ec2 = _ec2_with([], [])
+    state = probe_region(_make_client_factory(ec2), "us-east-1")
+    assert state == "empty"
+
+
+def test_probe_region_unknown_on_error():
+    def _boom(service):
+        raise RuntimeError("AccessDenied")
+    assert probe_region(_boom, "us-east-1") == "unknown"
+
+
+# ---- discover_regions ----
+
+def test_discover_regions_builds_state_map():
+    ec2 = boto3.client("ec2", region_name="us-east-1",
+                       aws_access_key_id="x", aws_secret_access_key="x")
+    stub = Stubber(ec2)
+    stub.add_response("describe_regions",
+                      {"Regions": [{"RegionName": "us-east-1"},
+                                   {"RegionName": "eu-west-1"}]})
+    stub.activate()
+
+    def make_client_for_region(region):
+        # both regions probe empty
+        return _make_client_factory(_ec2_with([], []))
+
+    rd = discover_regions(ec2, make_client_for_region)
+    assert set(rd.region_states) == {"us-east-1", "eu-west-1"}
+    assert rd.method == "footprint_probe"
+
+
+def test_discover_regions_degrades_when_listing_fails():
     ec2 = boto3.client("ec2", region_name="us-east-1",
                        aws_access_key_id="x", aws_secret_access_key="x")
     stub = Stubber(ec2)
@@ -95,5 +120,6 @@ def test_discover_regions_degrades_when_region_listing_fails():
 
     rd = discover_regions(ec2, lambda r: None)
     assert rd.method == "degraded_default"
-    assert "us-east-1" in rd.active_regions
-    assert len(rd.active_regions) > 1  # the documented default set
+    # degraded fallback regions are scanned conservatively as 'unknown'
+    assert all(s == "unknown" for s in rd.region_states.values())
+    assert "us-east-1" in rd.region_states
