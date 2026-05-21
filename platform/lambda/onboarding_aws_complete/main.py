@@ -26,12 +26,15 @@ DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
 CENTRAL_EVENT_BUS_ARN = os.environ["CENTRAL_EVENT_BUS_ARN"]
-SHASTA_RUNNER_FN      = os.environ.get("SHASTA_RUNNER_FN", "")
+SCAN_CLUSTER_ARN  = os.environ.get("SCAN_CLUSTER_ARN", "")
+SCAN_TASK_DEF_ARN = os.environ.get("SCAN_TASK_DEF_ARN", "")
+SCAN_SUBNET_IDS   = os.environ.get("SCAN_SUBNET_IDS", "")
+SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
 
 rds_data = boto3.client("rds-data")
 sm       = boto3.client("secretsmanager")
 events   = boto3.client("events")
-lambda_client = boto3.client("lambda")
+ecs      = boto3.client("ecs")
 
 
 def handler(event: dict, context) -> dict:
@@ -107,24 +110,24 @@ def handler(event: dict, context) -> dict:
 def _enqueue_initial_scan(
     *, tenant_id: str, conn_id: str, role_arn: str, external_id: str, account_id: str,
 ) -> str | None:
-    """Insert a scan row and async-invoke the shasta-runner Lambda.
+    """Insert a scan row and start the scanner Fargate task (Quick tier).
 
-    Fails open — if the invoke fails, the connection is still active and the
-    user can re-trigger from the app. We don't want a temporary Lambda hiccup
-    to block onboarding.
+    Fails open — if RunTask fails, the connection is still active and the
+    user can re-trigger from the app. A transient ECS hiccup must not
+    block onboarding.
     """
     import uuid
-    if not SHASTA_RUNNER_FN:
-        print("WARN: SHASTA_RUNNER_FN not configured; skipping initial scan")
+    if not (SCAN_CLUSTER_ARN and SCAN_TASK_DEF_ARN and SCAN_SUBNET_IDS):
+        print("WARN: scan task not configured; skipping initial scan")
         return None
 
     scan_id = str(uuid.uuid4())
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
-            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, scope) "
+            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, tier, scope) "
             "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
-            "        'onboarding', 'queued', CAST(:scope AS JSONB))"
+            "        'onboarding', 'queued', 'quick', CAST(:scope AS JSONB))"
         ),
         parameters=[
             {"name": "sid",   "value": {"stringValue": scan_id}},
@@ -135,22 +138,36 @@ def _enqueue_initial_scan(
     )
 
     try:
-        lambda_client.invoke(
-            FunctionName   = SHASTA_RUNNER_FN,
-            InvocationType = "Event",   # async — return immediately
-            Payload=json.dumps({
-                "scan_id":     scan_id,
-                "tenant_id":   tenant_id,
-                "conn_id":     conn_id,
-                "role_arn":    role_arn,
-                "external_id": external_id,
-                "account_id":  account_id,
-                "regions":     ["us-east-1"],
-            }).encode(),
+        ecs.run_task(
+            cluster=SCAN_CLUSTER_ARN,
+            taskDefinition=SCAN_TASK_DEF_ARN,
+            launchType="FARGATE",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets":        [s for s in SCAN_SUBNET_IDS.split(",") if s],
+                    "securityGroups": [SCAN_SECURITY_GROUP_ID] if SCAN_SECURITY_GROUP_ID else [],
+                    "assignPublicIp": "DISABLED",
+                },
+            },
+            overrides={
+                "containerOverrides": [{
+                    "name": "scanner",
+                    "environment": [
+                        {"name": "SCAN_ID",     "value": scan_id},
+                        {"name": "TENANT_ID",   "value": tenant_id},
+                        {"name": "CONN_ID",     "value": conn_id},
+                        {"name": "ROLE_ARN",    "value": role_arn},
+                        {"name": "EXTERNAL_ID", "value": external_id},
+                        {"name": "ACCOUNT_ID",  "value": account_id},
+                        {"name": "REGIONS",     "value": "us-east-1"},
+                        {"name": "SCAN_TIER",   "value": "quick"},
+                    ],
+                }],
+            },
         )
-        print(f"initial scan {scan_id} enqueued for {conn_id}")
+        print(f"initial scan {scan_id} (quick) started for {conn_id}")
     except Exception as e:
-        print(f"WARN: initial scan invoke failed for {conn_id}: {e}")
+        print(f"WARN: initial scan RunTask failed for {conn_id}: {e}")
 
     return scan_id
 

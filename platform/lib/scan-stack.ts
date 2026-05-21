@@ -47,6 +47,7 @@ export class ScanStack extends cdk.Stack {
   public readonly aiScanner:          lambda.DockerImageFunction;
   public readonly scanCluster:        ecs.Cluster;
   public readonly scanTaskDef:        ecs.FargateTaskDefinition;
+  public readonly scanTaskSecurityGroupId: string;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -118,11 +119,19 @@ export class ScanStack extends cdk.Stack {
       resources: [secretsArn],
     }));
 
+    // Security group for the scanner task — egress only (no inbound).
+    const scanTaskSg = new ec2.SecurityGroup(this, 'ScanTaskSg', {
+      vpc:         props.vpc,
+      description: 'AWS scanner Fargate task - egress only',
+    });
+    this.scanTaskSecurityGroupId = scanTaskSg.securityGroupId;
+
     this.scanCluster = scanCluster;
     this.scanTaskDef = scanTaskDef;
 
-    new cdk.CfnOutput(this, 'ScanClusterArn', { value: scanCluster.clusterArn });
-    new cdk.CfnOutput(this, 'ScanTaskDefArn', { value: scanTaskDef.taskDefinitionArn });
+    new cdk.CfnOutput(this, 'ScanClusterArn',   { value: scanCluster.clusterArn });
+    new cdk.CfnOutput(this, 'ScanTaskDefArn',   { value: scanTaskDef.taskDefinitionArn });
+    new cdk.CfnOutput(this, 'ScanTaskSgId',     { value: scanTaskSg.securityGroupId });
 
     // ===== Azure scanner =====
     // No cross-cloud assume-role needed (Azure SDK uses SP credentials directly

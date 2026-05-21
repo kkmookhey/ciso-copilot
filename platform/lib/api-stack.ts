@@ -8,6 +8,8 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -22,6 +24,10 @@ interface ApiStackProps extends cdk.StackProps {
   shastaRunnerAzure:  lambda.IFunction;
   shastaRunnerEntra:  lambda.IFunction;
   shastaRunnerGcp:    lambda.IFunction;
+  scanCluster:             ecs.Cluster;
+  scanTaskDef:             ecs.FargateTaskDefinition;
+  vpc:                     ec2.IVpc;
+  scanTaskSecurityGroupId: string;
   entraAppId:         string;
   entraScannerSecret: secretsmanager.ISecret;
   openaiApiKeySecret: secretsmanager.ISecret;
@@ -116,8 +122,11 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
-        CENTRAL_EVENT_BUS_ARN: props.eventBus.eventBusArn,
-        SHASTA_RUNNER_FN:      props.shastaRunner.functionName,
+        CENTRAL_EVENT_BUS_ARN:  props.eventBus.eventBusArn,
+        SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
+        SCAN_TASK_DEF_ARN:      props.scanTaskDef.taskDefinitionArn,
+        SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
+        SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingCompleteFn);
@@ -133,8 +142,18 @@ export class ApiStack extends cdk.Stack {
       actions:   ['events:PutPermission', 'events:DescribeEventBus'],
       resources: [props.eventBus.eventBusArn],
     }));
-    // Allow async-invoke of shasta-runner to kick off the initial scan.
-    props.shastaRunner.grantInvoke(onboardingCompleteFn);
+    // Allow starting the scanner Fargate task to kick off the initial scan.
+    onboardingCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [props.scanTaskDef.taskDefinitionArn],
+    }));
+    onboardingCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [
+        props.scanTaskDef.taskRole.roleArn,
+        props.scanTaskDef.executionRole!.roleArn,
+      ],
+    }));
 
     const connectionsListFn = new lambda.Function(this, 'ConnectionsListFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
