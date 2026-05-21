@@ -66,3 +66,54 @@ def classify_regions(
         errored_regions=sorted(errored),
         method="tagging_api",
     )
+
+
+def _list_enabled_regions(ec2_client) -> list[str]:
+    """Enabled (opted-in or opt-in-not-required) regions for the account."""
+    resp = ec2_client.describe_regions(
+        Filters=[{"Name": "opt-in-status",
+                  "Values": ["opt-in-not-required", "opted-in"]}],
+    )
+    return [r["RegionName"] for r in resp.get("Regions", [])]
+
+
+def _region_has_resources(tagging_client, region: str) -> bool:
+    """True if the region holds at least one taggable resource."""
+    resp = tagging_client.get_resources(ResourcesPerPage=1)
+    return bool(resp.get("ResourceTagMappingList"))
+
+
+def discover_regions(ec2_client, tagging_client_for_region) -> RegionDiscovery:
+    """Discover the account's active regions.
+
+    `ec2_client` is a boto3 EC2 client (any region). `tagging_client_for_region`
+    is a callable region -> boto3 resourcegroupstaggingapi client bound to
+    that region.
+
+    If region enumeration itself fails, returns a RegionDiscovery with
+    method='degraded_default' over a documented fallback region set —
+    never a silent narrowing.
+    """
+    try:
+        enabled = _list_enabled_regions(ec2_client)
+    except Exception as e:
+        print(f"region_discovery: describe_regions failed ({e}); "
+              f"falling back to degraded default region set")
+        return RegionDiscovery(
+            active_regions=sorted(_DEGRADED_DEFAULT_REGIONS),
+            enabled_regions=[],
+            skipped_empty=[],
+            errored_regions=[],
+            method="degraded_default",
+        )
+
+    probe: dict[str, bool | None] = {}
+    for region in enabled:
+        try:
+            probe[region] = _region_has_resources(
+                tagging_client_for_region(region), region)
+        except Exception as e:
+            print(f"region_discovery: sweep failed in {region} ({e}); "
+                  f"treating region as active")
+            probe[region] = None
+    return classify_regions(enabled, probe)
