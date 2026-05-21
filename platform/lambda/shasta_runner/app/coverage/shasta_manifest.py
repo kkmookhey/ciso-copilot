@@ -489,7 +489,9 @@ SHASTA_CHECKS: dict[str, dict[str, list[str]]] = {
     },
 
     # --- Organizations (organizations.py) ---
-    "aws-backup-policy": {},
+    "aws-backup-policy": {
+        "nist_800_53": ["CP-9"],
+    },
     "aws-delegated-admin": {},
     "aws-org-enabled": {},
     "aws-org-scps": {
