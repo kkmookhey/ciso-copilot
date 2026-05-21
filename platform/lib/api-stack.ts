@@ -731,6 +731,23 @@ export class ApiStack extends cdk.Stack {
     entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
 
     // ========================================================================
+    // V2-8 — GET /v1/scans/{scan_id} — scan progress (tier/status/phase/scope)
+    // ========================================================================
+    const scansStatusFn = new lambda.Function(this, 'ScansStatusFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'scans_status')),
+      timeout:    cdk.Duration.seconds(10),
+      memorySize: 256,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(scansStatusFn);
+
+    const scansRes   = api.root.addResource('scans');
+    const scanById   = scansRes.addResource('{scan_id}');
+    scanById.addMethod('GET', new apigw.LambdaIntegration(scansStatusFn), authedOpts);
+
+    // ========================================================================
     // SP4 Phase 4a — chat_session (conversation CRUD + voice mint) + streaming
     //
     // Two Lambdas off the SAME code asset:
