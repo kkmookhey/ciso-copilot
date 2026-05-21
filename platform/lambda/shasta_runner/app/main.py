@@ -65,6 +65,7 @@ from enumerate_iam     import enumerate_iam
 from enumerate_network import enumerate_network
 from enumerate_storage import enumerate_storage
 from framework_map     import merge_framework_map
+from region_discovery  import discover_regions
 
 # === Shared writer + emission types (copied in by build.sh) ===
 from detectors.base import EdgeEmission, EntityEmission, FindingEmission
@@ -181,16 +182,36 @@ def handler(event: dict, context) -> dict:
     role_arn    = event["role_arn"]
     external_id = event["external_id"]
     account_id  = event["account_id"]
-    regions     = event.get("regions") or ["us-east-1"]
+    explicit_regions = event.get("regions")
     scan_tier   = event.get("scan_tier", "quick")
 
-    print(f"scan start: scan={scan_id} account={account_id} regions={regions} tier={scan_tier}")
+    print(f"scan start: scan={scan_id} account={account_id} tier={scan_tier}")
     ctx = CloudScanContext(scan_id=scan_id, tenant_id=tenant_id, connection_id=conn_id)
     _update_scan(scan_id, status="running")
 
     try:
         credentials = _assume_role(role_arn, external_id)
         boto_session = _make_session(credentials, "us-east-1")
+
+        # --- Step 0: region discovery. Pick the regions to scan from the
+        # account's real footprint. An explicit event 'regions' overrides
+        # discovery (operator re-scan of a specific region).
+        if explicit_regions:
+            regions = list(explicit_regions)
+            region_discovery = None
+            print(f"region scope: explicit override {regions}")
+        else:
+            region_discovery = discover_regions(
+                boto_session.client("ec2", config=SCAN_BOTO_CONFIG),
+                lambda r: _make_session(credentials, r).client(
+                    "resourcegroupstaggingapi", config=SCAN_BOTO_CONFIG),
+            )
+            regions = region_discovery.active_regions
+            print(f"region discovery: method={region_discovery.method} "
+                  f"active={regions} "
+                  f"skipped_empty={len(region_discovery.skipped_empty)} "
+                  f"errored={region_discovery.errored_regions}")
+        _record_scan_scope(scan_id, regions, region_discovery)
 
         # Always emit the account entity itself.
         entities: list[EntityEmission] = [_account_entity(account_id, tenant_id)]
@@ -232,7 +253,7 @@ def handler(event: dict, context) -> dict:
         # --- Global Shasta modules (region 'us-east-1' for the session) ---
         for name, run_fn in GLOBAL_MODULES:
             try:
-                client = AssumedRoleAWSClient(credentials, "us-east-1", account_id)
+                client = AssumedRoleAWSClient(credentials, "us-east-1", account_id, scan_regions=regions)
                 findings = run_fn(client)
                 all_shasta_findings.extend(findings)
                 module_stats[name] = {"findings": len(findings)}
@@ -282,7 +303,7 @@ def handler(event: dict, context) -> dict:
             for name, run_fn in REGIONAL_MODULES:
                 key = f"{region}/{name}"
                 try:
-                    client = AssumedRoleAWSClient(credentials, region, account_id)
+                    client = AssumedRoleAWSClient(credentials, region, account_id, scan_regions=regions)
                     findings = run_fn(client)
                     all_shasta_findings.extend(findings)
                     module_stats[key] = {"findings": len(findings)}
@@ -295,7 +316,7 @@ def handler(event: dict, context) -> dict:
         # Wrapped like every other module so one failure doesn't kill the scan.
         ai_finding_emissions: list[FindingEmission] = []
         try:
-            ai_client = AssumedRoleAWSClient(credentials, "us-east-1", account_id)
+            ai_client = AssumedRoleAWSClient(credentials, "us-east-1", account_id, scan_regions=regions)
             ai_result = run_ai_pass(ai_client, account_id=account_id, tenant_id=tenant_id)
             entities.extend(ai_result["entities"])
             edges.extend(ai_result["edges"])
@@ -552,6 +573,32 @@ def _safe_details(details) -> dict:
 # ============================================================================
 # Legacy `scans` table updates (kept — separate from ai_scans / commit_scan)
 # ============================================================================
+
+def _record_scan_scope(scan_id: str, regions: list[str], discovery) -> None:
+    """Write the region-discovery outcome to scans.scope so the scanned /
+    skipped / errored breakdown is auditable per scan. `discovery` is a
+    RegionDiscovery, or None when an explicit region override was used."""
+    if discovery is None:
+        scope = {"regions": regions,
+                 "discovery": {"method": "explicit_override"}}
+    else:
+        scope = {
+            "regions":         regions,
+            "enabled_regions": discovery.enabled_regions,
+            "skipped_empty":   discovery.skipped_empty,
+            "discovery": {"method":          discovery.method,
+                          "errored_regions": discovery.errored_regions},
+        }
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=("UPDATE scans SET scope = CAST(:scope AS JSONB) "
+             "WHERE scan_id = CAST(:sid AS UUID)"),
+        parameters=[
+            {"name": "sid",   "value": {"stringValue": scan_id}},
+            {"name": "scope", "value": {"stringValue": json.dumps(scope)}},
+        ],
+    )
+
 
 def _update_scan(scan_id: str, status: str, stats: dict | None = None,
                   error: str | None = None) -> None:
