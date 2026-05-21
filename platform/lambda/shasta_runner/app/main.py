@@ -155,8 +155,9 @@ def handler(event: dict, context) -> dict:
     external_id = event["external_id"]
     account_id  = event["account_id"]
     regions     = event.get("regions") or ["us-east-1"]
+    scan_tier   = event.get("scan_tier", "quick")
 
-    print(f"scan start: scan={scan_id} account={account_id} regions={regions}")
+    print(f"scan start: scan={scan_id} account={account_id} regions={regions} tier={scan_tier}")
     ctx = CloudScanContext(scan_id=scan_id, tenant_id=tenant_id, connection_id=conn_id)
     _update_scan(scan_id, status="running")
 
