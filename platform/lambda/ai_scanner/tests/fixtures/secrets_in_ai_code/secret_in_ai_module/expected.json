@@ -44,7 +44,11 @@
         "confidence": "high",
         "signature": null
       },
-      "confidence": "high"
+      "confidence": "high",
+      "frameworks": {},
+      "domain": "ai",
+      "status": "fail",
+      "region": null
     }
   ]
 }

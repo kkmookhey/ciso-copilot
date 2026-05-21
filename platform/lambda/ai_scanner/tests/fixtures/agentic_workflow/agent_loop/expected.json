@@ -91,7 +91,11 @@
         "confidence": "medium",
         "signature": null
       },
-      "confidence": "medium"
+      "confidence": "medium",
+      "frameworks": {},
+      "domain": "ai",
+      "status": "fail",
+      "region": null
     }
   ]
 }
