@@ -20,15 +20,15 @@ _DETECTOR_ID      = "shasta_runner.coverage"
 _DETECTOR_VERSION = "0.1.0"
 
 
-def run_coverage(
-    make_session: Callable[[str], Any], *,
-    account_id: str, tenant_id: str,
-    regions: list[str], scan_tier: str,
+def run_coverage_for_region(
+    session: Any, region: str, *,
+    account_id: str, tenant_id: str, scan_tier: str,
 ) -> dict[str, list]:
-    """Run the coverage engine.
+    """Run the tier-filtered coverage checks for ONE region.
 
-    `make_session(region)` returns a boto3 Session bound to that region.
-    Returns {'entities': [...], 'edges': [...], 'findings': [...]}.
+    The handler's thread pool calls this once per region, so region
+    concurrency lives in the handler — not here. `session` is a boto3
+    session bound to `region`.
     """
     entities: list[EntityEmission] = []
     edges:    list[EdgeEmission]   = []
@@ -39,44 +39,59 @@ def run_coverage(
     for c in checks:
         checks_by_service.setdefault(c.service, []).append(c)
 
-    for region in regions:
-        session = make_session(region)
-        for service, service_checks in checks_by_service.items():
-            try:
-                client = session.client(service, config=SCAN_BOTO_CONFIG)
-                resources = COLLECTORS[service](
-                    client, account_id=account_id, region=region)
-            except Exception as e:
-                print(f"coverage/{service}@{region} collect FAILED: {e}\n"
-                      f"{traceback.format_exc()}")
-                continue
+    for service, service_checks in checks_by_service.items():
+        try:
+            client = session.client(service, config=SCAN_BOTO_CONFIG)
+            resources = COLLECTORS[service](
+                client, account_id=account_id, region=region)
+        except Exception as e:
+            print(f"coverage/{service}@{region} collect FAILED: {e}\n"
+                  f"{traceback.format_exc()}")
+            continue
 
-            for r in resources:
-                kind = f"aws_{r.service}_{r.resource_type}"
-                entities.append(EntityEmission(
-                    tenant_id=tenant_id, kind=kind, natural_key=r.arn,
-                    display_name=r.name, domain="cloud",
-                    attributes={"service": r.service, "account": account_id,
-                                "region": r.region,
-                                "resource_type": r.resource_type},
-                    evidence_packet=None,
-                    detector_id=_DETECTOR_ID, detector_version=_DETECTOR_VERSION,
-                ))
-                edges.append(EdgeEmission(
-                    tenant_id=tenant_id,
-                    source_kind="aws_account", source_natural_key=account_id,
-                    target_kind=kind, target_natural_key=r.arn,
-                    kind="contains", attributes={},
-                    evidence_packet={"version": "0.1", "via": "coverage_engine"},
-                    detector_id=_DETECTOR_ID, detector_version=_DETECTOR_VERSION,
-                ))
-                for check in service_checks:
-                    if check.resource_type != r.resource_type:
-                        continue
-                    outcome = check.evaluate(r)
-                    findings.append(_to_finding(check, r, outcome, kind, tenant_id))
+        for r in resources:
+            kind = f"aws_{r.service}_{r.resource_type}"
+            entities.append(EntityEmission(
+                tenant_id=tenant_id, kind=kind, natural_key=r.arn,
+                display_name=r.name, domain="cloud",
+                attributes={"service": r.service, "account": account_id,
+                            "region": r.region,
+                            "resource_type": r.resource_type},
+                evidence_packet=None,
+                detector_id=_DETECTOR_ID, detector_version=_DETECTOR_VERSION,
+            ))
+            edges.append(EdgeEmission(
+                tenant_id=tenant_id,
+                source_kind="aws_account", source_natural_key=account_id,
+                target_kind=kind, target_natural_key=r.arn,
+                kind="contains", attributes={},
+                evidence_packet={"version": "0.1", "via": "coverage_engine"},
+                detector_id=_DETECTOR_ID, detector_version=_DETECTOR_VERSION,
+            ))
+            for check in service_checks:
+                if check.resource_type != r.resource_type:
+                    continue
+                outcome = check.evaluate(r)
+                findings.append(_to_finding(check, r, outcome, kind, tenant_id))
 
     return {"entities": entities, "edges": edges, "findings": findings}
+
+
+def run_coverage(
+    make_session: Callable[[str], Any], *,
+    account_id: str, tenant_id: str,
+    regions: list[str], scan_tier: str,
+) -> dict[str, list]:
+    """Run the coverage engine across `regions` (serial — the handler's
+    pool is the parallel path; this is kept for direct/test use)."""
+    merged: dict[str, list] = {"entities": [], "edges": [], "findings": []}
+    for region in regions:
+        part = run_coverage_for_region(
+            make_session(region), region,
+            account_id=account_id, tenant_id=tenant_id, scan_tier=scan_tier)
+        for k in merged:
+            merged[k] += part[k]
+    return merged
 
 
 def _to_finding(check, r, outcome, kind: str, tenant_id: str) -> FindingEmission:

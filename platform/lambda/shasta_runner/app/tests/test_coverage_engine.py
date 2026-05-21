@@ -84,3 +84,27 @@ def test_engine_survives_a_failing_collector(monkeypatch):
         _make_session, account_id="111", tenant_id="t",
         regions=["us-east-1"], scan_tier="quick")
     assert "findings" in result
+
+
+def test_run_coverage_for_region_scans_one_region(monkeypatch):
+    from coverage import engine
+    from coverage.model import Resource
+
+    def fake_sqs_collect(client, *, account_id, region):
+        return [Resource(service="sqs", resource_type="queue",
+                         arn=f"arn:aws:sqs:{region}:111:q1", name="q1",
+                         region=region, raw={})]
+    monkeypatch.setitem(engine.COLLECTORS, "sqs", fake_sqs_collect)
+
+    class _FakeSession:
+        def client(self, name, **kwargs):
+            return f"client:{name}"
+
+    result = engine.run_coverage_for_region(
+        _FakeSession(), "eu-west-1",
+        account_id="111", tenant_id="t", scan_tier="quick")
+
+    assert all(e.attributes["region"] == "eu-west-1"
+               for e in result["entities"] if e.kind == "aws_sqs_queue")
+    assert any(f.finding_type == "sqs-encryption-at-rest"
+               for f in result["findings"])
