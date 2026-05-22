@@ -24,11 +24,18 @@ import boto3
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
-AZURE_RUNNER_FN = os.environ.get("AZURE_RUNNER_FN", "")
 
-rds_data       = boto3.client("rds-data")
-sm             = boto3.client("secretsmanager")
-lambda_client  = boto3.client("lambda")
+# v2 Azure scanner — one Fargate task scans all subscriptions of a
+# connection. Cluster / subnets / security group are shared with the
+# AWS scanner; only the task definition differs.
+AZURE_SCAN_TASK_DEF    = os.environ.get("AZURE_SCAN_TASK_DEF", "")
+SCAN_CLUSTER_ARN       = os.environ.get("SCAN_CLUSTER_ARN", "")
+SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
+SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
+
+rds_data = boto3.client("rds-data")
+sm       = boto3.client("secretsmanager")
+ecs      = boto3.client("ecs")
 
 
 def handler(event: dict, context) -> dict:
@@ -82,27 +89,22 @@ def handler(event: dict, context) -> dict:
 
     print(f"azure connection {conn['conn_id']} active — {len(subscription_ids)} subscription(s)")
 
-    # Kick an initial scan per subscription. Each scan is independent so the
-    # scanner code stays single-sub; the connection's full posture is the union
-    # of all scans tied to it.
-    scan_ids = [
-        _enqueue_initial_scan(
-            tenant_id        = conn["tenant_id"],
-            conn_id          = conn["conn_id"],
-            azure_tenant_id  = azure_tenant_id,
-            client_id        = client_id,
-            secret_arn       = secret_arn,
-            subscription_id  = sub_id,
-        )
-        for sub_id in subscription_ids
-    ]
-    scan_ids = [s for s in scan_ids if s]
+    # Kick one initial scan for the whole connection — the v2 Fargate
+    # scanner walks every selected subscription in a single task run.
+    scan_id = _run_initial_scan(
+        tenant_id        = conn["tenant_id"],
+        conn_id          = conn["conn_id"],
+        azure_tenant_id  = azure_tenant_id,
+        client_id        = client_id,
+        secret_arn       = secret_arn,
+        subscription_ids = subscription_ids,
+    )
 
     return _resp(200, {
         "status":              "active",
         "connection_id":       conn["conn_id"],
         "subscriptions_count": len(subscription_ids),
-        "initial_scan_ids":    scan_ids,
+        "initial_scan_ids":    [scan_id] if scan_id else [],
     })
 
 
@@ -149,45 +151,68 @@ def _store_credentials(*, conn_id: str, tenant_id: str, azure_tenant_id: str,
         return resp["ARN"]
 
 
-def _enqueue_initial_scan(*, tenant_id: str, conn_id: str, azure_tenant_id: str,
-                          client_id: str, secret_arn: str, subscription_id: str) -> str | None:
-    if not AZURE_RUNNER_FN:
-        print("WARN: AZURE_RUNNER_FN not configured; skipping initial scan")
+def _run_initial_scan(*, tenant_id: str, conn_id: str, azure_tenant_id: str,
+                      client_id: str, secret_arn: str,
+                      subscription_ids: list[str]) -> str | None:
+    """Insert one `scans` row and start one v2 Azure Fargate task that
+    scans every subscription of the connection."""
+    if not (AZURE_SCAN_TASK_DEF and SCAN_CLUSTER_ARN and SCAN_SUBNET_IDS):
+        print("WARN: azure scan task not configured; skipping initial scan")
         return None
 
     scan_id = str(uuid.uuid4())
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
-            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, scope) "
-            "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
-            "        'onboarding', 'queued', CAST(:scope AS JSONB))"
+            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, "
+            "                   status, tier, phase) "
+            "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), "
+            "        CAST(:cid AS UUID), 'onboarding', 'queued', "
+            "        'quick', 'region_discovery')"
         ),
         parameters=[
-            {"name": "sid",   "value": {"stringValue": scan_id}},
-            {"name": "tid",   "value": {"stringValue": tenant_id}},
-            {"name": "cid",   "value": {"stringValue": conn_id}},
-            {"name": "scope", "value": {"stringValue": json.dumps({"subscription_id": subscription_id})}},
+            {"name": "sid", "value": {"stringValue": scan_id}},
+            {"name": "tid", "value": {"stringValue": tenant_id}},
+            {"name": "cid", "value": {"stringValue": conn_id}},
         ],
     )
 
     try:
-        lambda_client.invoke(
-            FunctionName   = AZURE_RUNNER_FN,
-            InvocationType = "Event",
-            Payload=json.dumps({
-                "scan_id":          scan_id,
-                "tenant_id":        tenant_id,
-                "conn_id":          conn_id,
-                "azure_tenant_id":  azure_tenant_id,
-                "client_id":        client_id,
-                "secret_arn":       secret_arn,
-                "subscription_id":  subscription_id,
-            }).encode(),
+        ecs.run_task(
+            cluster=SCAN_CLUSTER_ARN,
+            taskDefinition=AZURE_SCAN_TASK_DEF,
+            launchType="FARGATE",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets":        [s for s in SCAN_SUBNET_IDS.split(",") if s],
+                    "securityGroups": [SCAN_SECURITY_GROUP_ID] if SCAN_SECURITY_GROUP_ID else [],
+                    "assignPublicIp": "DISABLED",
+                },
+            },
+            overrides={
+                "containerOverrides": [{
+                    "name": "scanner",
+                    "environment": [
+                        {"name": "SCAN_ID",          "value": scan_id},
+                        {"name": "TENANT_ID",        "value": tenant_id},
+                        {"name": "CONN_ID",          "value": conn_id},
+                        {"name": "AZURE_TENANT_ID",  "value": azure_tenant_id},
+                        {"name": "CLIENT_ID",        "value": client_id},
+                        {"name": "SECRET_ARN",       "value": secret_arn},
+                        {"name": "SUBSCRIPTION_IDS", "value": ",".join(subscription_ids)},
+                        {"name": "SCAN_TIER",        "value": "quick"},
+                    ],
+                }],
+            },
         )
-        print(f"azure scan {scan_id} enqueued for {conn_id}")
+        print(f"azure onboarding scan {scan_id} started for {conn_id}")
     except Exception as e:
-        print(f"WARN: azure scan invoke failed for {conn_id}: {e}")
+        print(f"WARN: azure scan RunTask failed for {conn_id}: {e}")
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql="UPDATE scans SET status='failed' WHERE scan_id = CAST(:sid AS UUID)",
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
 
     return scan_id
 
