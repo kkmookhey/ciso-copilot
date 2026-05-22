@@ -41,7 +41,6 @@ interface ScanStackProps extends cdk.StackProps {
 export class ScanStack extends cdk.Stack {
   public readonly shastaRunner:       lambda.DockerImageFunction;
   public readonly shastaRunnerEntra:  lambda.DockerImageFunction;
-  public readonly shastaRunnerGcp:    lambda.DockerImageFunction;
   public readonly entraScannerSecret: secretsmanager.Secret;
   public readonly openaiApiKeySecret: secretsmanager.Secret;
   public readonly aiScanQueue:        sqs.Queue;
@@ -232,16 +231,11 @@ export class ScanStack extends cdk.Stack {
       ],
     });
 
-    this.shastaRunnerGcp = new lambda.DockerImageFunction(this, 'GcpRunner', {
-      functionName: 'ciso-copilot-shasta-runner-gcp',
-      role:         gcpScannerRole,
-      code: lambda.DockerImageCode.fromEcr(props.shastaRunnerGcpRepo, { tagOrDigest: 'latest' }),
-      timeout:    cdk.Duration.minutes(15),
-      memorySize: 2048,
-      architecture: lambda.Architecture.X86_64,
-      environment: dbEnv,
-    });
-    props.dbCluster.grantDataApiAccess(this.shastaRunnerGcp);
+    // The v2 GCP scanner runs as the Fargate task defined below; the
+    // legacy GcpRunner Lambda has been retired (Slice 1b). gcpScannerRole
+    // is still the GCP scan identity (the Fargate task's taskRole), so
+    // grant Aurora Data API access directly on the role.
+    props.dbCluster.grantDataApiAccess(gcpScannerRole);
 
     // ===== GCP scanner — v2 Fargate task =====
     // The customer WIF provider trusts the 'ciso-copilot-gcp-scanner'
@@ -265,11 +259,9 @@ export class ScanStack extends cdk.Stack {
       }),
     });
 
-    // gcpScannerRole already has Data API access granted via the
-    // GcpRunner Lambda's grantDataApiAccess call above — the Fargate
-    // task shares the same role, so no extra grant is needed. The WIF
-    // GetCallerIdentity call requires no IAM policy (a principal may
-    // always describe itself).
+    // gcpScannerRole has Aurora Data API access granted directly above.
+    // The WIF GetCallerIdentity call requires no IAM policy (a principal
+    // may always describe itself).
 
     this.gcpScanTaskDef       = gcpScanTaskDef;
     this.gcpScanTaskDefFamily = 'ciso-copilot-gcp-scan';
@@ -336,8 +328,6 @@ export class ScanStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ShastaRunnerFnName',      { value: this.shastaRunner.functionName });
     new cdk.CfnOutput(this, 'ShastaRunnerEntraArn',    { value: this.shastaRunnerEntra.functionArn });
     new cdk.CfnOutput(this, 'ShastaRunnerEntraFnName', { value: this.shastaRunnerEntra.functionName });
-    new cdk.CfnOutput(this, 'ShastaRunnerGcpArn',      { value: this.shastaRunnerGcp.functionArn });
-    new cdk.CfnOutput(this, 'ShastaRunnerGcpFnName',   { value: this.shastaRunnerGcp.functionName });
     new cdk.CfnOutput(this, 'ShastaRunnerGcpRoleArn',  { value: gcpScannerRole.roleArn });
   }
 }
