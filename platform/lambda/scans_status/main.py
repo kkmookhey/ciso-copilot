@@ -64,7 +64,8 @@ def handler(event: dict, context) -> dict:
 
     rs = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=("SELECT tier, status, phase, scope, started_at, finished_at "
+        sql=("SELECT tier, status, phase, scope, "
+             "started_at::text, finished_at::text "
              "FROM scans WHERE scan_id = CAST(:sid AS UUID) "
              "AND tenant_id = CAST(:tid AS UUID)"),
         parameters=[

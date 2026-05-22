@@ -83,9 +83,20 @@ def run_units(units: list, *,
               batch_timeout: float | None = None) -> UnitResults:
     """Run every unit concurrently; merge results; isolate failures.
 
-    A unit that raises is recorded `error`; one still running when
-    `batch_timeout` elapses is recorded `timeout` (its eventual result
-    is discarded — a straggler region never holds the scan hostage).
+    A unit that raises is recorded `error`. A unit still running when
+    `batch_timeout` elapses is recorded `timeout` and its eventual
+    result is discarded.
+
+    NOTE — `batch_timeout` bounds *result collection*, not wall-clock.
+    The ThreadPoolExecutor context manager joins every worker thread on
+    exit (`shutdown(wait=True)`), and `future.cancel()` is a no-op once
+    a unit is running — so a hung unit still delays this call until its
+    thread returns. The real wall-clock bound on a stuck unit is the
+    per-AWS-call connect/read timeout in SCAN_BOTO_CONFIG (aws_config.py)
+    plus its retry budget; `batch_timeout` only changes how a slow
+    unit's outcome is *labelled*. Production callers currently pass no
+    `batch_timeout` — the boto timeouts are the bound.
+
     Each unit holds its service's concurrency slot for its whole run.
     """
     results = UnitResults()

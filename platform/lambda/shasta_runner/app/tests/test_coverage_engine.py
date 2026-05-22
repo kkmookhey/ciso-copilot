@@ -86,6 +86,33 @@ def test_engine_survives_a_failing_collector(monkeypatch):
     assert "findings" in result
 
 
+def test_engine_survives_a_throwing_check(monkeypatch):
+    """A check whose evaluate() raises on one malformed resource must not
+    abort the region scan — that resource is skipped, the rest survive."""
+    def fake_sqs_collect(client, *, account_id, region):
+        return [Resource(service="sqs", resource_type="queue",
+                         arn="arn:aws:sqs:us-east-1:111:q1", name="q1",
+                         region=region, raw={})]
+    monkeypatch.setitem(engine.COLLECTORS, "sqs", fake_sqs_collect)
+
+    class _BoomCheck:
+        service = "sqs"
+        resource_type = "queue"
+        check_id = "sqs-boom"
+        def evaluate(self, r):
+            raise RuntimeError("malformed resource")
+
+    monkeypatch.setattr(engine, "checks_for_tier", lambda tier: [_BoomCheck()])
+
+    # Should not raise — the throwing check is caught and skipped.
+    result = engine.run_coverage_for_region(
+        _FakeSession(), "us-east-1",
+        account_id="111", tenant_id="t", scan_tier="quick")
+    # The entity still emits; the crashing check produced no finding.
+    assert any(e.kind == "aws_sqs_queue" for e in result["entities"])
+    assert result["findings"] == []
+
+
 def test_run_coverage_for_region_scans_one_region(monkeypatch):
     from coverage import engine
     from coverage.model import Resource

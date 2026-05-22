@@ -71,7 +71,14 @@ def run_coverage_for_region(
             for check in service_checks:
                 if check.resource_type != r.resource_type:
                     continue
-                outcome = check.evaluate(r)
+                # A check that throws on one malformed resource must skip
+                # that resource only — not abort the whole region's scan.
+                try:
+                    outcome = check.evaluate(r)
+                except Exception as e:
+                    print(f"coverage/{service}@{region} check "
+                          f"{check.check_id} FAILED on {r.arn}: {e}")
+                    continue
                 findings.append(_to_finding(check, r, outcome, kind, tenant_id))
 
     return {"entities": entities, "edges": edges, "findings": findings}

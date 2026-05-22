@@ -125,9 +125,11 @@ def _enqueue_initial_scan(
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
-            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, tier, scope) "
+            "INSERT INTO scans "
+            "(scan_id, tenant_id, conn_id, trigger, status, tier, phase, scope) "
             "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
-            "        'onboarding', 'queued', 'quick', CAST(:scope AS JSONB))"
+            "        'onboarding', 'queued', 'quick', 'region_discovery', "
+            "        CAST(:scope AS JSONB))"
         ),
         parameters=[
             {"name": "sid",   "value": {"stringValue": scan_id}},

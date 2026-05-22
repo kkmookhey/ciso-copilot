@@ -214,10 +214,15 @@ def handler(event: dict, context) -> dict:
         limiter = ConcurrencyLimiter(default=8, per_service={"iam": 3})
 
         # --- Stage 3: build + run scan units -----------------------------
-        # coverage_map: region -> {state, modules_run, modules_skipped, errors}
+        # coverage_map: region -> {state, modules_run, modules_skipped, errors}.
+        # The 'global' bucket holds account-wide units (IAM, S3, ai_pass) so
+        # a failed global module counts toward had_gap — without it a broken
+        # IAM scan would silently leave the scan marked 'completed'.
         coverage_map = {r: {"state": region_states[r], "modules_run": [],
                             "modules_skipped": [], "errors": []}
                         for r in regions}
+        coverage_map["global"] = {"state": "global", "modules_run": [],
+                                  "modules_skipped": [], "errors": []}
         entities: list[EntityEmission] = [_account_entity(account_id, tenant_id)]
         edges:    list[EdgeEmission]   = []
         findings: list[FindingEmission] = []
@@ -548,8 +553,10 @@ def _record_scan_scope(scan_id: str, scan_tier: str, discovery_method: str,
     scope = {
         "tier": scan_tier,
         "discovery": {"method": discovery_method},
-        "regions": coverage_map,
+        "regions": {k: v for k, v in coverage_map.items() if k != "global"},
     }
+    if "global" in coverage_map:
+        scope["global"] = coverage_map["global"]
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=("UPDATE scans SET scope = CAST(:scope AS JSONB) "
