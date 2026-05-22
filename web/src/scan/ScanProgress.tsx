@@ -1,12 +1,24 @@
+import { useEffect } from "react";
 import type { ScanStatus } from "../lib/api";
 import { phaseLabel, scanTierLabel } from "./scanLabels";
+
+interface ScanProgressProps {
+  scan: ScanStatus;
+  onTerminal?: () => void;
+}
 
 /** The in-progress / just-finished scan view. Works from `phase` +
  *  `finding_count` while running; shows the region census only once the
  *  scanner has written the coverage map (it does so after Phase 2). */
-export function ScanProgress({ scan }: { scan: ScanStatus }) {
+export function ScanProgress({ scan, onTerminal }: ScanProgressProps) {
   const done   = scan.status === "completed" || scan.status === "partial";
   const failed = scan.status === "failed";
+
+  useEffect(() => {
+    if (done || failed) {
+      onTerminal?.();
+    }
+  }, [scan.status, done, failed, onTerminal]);
   const queued = scan.status === "queued";
   // AWS scans carry a region-keyed coverage map; Azure scans a
   // subscription-keyed one. Render whichever is present.

@@ -73,15 +73,8 @@ def handler(event: dict, context) -> dict:
 
     print(f"entra connection {conn['conn_id']} active for tenant {entra_tenant_id}")
 
-    _enqueue_initial_scan(
-        tenant_id       = conn["tenant_id"],
-        conn_id         = conn["conn_id"],
-        entra_tenant_id = entra_tenant_id,
-    )
-
     return _html_redirect(
-        f"Entra tenant <code>{entra_tenant_id}</code> connected. Initial scan running — "
-        "results will appear in the app within a few minutes.",
+        f"Entra tenant <code>{entra_tenant_id}</code> connected. Head to the Scan screen to run your first scan.",
         success=True,
     )
 
@@ -157,8 +150,8 @@ def _html_redirect(message: str, *, success: bool) -> dict:
         + "</h1>"
         f'<p style="text-align:center;color:#475569;line-height:1.6;">{message}</p>'
         f'<p style="text-align:center;margin-top:32px;">'
-        f'<a href="{APP_DOMAIN}" style="color:#2563eb;text-decoration:none;font-weight:500;">'
-        "← Back to CISO Copilot</a></p>"
+        f'<a href="{APP_DOMAIN.rstrip("/")}/scan" style="color:#2563eb;text-decoration:none;font-weight:500;">'
+        "Run your first scan →</a></p>"
         "</body></html>"
     )
     return {

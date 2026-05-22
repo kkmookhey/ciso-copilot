@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type AIConnection, type Connection } from "../lib/api";
-import { useScanStatus } from "../scan/useScanStatus";
-import { ScanProgress } from "../scan/ScanProgress";
-import { scanTierBlurb, scanTierDuration } from "../scan/scanLabels";
 
 /// Phase A + B onboarding wizard. AWS = one-click CFN; Azure = Cloud-Shell
 /// curl pipe. Entra and GCP land in Phases C and D respectively.
@@ -16,15 +13,38 @@ export function ConnectClouds() {
   const [aiConnections, setAiConnections] = useState<AIConnection[]>([]);
   const [cloudConnections, setCloudConnections] = useState<Connection[]>([]);
   const [cloudActionMsg,   setCloudActionMsg]   = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<{ cloud: string } | null>(null);
+  const prevStatusesRef = useRef<Record<string, string>>({});
+  const nav = useNavigate();
 
   function reloadConnections() {
-    api.listConnections().then((r) => setCloudConnections(r.connections)).catch(() => { /* non-fatal */ });
+    api.listConnections().then((r) => {
+      // Detect non-active → active transitions and surface a toast linking to /scan.
+      for (const c of r.connections) {
+        const prev = prevStatusesRef.current[c.conn_id];
+        if (prev && prev !== "active" && c.status === "active") {
+          setToast({ cloud: c.cloud_type });
+        }
+        prevStatusesRef.current[c.conn_id] = c.status;
+      }
+      setCloudConnections(r.connections);
+    }).catch(() => { /* non-fatal */ });
   }
 
   useEffect(() => {
     api.listAIConnections().then((r) => setAiConnections(r.connections)).catch(() => { /* non-fatal */ });
     reloadConnections();
   }, []);
+
+  // Poll while any connection is still pending/error so we can flip the toast on transition.
+  useEffect(() => {
+    const hasPending = cloudConnections.some(
+      (c) => c.status !== "active" && c.status !== "revoked",
+    );
+    if (!hasPending) return;
+    const id = window.setInterval(reloadConnections, 5000);
+    return () => window.clearInterval(id);
+  }, [cloudConnections]);
 
   async function deleteCloud(connId: string, status: Connection["status"]) {
     if (status === "active") {
@@ -94,6 +114,19 @@ export function ConnectClouds() {
 
   return (
     <div className="max-w-3xl">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 max-w-sm bg-white border border-orange-300 shadow-lg rounded-md p-4">
+          <div className="font-medium text-stone-800">
+            Your {toast.cloud.toUpperCase()} connection is ready
+          </div>
+          <button onClick={() => { setToast(null); nav("/scan"); }}
+            className="mt-2 text-orange-700 underline text-sm">
+            Run your first scan →
+          </button>
+          <button onClick={() => setToast(null)}
+            className="absolute top-1 right-2 text-stone-400 hover:text-stone-600">×</button>
+        </div>
+      )}
       <h1 className="text-3xl font-bold tracking-tight">Connect a cloud</h1>
       <p className="text-slate-600 mt-1">Pick a cloud to start scanning.</p>
 
@@ -125,7 +158,6 @@ export function ConnectClouds() {
                 conn={c}
                 actionMsg={cloudActionMsg[c.conn_id]}
                 onDelete={deleteCloud}
-                onConnSaved={reloadConnections}
               />
             ))}
           </ul>
@@ -283,144 +315,13 @@ function CloudStatusPill({ status }: { status: Connection["status"] }) {
   );
 }
 
-function SubscriptionPicker({ conn, onSaved }: {
-  conn: Connection;
-  onSaved: () => void;
-}) {
-  const all = conn.scope?.subscriptions ?? [];
-  // selected defaults to all when scope.selected is absent (pre-picker connections)
-  const initial = conn.scope?.selected ?? all;
-  const [open, setOpen]       = useState(false);
-  const [checked, setChecked] = useState<Set<string>>(new Set(initial));
-  const [busy, setBusy]       = useState(false);
-  const [err, setErr]         = useState<string | null>(null);
-
-  if (all.length === 0) return null;
-
-  function toggle(sub: string) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      next.has(sub) ? next.delete(sub) : next.add(sub);
-      return next;
-    });
-  }
-
-  async function save() {
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.updateConnectionSubscriptions(conn.conn_id, [...checked]);
-      onSaved();
-      setOpen(false);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="text-xs text-slate-600 hover:text-slate-900"
-      >
-        {open ? "▾" : "▸"} Subscriptions ({checked.size} of {all.length} scanned)
-      </button>
-      {open && (
-        <div className="mt-2 rounded-lg border border-slate-200 p-3">
-          <ul className="space-y-1">
-            {all.map((sub) => {
-              const name = conn.scope?.subscription_names?.[sub];
-              return (
-                <li key={sub}>
-                  <label className="flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={checked.has(sub)}
-                      onChange={() => toggle(sub)}
-                    />
-                    {name ? (
-                      <>
-                        <span className="truncate">{name}</span>
-                        <span className="font-mono text-slate-400 shrink-0">
-                          ({sub.slice(0, 8)}…)
-                        </span>
-                      </>
-                    ) : (
-                      <span className="font-mono">{sub}</span>
-                    )}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-          {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={save}
-              disabled={busy || checked.size === 0}
-              className="px-3 py-1 rounded-md bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs"
-            >
-              {busy ? "Saving…" : "Save"}
-            </button>
-            {checked.size === 0 && (
-              <span className="text-xs text-slate-400">Select at least one.</span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ConnectionRow({
-  conn, actionMsg, onDelete, onConnSaved,
+  conn, actionMsg, onDelete,
 }: {
   conn: Connection;
   actionMsg?: string;
   onDelete: (connId: string, status: Connection["status"]) => void;
-  onConnSaved: () => void;
 }) {
-  const navigate = useNavigate();
-  const seedId =
-    ["aws", "azure"].includes(conn.cloud_type) && conn.latest_scan &&
-    !["completed", "partial", "failed"].includes(conn.latest_scan.status)
-      ? conn.latest_scan.scan_id
-      : null;
-  const [scanId, setScanId] = useState<string | null>(seedId);
-  const [scanMsg, setScanMsg] = useState<string | null>(null);
-  const { scan } = useScanStatus(scanId);
-
-  // Once a scan finishes, leave the result on screen briefly, then clear it
-  // so the row returns to idle (and a fresh scan can be started cleanly).
-  useEffect(() => {
-    if (!scan || !["completed", "partial", "failed"].includes(scan.status)) return;
-    const t = window.setTimeout(() => setScanId(null), 8000);
-    return () => window.clearTimeout(t);
-  }, [scan?.status]);
-
-  async function startScan(tier: "quick" | "medium") {
-    setScanMsg("Queuing scan…");
-    try {
-      const r = await api.rescanConnection(conn.conn_id, tier);
-      if (isAws || isAzure) {
-        setScanId(r.scan_id);
-        setScanMsg(null);
-      } else {
-        setScanMsg("Scan queued ✓");
-        window.setTimeout(() => setScanMsg(null), 4000);
-      }
-    } catch (e) {
-      setScanMsg(`Failed: ${(e as Error).message}`);
-    }
-  }
-
-  const isAws = conn.cloud_type === "aws";
-  const isAzure = conn.cloud_type === "azure";
-
   return (
     <li className="py-3 text-sm">
       <div className="flex items-center justify-between gap-3">
@@ -433,25 +334,9 @@ function ConnectionRow({
             {conn.account_identifier ?? `Added ${formatDate(conn.created_at)}`}
           </div>
           {actionMsg && <div className="text-xs text-blue-600 mt-1">{actionMsg}</div>}
-          {scanMsg && <div className="text-xs text-blue-600 mt-1">{scanMsg}</div>}
         </div>
         <CloudStatusPill status={conn.status} />
         <div className="flex items-center gap-2 shrink-0">
-          {conn.status === "active" && (isAws || isAzure) && (
-            <ScanPicker
-              onPick={(tier) =>
-                tier === "deep" ? navigate("/contact/deep-scan") : startScan(tier)}
-            />
-          )}
-          {conn.status === "active" && !isAws && !isAzure && (
-            <button
-              type="button"
-              onClick={() => startScan("medium")}
-              className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs"
-            >
-              Rescan
-            </button>
-          )}
           <button
             type="button"
             onClick={() => onDelete(conn.conn_id, conn.status)}
@@ -461,63 +346,6 @@ function ConnectionRow({
           </button>
         </div>
       </div>
-      {conn.status === "active" && conn.cloud_type === "azure" && (
-        <SubscriptionPicker conn={conn} onSaved={onConnSaved} />
-      )}
-      {scan && <ScanProgress scan={scan} />}
     </li>
-  );
-}
-
-function ScanPicker({ onPick }: { onPick: (tier: "quick" | "medium" | "deep") => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const tiers: Array<"quick" | "medium" | "deep"> = ["quick", "medium", "deep"];
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs"
-      >
-        Scan ▾
-      </button>
-      {open && (
-        <div className="absolute right-0 z-10 mt-1 w-56 rounded-lg border border-slate-200 bg-white shadow-lg">
-          {tiers.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => { setOpen(false); onPick(t); }}
-              className="block w-full text-left px-3 py-2 hover:bg-slate-50"
-            >
-              <div className="text-sm font-medium capitalize">
-                {t}{t === "deep" ? " — contact us" : ""}
-              </div>
-              <div className="text-xs text-slate-500">
-                {scanTierBlurb(t)} <span className="text-slate-400">({scanTierDuration(t)})</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }

@@ -95,16 +95,14 @@ def handler(event: dict, context) -> dict:
 
     print(f"connection {conn_id} activated for tenant {conn['tenant_id']} (account {account_id})")
 
-    # Kick off the initial scan.
-    scan_id = _enqueue_initial_scan(
-        tenant_id   = conn["tenant_id"],
-        conn_id     = conn_id,
-        role_arn    = role_arn,
-        external_id = external_id,
-        account_id  = account_id,
-    )
-
-    return _resp(200, {"status": "active", "connection_id": conn_id, "initial_scan_id": scan_id})
+    # Slice 2b: no auto-scan on onboarding. The user starts the first
+    # scan from /scan — a freshly onboarded connection appears with
+    # latest_scan: null and a "Never scanned" badge.
+    return _resp(200, {
+        "status":          "active",
+        "connection_id":   conn_id,
+        "initial_scan_id": None,
+    })
 
 
 def _enqueue_initial_scan(

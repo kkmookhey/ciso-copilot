@@ -89,22 +89,11 @@ def handler(event: dict, context) -> dict:
 
     print(f"azure connection {conn['conn_id']} active — {len(subscription_ids)} subscription(s)")
 
-    # Kick one initial scan for the whole connection — the v2 Fargate
-    # scanner walks every selected subscription in a single task run.
-    scan_id = _run_initial_scan(
-        tenant_id        = conn["tenant_id"],
-        conn_id          = conn["conn_id"],
-        azure_tenant_id  = azure_tenant_id,
-        client_id        = client_id,
-        secret_arn       = secret_arn,
-        subscription_ids = subscription_ids,
-    )
-
+    # Slice 2b: no auto-scan on onboarding (the Scan screen takes over).
     return _resp(200, {
-        "status":              "active",
-        "connection_id":       conn["conn_id"],
-        "subscriptions_count": len(subscription_ids),
-        "initial_scan_ids":    [scan_id] if scan_id else [],
+        "status":          "active",
+        "connection_id":   conn["conn_id"],
+        "initial_scan_id": None,
     })
 
 

@@ -4,9 +4,71 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (GCP scanner uplift Slice 2a — org-level
-> onboarding code shipped on branch feat/gcp-scanner-slice-2a;
-> live-verification pending org-admin access on a real GCP organisation).
+> Last updated: 2026-05-22 (Scan-screen Slice 2b shipped — cross-cloud
+> /scan landing, silent auto-scan dropped across all onboarding webhooks,
+> Connect-page pickers retired. Live on app.settlingforless.com).
+
+## 🚀 Scan Screen — Slice 2b shipped (2026-05-22)
+
+Cross-cloud `/scan` surface. Spec
+`docs/superpowers/specs/2026-05-22-scan-screen-design.md`; plan
+`docs/superpowers/plans/2026-05-22-scan-screen-slice-2b.md`. Built
+subagent-driven on branch **`feat/scan-screen-slice-2b`** (not yet
+merged).
+
+- **New `/scan` route** (`web/src/routes/Scan.tsx`) — stacked cards,
+  one per active connection. The `ScanCard` shell handles the header
+  (cloud name + last-scan pill + "Never scanned" badge for
+  `latest_scan === null`) and routes to a per-cloud body:
+  - **AWS** — tier picker only.
+  - **Azure** — subscription checklist (from `scope.subscription_names`,
+    default = all selected) + tier.
+  - **GCP** — project mode: tier only. Org mode: project checklist
+    (from `scope.projects`, default = all) + tier. If the org
+    connection has no projects yet (first scan after onboarding), the
+    body shows a "Projects discover on the first scan" banner and the
+    scanner enumerates when clicked.
+  - **Entra** — no scope, no tier; just a Scan button.
+  - A "Launch all scans" button at the page level fires every card in
+    parallel at Quick tier (Promise.allSettled; partial failures
+    surface in the per-card UI on next reload).
+  - Live scan rendering: when a card's `latest_scan.status` is
+    `running` (or a scan was just started locally), the body is
+    replaced by `<ScanProgress>` until terminal, then it re-renders the
+    picker form so the user can re-launch.
+- **Onboarding webhooks dropped the auto-scan** — AWS / Azure / GCP /
+  Entra. A freshly onboarded connection now lands in `/scan` with
+  `latest_scan: null` and a "Never scanned" badge. The Entra HTML
+  success page also redirects to `/scan` directly (link "Run your first
+  scan →").
+- **Connect page retrofit** — the per-row `ScanPicker` and the inline
+  `SubscriptionPicker` are deleted (~144 lines net). Each connection
+  row now shows only status + last-scan summary + Delete. The page
+  polls `GET /connections` every 5s while any connection is non-active;
+  a `pending → active` transition surfaces a toast in the top-right
+  linking to `/scan` ("Your &lt;CLOUD&gt; connection is ready — Run
+  your first scan →").
+- **`PATCH /connections/{id}` validates against either subscriptions
+  or projects** — `_update_scope` now accepts a non-empty subset of
+  `scope.subscriptions` (Azure) OR `scope.projects` (GCP org), so the
+  same endpoint supports both pickers without divergence.
+- **Deployed:** `CisoCopilotApi` deployed (`UPDATE_COMPLETE`); web built
+  (`tsc -b && vite build` clean), synced to S3, CloudFront invalidation
+  `IB4TNKV8P0SR5A1FH4ZK2OYS17` queued. Live at
+  `app.settlingforless.com`.
+- **Browser-smoke pending** — an agent can't pass Google OAuth.
+  Verification checklist:
+  1. Open `https://shasta.transilience.cloud` in an incognito window.
+  2. Sign in with Google.
+  3. Click "Scan" in the nav. Confirm the page renders the existing
+     GCP project connection as a card (AWS not connected on this
+     tenant; Azure has the subscription picker).
+  4. Click "Scan" on the GCP card. Confirm the card flips to
+     `ScanProgress` and polls to completion.
+  5. Visit "Connect clouds" — confirm the per-row pickers are gone;
+     only Delete buttons remain.
+  6. (Optional) Re-onboard a cloud to confirm the post-onboard toast
+     appears on the Connect page.
 
 ## 🚀 GCP Scanner Uplift — Slice 2a shipped (code only — 2026-05-22)
 
