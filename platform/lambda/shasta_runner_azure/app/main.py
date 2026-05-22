@@ -1,37 +1,87 @@
-"""shasta-runner-azure — runs Shasta's Azure checks against a customer subscription.
+"""shasta-runner-azure — runs Shasta's Azure checks across a customer's
+selected subscriptions.
 
-Invoked by onboarding_azure_complete (and later by Step Functions for scheduled
-scans) with:
+Invoked as a Fargate task (via run.py) or directly as a Lambda with:
   {
-    "scan_id":         "uuid",
-    "tenant_id":       "uuid",
-    "conn_id":         "uuid",
+    "scan_id": "uuid", "tenant_id": "uuid", "conn_id": "uuid",
     "azure_tenant_id": "<customer Entra tenant>",
-    "client_id":       "<SP appId>",
-    "secret_arn":      "<Secrets Manager ARN with client_secret>",
-    "subscription_id": "<scope>"
+    "client_id": "<SP appId>", "secret_arn": "<Secrets Manager ARN>",
+    "subscription_ids": ["<sub>", ...], "scan_tier": "quick|medium|deep"
   }
 
-Loads client_secret from Secrets Manager, sets the AZURE_* env vars that
-DefaultAzureCredential picks up, then runs Shasta's azure modules.
+Three stages (spec sections 4-5):
+  1. Subscription eligibility — the selected subscription list.
+  2. Footprint probe — per-subscription active/empty/unknown.
+  3. Tier-aware parallel scan — subscription x Shasta-module ScanUnits
+     through scanner_core.run_units; two-phase Quick early-commit.
 """
 from __future__ import annotations
 
 import json
-import os
 import traceback
-import uuid
+from dataclasses import dataclass
 
 import boto3
 
-from framework_map import merge_framework_map
+# === Shasta imports ===
+from shasta.azure.client import AzureClient
+from shasta.azure.appservice         import run_all_azure_appservice_checks
+from shasta.azure.backup             import run_all_azure_backup_checks
+from shasta.azure.compute            import run_all_azure_compute_checks
+from shasta.azure.databases          import run_all_azure_database_checks
+from shasta.azure.diagnostic_settings import run_all_azure_diagnostic_settings_checks
+from shasta.azure.encryption         import run_all_azure_encryption_checks
+from shasta.azure.governance         import run_all_azure_governance_checks
+from shasta.azure.iam                import run_all_azure_iam_checks
+from shasta.azure.monitoring         import run_all_azure_monitoring_checks
+from shasta.azure.networking         import run_all_azure_networking_checks
+from shasta.azure.private_endpoints  import run_all_azure_private_endpoint_checks
+from shasta.azure.storage            import run_all_azure_storage_checks
 
-DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
-DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
-DB_NAME        = os.environ["DB_NAME"]
+# === Adapter modules (this package) ===
+from azure_credential       import apply_sp_credentials
+from azure_findings         import convert_azure_findings, subscription_entity
+from azure_units            import modules_for_tier
+from subscription_discovery import discover_subscriptions
 
-rds_data = boto3.client("rds-data")
-sm       = boto3.client("secretsmanager")
+# === Shared modules (copied in by build.sh) ===
+from detectors.base import EntityEmission
+from scan_pipeline  import ConcurrencyLimiter, ScanUnit, run_units
+from scan_state     import record_scan_scope, update_scan
+from unified_writer import commit_scan, mark_scan_failed
+
+_SCANNER_VERSION  = "shasta_runner_azure.0.2.0"
+
+sm = boto3.client("secretsmanager")
+
+# Module name -> Shasta entry point. Each takes an AzureClient, returns
+# list[Finding]. The names match azure_units' tier lists.
+AZURE_MODULES = {
+    "iam":                 run_all_azure_iam_checks,
+    "governance":          run_all_azure_governance_checks,
+    "storage":             run_all_azure_storage_checks,
+    "networking":          run_all_azure_networking_checks,
+    "compute":             run_all_azure_compute_checks,
+    "encryption":          run_all_azure_encryption_checks,
+    "databases":           run_all_azure_database_checks,
+    "appservice":          run_all_azure_appservice_checks,
+    "monitoring":          run_all_azure_monitoring_checks,
+    "backup":              run_all_azure_backup_checks,
+    "diagnostic_settings": run_all_azure_diagnostic_settings_checks,
+    "private_endpoints":   run_all_azure_private_endpoint_checks,
+}
+
+# Subscriptions in these states are scanned; `empty` is skipped.
+_SCANNABLE = ("active", "unknown")
+
+
+@dataclass(frozen=True)
+class CloudScanContext:
+    """Minimal ScanContext for unified_writer (reads these by attr)."""
+    scan_id:         str
+    tenant_id:       str
+    connection_id:   str
+    scanner_version: str = _SCANNER_VERSION
 
 
 def handler(event: dict, context) -> dict:
@@ -39,165 +89,136 @@ def handler(event: dict, context) -> dict:
     tenant_id        = event["tenant_id"]
     conn_id          = event["conn_id"]
     azure_tenant_id  = event["azure_tenant_id"]
-    client_id        = event["client_id"]
     secret_arn       = event["secret_arn"]
-    subscription_id  = event["subscription_id"]
+    subscription_ids = event["subscription_ids"]
+    scan_tier        = event.get("scan_tier", "quick")
 
-    print(f"azure scan start: scan={scan_id} subscription={subscription_id}")
-    _update_scan(scan_id, status="running")
+    print(f"azure scan start: scan={scan_id} tier={scan_tier} "
+          f"subs={subscription_ids}")
+    ctx = CloudScanContext(scan_id=scan_id, tenant_id=tenant_id,
+                           connection_id=conn_id)
+    update_scan(scan_id, status="running", phase="region_discovery")
 
     try:
-        # Pull SP secret + inject env vars BEFORE importing Shasta (its
-        # DefaultAzureCredential resolves these at first use).
-        secret_value = json.loads(sm.get_secret_value(SecretId=secret_arn)["SecretString"])
-        os.environ["AZURE_CLIENT_ID"]     = client_id
-        os.environ["AZURE_TENANT_ID"]     = azure_tenant_id
-        os.environ["AZURE_CLIENT_SECRET"] = secret_value["client_secret"]
+        # --- Credentials: one SP, shared by every subscription ----------
+        secret = json.loads(
+            sm.get_secret_value(SecretId=secret_arn)["SecretString"])
+        apply_sp_credentials(secret)
+        base_client = AzureClient(tenant_id=azure_tenant_id)
 
-        from shasta.azure.client import AzureClient
-        from shasta.azure import (
-            appservice            as az_appservice,
-            backup                as az_backup,
-            compute               as az_compute,
-            databases             as az_databases,
-            diagnostic_settings   as az_diag,
-            encryption            as az_encryption,
-            governance            as az_governance,
-            iam                   as az_iam,
-            monitoring            as az_monitoring,
-            networking            as az_networking,
-            private_endpoints     as az_pep,
-            storage               as az_storage,
-        )
+        # --- Stage 1 + 2: subscription discovery ------------------------
+        def _probe(sub_id: str) -> str:
+            c = base_client.for_subscription(sub_id)
+            c.validate_credentials()              # raises if unreachable
+            return "active" if c.discover_services() else "empty"
 
-        MODULES = [
-            ("iam",                  az_iam.run_all_azure_iam_checks),
-            ("governance",           az_governance.run_all_azure_governance_checks),
-            ("compute",              az_compute.run_all_azure_compute_checks),
-            ("storage",              az_storage.run_all_azure_storage_checks),
-            ("networking",           az_networking.run_all_azure_networking_checks),
-            ("databases",            az_databases.run_all_azure_database_checks),
-            ("encryption",           az_encryption.run_all_azure_encryption_checks),
-            ("appservice",           az_appservice.run_all_azure_appservice_checks),
-            ("monitoring",           az_monitoring.run_all_azure_monitoring_checks),
-            ("backup",               az_backup.run_all_azure_backup_checks),
-            ("diagnostic_settings",  az_diag.run_all_azure_diagnostic_settings_checks),
-            ("private_endpoints",    az_pep.run_all_azure_private_endpoint_checks),
-        ]
+        states = discover_subscriptions(subscription_ids, _probe)
+        print(f"subscription discovery: {states}")
+        scannable = [s for s, st in states.items() if st in _SCANNABLE]
 
-        client = AzureClient(subscription_id=subscription_id, tenant_id=azure_tenant_id)
-        client.validate_credentials()
+        # --- Stage 3: build + run scan units ----------------------------
+        phase1_mods, phase2_mods = modules_for_tier(scan_tier)
+        limiter = ConcurrencyLimiter(default=8)
+        coverage_map = {s: {"state": states[s], "modules_run": [],
+                            "errors": []} for s in subscription_ids}
 
-        all_findings = []
-        module_stats: dict[str, dict] = {}
-        for name, run_fn in MODULES:
-            try:
-                findings = run_fn(client)
-                all_findings.extend(findings)
-                module_stats[name] = {"findings": len(findings)}
-                print(f"{name}: {len(findings)} findings")
-            except Exception as e:
-                print(f"{name} FAILED: {e}\n{traceback.format_exc()}")
-                module_stats[name] = {"error": str(e)[:200]}
+        entities: list[EntityEmission] = [
+            subscription_entity(s, tenant_id) for s in scannable]
+        edges: list = []
+        findings: list = []
 
-        written = _insert_findings(all_findings, scan_id, tenant_id, conn_id)
-        _update_scan(scan_id, status="completed", stats={
-            "findings":        written,
-            "modules":         module_stats,
-            "subscription_id": subscription_id,
+        phase1_units = _build_units(scannable, phase1_mods, base_client,
+                                    tenant_id, azure_tenant_id)
+        phase2_units = _build_units(scannable, phase2_mods, base_client,
+                                    tenant_id, azure_tenant_id)
+
+        if scan_tier.lower() == "quick":
+            update_scan(scan_id, status="running", phase="first_signal")
+            r1 = run_units(phase1_units, limiter=limiter)
+            _absorb(r1, entities, edges, findings, coverage_map)
+            commit_scan(ctx, entities=list(entities), edges=list(edges),
+                        findings=list(findings))
+            print(f"quick phase 1 committed: {len(findings)} findings")
+            update_scan(scan_id, status="running", phase="crown_jewel")
+            r2 = run_units(phase2_units, limiter=limiter)
+            _absorb(r2, entities, edges, findings, coverage_map)
+            commit_scan(ctx, entities=list(entities), edges=list(edges),
+                        findings=list(findings))
+        else:
+            update_scan(scan_id, status="running", phase="full")
+            res = run_units(phase1_units + phase2_units, limiter=limiter)
+            _absorb(res, entities, edges, findings, coverage_map)
+            commit_scan(ctx, entities=list(entities), edges=list(edges),
+                        findings=list(findings))
+
+        had_gap = any(c["errors"] for c in coverage_map.values())
+        final_status = "partial" if had_gap else "completed"
+        record_scan_scope(scan_id, {
+            "tier": scan_tier,
+            "subscriptions": coverage_map,
         })
-        print(f"azure scan complete: {written} findings written")
-        return {"scan_id": scan_id, "findings_written": written}
+        update_scan(scan_id, status=final_status, phase="done", stats={
+            "entities": len(entities), "edges": len(edges),
+            "findings": len(findings), "tier": scan_tier,
+            "subscriptions": scannable,
+        })
+        print(f"azure scan complete ({final_status}): {len(entities)} "
+              f"entities, {len(edges)} edges, {len(findings)} findings")
+        return {"scan_id": scan_id, "status": final_status,
+                "findings_written": len(findings)}
 
     except Exception as e:
         err = f"{e}: {traceback.format_exc()}"[:1000]
         print(f"AZURE SCAN FAILED: {err}")
-        _update_scan(scan_id, status="failed", error=err)
+        try:
+            mark_scan_failed(ctx, err)
+        except Exception:
+            pass
+        update_scan(scan_id, status="failed", phase="done", error=err)
         raise
 
 
-# ============================================================================
-# Aurora writes — copy of shasta_runner/app/main.py helpers
-# ============================================================================
-
-_FINDING_INSERT_SQL = """
-INSERT INTO findings (
-    finding_id, tenant_id, conn_id, scan_id, check_id, title, description,
-    severity, status, resource_arn, resource_type, region, domain,
-    frameworks, remediation, first_seen, last_seen
-) VALUES (
-    CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), CAST(:sid AS UUID),
-    :check_id, :title, :description, :severity, :status, :resource_arn,
-    :resource_type, :region, :domain,
-    CAST(:frameworks AS JSONB), :remediation, now(), now()
-)
-"""
-
-_BATCH_SIZE = 25
+def _build_units(subscriptions: list[str], module_names: list[str],
+                 base_client, tenant_id: str,
+                 azure_tenant_id: str) -> list[ScanUnit]:
+    """One ScanUnit per (subscription, module). Each unit builds its own
+    AzureClient inside `run` — fresh per unit, mirroring the AWS
+    scanner's per-unit client — so concurrent units never share a
+    mutable Azure SDK client."""
+    units: list[ScanUnit] = []
+    for sub_id in subscriptions:
+        for name in module_names:
+            run_fn = AZURE_MODULES[name]
+            units.append(ScanUnit(
+                name=f"{sub_id}/{name}", service=name,
+                run=_module_unit(run_fn, base_client, sub_id,
+                                 tenant_id)))
+    return units
 
 
-def _insert_findings(findings, scan_id, tenant_id, conn_id):
-    if not findings:
-        return 0
-    written = 0
-    for i in range(0, len(findings), _BATCH_SIZE):
-        batch = findings[i : i + _BATCH_SIZE]
-        param_sets = [_finding_to_params(f, scan_id, tenant_id, conn_id) for f in batch]
-        rds_data.batch_execute_statement(
-            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-            sql=_FINDING_INSERT_SQL, parameterSets=param_sets,
-        )
-        written += len(batch)
-    return written
+def _module_unit(run_fn, base_client, sub_id: str, tenant_id: str):
+    """Build the `run` callable for one (subscription, module) unit."""
+    def _run() -> dict:
+        client = base_client.for_subscription(sub_id)
+        client.validate_credentials()
+        shasta_findings = run_fn(client)
+        return convert_azure_findings(shasta_findings, tenant_id, sub_id)
+    return _run
 
 
-def _finding_to_params(f, scan_id, tenant_id, conn_id):
-    frameworks = {
-        "soc2":      f.soc2_controls,
-        "cis_aws":   f.cis_aws_controls,
-        "cis_azure": f.cis_azure_controls,
-        "cis_gcp":   f.cis_gcp_controls,
-        "mcsb":      f.mcsb_controls,
-        "iso27001":  f.iso27001_controls,
-        "hipaa":     f.hipaa_controls,
-    }
-    frameworks = {k: v for k, v in frameworks.items() if v}
-    frameworks = merge_framework_map(f.check_id, frameworks)
-    return [
-        {"name": "fid",           "value": {"stringValue": str(uuid.uuid4())}},
-        {"name": "tid",           "value": {"stringValue": tenant_id}},
-        {"name": "cid",           "value": {"stringValue": conn_id}},
-        {"name": "sid",           "value": {"stringValue": scan_id}},
-        {"name": "check_id",      "value": {"stringValue": f.check_id}},
-        {"name": "title",         "value": {"stringValue": f.title[:500]}},
-        {"name": "description",   "value": {"stringValue": (f.description or "")[:2000]}},
-        {"name": "severity",      "value": {"stringValue": f.severity.value.lower()}},
-        {"name": "status",        "value": {"stringValue": f.status.value.lower()}},
-        {"name": "resource_arn",  "value": {"stringValue": (f.resource_id or "")[:500]}},
-        {"name": "resource_type", "value": {"stringValue": f.resource_type[:200]}},
-        {"name": "region",        "value": {"stringValue": f.region[:50]}},
-        {"name": "domain",        "value": {"stringValue": f.domain.value.lower()}},
-        {"name": "frameworks",    "value": {"stringValue": json.dumps(frameworks)}},
-        {"name": "remediation",   "value": {"stringValue": (f.remediation or "")[:2000]}},
-    ]
-
-
-def _update_scan(scan_id, status, stats=None, error=None):
-    parts = ["UPDATE scans SET status = :status"]
-    params = [
-        {"name": "sid",    "value": {"stringValue": scan_id}},
-        {"name": "status", "value": {"stringValue": status}},
-    ]
-    if status in ("completed", "failed", "partial"):
-        parts.append("finished_at = now()")
-    if stats is not None:
-        parts.append("stats = CAST(:stats AS JSONB)")
-        params.append({"name": "stats", "value": {"stringValue": json.dumps(stats)}})
-    if error is not None:
-        parts.append("error = :error")
-        params.append({"name": "error", "value": {"stringValue": error}})
-    sql = ", ".join(parts) + " WHERE scan_id = CAST(:sid AS UUID)"
-    rds_data.execute_statement(
-        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=sql, parameters=params,
-    )
+def _absorb(results, entities, edges, findings, coverage_map) -> None:
+    """Merge a run_units UnitResults into the accumulators + coverage
+    map. Unit name format is `<subscription_id>/<module>`."""
+    entities.extend(results.entities)
+    edges.extend(results.edges)
+    findings.extend(results.findings)
+    for o in results.outcomes:
+        sub_id = o.name.split("/", 1)[0]
+        bucket = coverage_map.get(sub_id)
+        if bucket is None:
+            continue
+        if o.status == "success":
+            bucket["modules_run"].append(o.name)
+        else:
+            bucket["errors"].append(
+                f"{o.status}: {o.name} {o.detail}".strip())
