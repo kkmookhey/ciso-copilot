@@ -22,6 +22,8 @@ key on disk anywhere.
 """
 from __future__ import annotations
 
+import json as _json
+import os
 import traceback
 from dataclasses import dataclass
 
@@ -44,13 +46,23 @@ from gcp_credential    import (build_external_account_info,
                                export_aws_credentials_to_env)
 from gcp_findings      import convert_gcp_findings, project_entity
 from gcp_units         import modules_for_tier
-from project_discovery import discover_projects
+from project_discovery import discover_projects, enumerate_projects
 
 # === Shared modules (copied in by build.sh) ===
 from detectors.base import EntityEmission
 from scan_pipeline  import ConcurrencyLimiter, ScanUnit, run_units
 from scan_state     import record_scan_scope, update_scan
 from unified_writer import commit_scan, mark_scan_failed
+
+# An rds-data client for writing the enumerated project list back to
+# cloud_connections.scope in org mode. boto3.client is offline so
+# constructing it at module load is safe.
+_rds = boto3.client("rds-data")
+
+DB_CLUSTER_ARN = os.environ.get("DB_CLUSTER_ARN", "")
+DB_SECRET_ARN  = os.environ.get("DB_SECRET_ARN",  "")
+DB_NAME        = os.environ.get("DB_NAME",        "ciso_copilot")
+
 
 _SCANNER_VERSION = "shasta_runner_gcp.0.2.0"
 
@@ -83,12 +95,13 @@ def handler(event: dict, context) -> dict:
     scan_id            = event["scan_id"]
     tenant_id          = event["tenant_id"]
     conn_id            = event["conn_id"]
-    project_ids        = event["project_ids"]
+    project_ids        = list(event.get("project_ids") or [])
     wif_project_number = event["wif_project_number"]
     sa_email           = event["sa_email"]
     wif_pool           = event["wif_pool"]
     wif_provider       = event["wif_provider"]
     scan_tier          = event.get("scan_tier", "quick")
+    mode               = (event.get("mode") or "project").lower()
 
     print(f"gcp scan start: scan={scan_id} tier={scan_tier} "
           f"projects={project_ids}")
@@ -115,10 +128,33 @@ def handler(event: dict, context) -> dict:
             wif_project_number, sa_email, wif_pool, wif_provider)
         credentials = google_aws.Credentials.from_info(info)
 
-        # A base client bound to the first project — used only to mint
-        # per-project sibling clients via for_project().
-        base_client = GCPClient(project_id=project_ids[0],
+        # In org mode we may have no project_ids yet (the webhook stores
+        # an empty list; the user has not picked a subset). Use the
+        # host_project_id (passed via the event's `host_project_id`, or
+        # fall back to wif_project_number) as a bootstrap project so
+        # list_projects() has *some* project to bind the GCPClient to.
+        # In project mode project_ids is the single onboarded project.
+        if mode == "org" and not project_ids:
+            bootstrap_project = event.get("host_project_id") or wif_project_number
+        else:
+            bootstrap_project = project_ids[0]
+        base_client = GCPClient(project_id=bootstrap_project,
                                 credentials=credentials)
+
+        # Org mode: enumerate every project the SA can see and write the
+        # list back to the connection. Then, if the trigger didn't pass
+        # a chosen subset, scan everything; if it did, honour the
+        # subset.
+        if mode == "org":
+            discovered = enumerate_projects(base_client)
+            print(f"org-mode enumeration: {len(discovered)} projects")
+            _record_projects(conn_id, discovered)
+            if not project_ids:
+                project_ids = list(discovered.keys())
+
+        if not project_ids:
+            raise RuntimeError("no projects to scan (empty project_ids "
+                               "and org enumeration returned nothing)")
 
         # --- Stage 1 + 2: project discovery ----------------------------
         def _probe(project_id: str) -> str:
@@ -239,3 +275,26 @@ def _absorb(results, entities, edges, findings, coverage_map) -> None:
         else:
             bucket["errors"].append(
                 f"{o.status}: {o.name} {o.detail}".strip())
+
+
+def _record_projects(conn_id: str, projects: dict[str, str]) -> None:
+    """Persist {project_id: display_name} into the connection's scope so
+    the (future) project picker can show readable names. Additive —
+    jsonb_set leaves the other scope keys untouched. Best-effort: a
+    write failure must never fail the scan."""
+    if not projects:
+        return
+    try:
+        _rds.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("UPDATE cloud_connections "
+                 "SET scope = jsonb_set(COALESCE(scope, '{}'::jsonb), "
+                 "                      '{projects}', CAST(:projects AS JSONB)) "
+                 "WHERE conn_id = CAST(:cid AS UUID)"),
+            parameters=[
+                {"name": "cid",      "value": {"stringValue": conn_id}},
+                {"name": "projects", "value": {"stringValue": _json.dumps(projects)}},
+            ],
+        )
+    except Exception as e:
+        print(f"WARN: project-name capture failed: {e}")
