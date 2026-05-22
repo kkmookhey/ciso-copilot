@@ -4,9 +4,9 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (Azure scanner uplift Slice 1b — production
-> triggers rewired to the v2 Fargate scanner, built + deployed +
-> live-verified on branch feat/azure-scanner-slice-1b).
+> Last updated: 2026-05-22 (Azure scanner uplift COMPLETE — Slice 2 web
+> subscription picker built, deployed, and live-verified on branch
+> feat/azure-subscription-picker).
 
 ## 🚀 Azure Scanner Uplift — Slice 0 shipped (2026-05-22)
 
@@ -90,9 +90,30 @@ worked first try since it was a pure removal with no competing new
 export. The `shasta-runner-azure` ECR repo stays (the Fargate task def
 uses it).
 
-**▶ NEXT (Azure uplift):** Slice 2 — the web subscription picker (let
-the user choose which subscriptions to scan; spec §9). Gets its own
-plan via writing-plans.
+**Slice 2 — web subscription picker — DONE (2026-05-22).** Plan
+`docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-2.md`;
+built subagent-driven on branch **`feat/azure-subscription-picker`**.
+- `GET /connections` now returns each connection's `scope`; new
+  `PATCH /connections/{id}` updates `scope.selected` (validates the
+  list is a non-empty subset of the discovered subscriptions).
+- `_rescan_azure` scans `scope.selected` (falls back to `subscriptions`
+  for pre-picker connections); onboarding seeds `selected` = all.
+- Web Connect page: an expandable subscription checklist on Azure
+  connection rows (Save → PATCH), plus the Quick/Medium/Deep `ScanPicker`
+  (the Azure row previously had only a flat Medium-only Rescan button).
+  `ScanProgress` renders the per-subscription census for Azure scans.
+- **Live-verified:** PATCH'd the Azure connection to one of its two
+  subscriptions, ran a rescan — the scan's `scope.subscriptions` map
+  contained only the selected subscription. Then restored to both.
+- Web build/typecheck green; the picker's visual behaviour was not
+  browser-tested (agent can't pass Google OAuth) — worth a glance.
+
+**▶ AZURE SCANNER UPLIFT COMPLETE.** Slices 0, 1a, 1b, 2 + the legacy-
+Lambda retirement are all shipped. The Azure scanner is the v2
+three-stage Fargate pipeline, tier-aware, with user-chosen subscription
+scoping — at parity with the AWS scanner. Next major item: see the
+Roadmap below (Azure was roadmap #1's Azure leg; GCP / Entra uplifts
+remain, or move to roadmap #2+).
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
 
