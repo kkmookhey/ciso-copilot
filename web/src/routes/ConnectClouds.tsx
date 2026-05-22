@@ -295,6 +295,14 @@ function ConnectionRow({
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   const { scan } = useScanStatus(scanId);
 
+  // Once a scan finishes, leave the result on screen briefly, then clear it
+  // so the row returns to idle (and a fresh scan can be started cleanly).
+  useEffect(() => {
+    if (!scan || !["completed", "partial", "failed"].includes(scan.status)) return;
+    const t = window.setTimeout(() => setScanId(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [scan?.status]);
+
   async function startScan(tier: "quick" | "medium") {
     setScanMsg("Queuing scan…");
     try {
@@ -318,7 +326,7 @@ function ConnectionRow({
           </div>
           <div className="text-xs text-slate-500 truncate">{conn.account_identifier ?? "—"}</div>
           {actionMsg && <div className="text-xs text-blue-600 mt-1">{actionMsg}</div>}
-          {scanMsg  && <div className="text-xs text-blue-600 mt-1">{scanMsg}</div>}
+          {scanMsg && <div className="text-xs text-blue-600 mt-1">{scanMsg}</div>}
         </div>
         <CloudStatusPill status={conn.status} />
         <div className="flex items-center gap-2 shrink-0">
