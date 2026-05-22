@@ -27,7 +27,6 @@ whole scan. The scan completes with whichever findings it could produce.
 from __future__ import annotations
 
 import json
-import os
 import traceback
 from dataclasses import dataclass
 from typing import Any
@@ -71,20 +70,15 @@ from region_discovery  import discover_regions
 from scan_pipeline     import ConcurrencyLimiter, ScanUnit, run_units
 from scan_policy       import build_scan_plan
 
-# === Shared writer + emission types (copied in by build.sh) ===
+# === Shared modules (copied in by build.sh) ===
 from detectors.base import EdgeEmission, EntityEmission, FindingEmission
+from scan_state     import record_scan_scope, update_scan
 from unified_writer import commit_scan, mark_scan_failed
-
-# === Config ===
-DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
-DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
-DB_NAME        = os.environ["DB_NAME"]
 
 _SCANNER_VERSION  = "shasta_runner.0.2.0"
 _DETECTOR_ID_BASE = "shasta_runner"
 
-rds_data = boto3.client("rds-data")
-sts      = boto3.client("sts")
+sts = boto3.client("sts")
 
 # Modules global to an account (no region iteration).
 GLOBAL_MODULES = [
@@ -186,7 +180,7 @@ def handler(event: dict, context) -> dict:
 
     print(f"scan start: scan={scan_id} account={account_id} tier={scan_tier}")
     ctx = CloudScanContext(scan_id=scan_id, tenant_id=tenant_id, connection_id=conn_id)
-    _update_scan(scan_id, status="running", phase="region_discovery")
+    update_scan(scan_id, status="running", phase="region_discovery")
 
     try:
         credentials = build_refreshable_credentials(sts, role_arn, external_id)
@@ -233,7 +227,7 @@ def handler(event: dict, context) -> dict:
         committed = 0
         if scan_tier == "quick":
             # Phase 1 — First Signal: global units, early commit.
-            _update_scan(scan_id, status="running", phase="first_signal")
+            update_scan(scan_id, status="running", phase="first_signal")
             r1 = run_units(global_units, limiter=limiter)
             _absorb(r1, entities, edges, findings, coverage_map)
             commit_scan(ctx, entities=list(entities), edges=list(edges),
@@ -241,13 +235,13 @@ def handler(event: dict, context) -> dict:
             committed = len(findings)
             print(f"quick phase 1 committed: {committed} findings")
             # Phase 2 — Crown Jewel: per-region units.
-            _update_scan(scan_id, status="running", phase="crown_jewel")
+            update_scan(scan_id, status="running", phase="crown_jewel")
             r2 = run_units(region_units, limiter=limiter)
             _absorb(r2, entities, edges, findings, coverage_map)
             commit_scan(ctx, entities=list(entities), edges=list(edges),
                         findings=list(findings))
         else:
-            _update_scan(scan_id, status="running", phase="full")
+            update_scan(scan_id, status="running", phase="full")
             res = run_units(global_units + region_units, limiter=limiter)
             _absorb(res, entities, edges, findings, coverage_map)
             commit_scan(ctx, entities=list(entities), edges=list(edges),
@@ -257,7 +251,7 @@ def handler(event: dict, context) -> dict:
         had_gap = any(c["errors"] for c in coverage_map.values())
         final_status = "partial" if had_gap else "completed"
         _record_scan_scope(scan_id, scan_tier, discovery_method, coverage_map)
-        _update_scan(scan_id, status=final_status, phase="done", stats={
+        update_scan(scan_id, status=final_status, phase="done", stats={
             "entities": len(entities), "edges": len(edges),
             "findings": len(findings), "tier": scan_tier,
             "regions": regions,
@@ -274,7 +268,7 @@ def handler(event: dict, context) -> dict:
             mark_scan_failed(ctx, err)
         except Exception:
             pass
-        _update_scan(scan_id, status="failed", phase="done", error=err)
+        update_scan(scan_id, status="failed", phase="done", error=err)
         raise
 
 
@@ -544,12 +538,14 @@ def _safe_details(details) -> dict:
 
 
 # ============================================================================
-# Legacy `scans` table updates (kept — separate from ai_scans / commit_scan)
+# `scans` table scope write (AWS region-shaped; write delegated to scan_state)
 # ============================================================================
 
 def _record_scan_scope(scan_id: str, scan_tier: str, discovery_method: str,
                        coverage_map: dict) -> None:
-    """Write the per-scan coverage map to scans.scope (spec §9)."""
+    """Build the AWS region-shaped coverage map and write it to
+    scans.scope (spec §9). The shaping is AWS-specific; the write is
+    delegated to the shared scanner_core.scan_state."""
     scope = {
         "tier": scan_tier,
         "discovery": {"method": discovery_method},
@@ -557,36 +553,4 @@ def _record_scan_scope(scan_id: str, scan_tier: str, discovery_method: str,
     }
     if "global" in coverage_map:
         scope["global"] = coverage_map["global"]
-    rds_data.execute_statement(
-        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=("UPDATE scans SET scope = CAST(:scope AS JSONB) "
-             "WHERE scan_id = CAST(:sid AS UUID)"),
-        parameters=[
-            {"name": "sid",   "value": {"stringValue": scan_id}},
-            {"name": "scope", "value": {"stringValue": json.dumps(scope)}},
-        ],
-    )
-
-
-def _update_scan(scan_id: str, status: str, *, phase: str | None = None,
-                  stats: dict | None = None, error: str | None = None) -> None:
-    sql_parts = ["UPDATE scans SET status = :status"]
-    params = [
-        {"name": "sid",    "value": {"stringValue": scan_id}},
-        {"name": "status", "value": {"stringValue": status}},
-    ]
-    if phase is not None:
-        sql_parts.append("phase = :phase")
-        params.append({"name": "phase", "value": {"stringValue": phase}})
-    if status in ("completed", "failed", "partial"):
-        sql_parts.append("finished_at = now()")
-    if stats is not None:
-        sql_parts.append("stats = CAST(:stats AS JSONB)")
-        params.append({"name": "stats", "value": {"stringValue": json.dumps(stats)}})
-    if error is not None:
-        sql_parts.append("error = :error")
-        params.append({"name": "error", "value": {"stringValue": error}})
-    sql = ", ".join(sql_parts) + " WHERE scan_id = CAST(:sid AS UUID)"
-    rds_data.execute_statement(
-        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=sql, parameters=params)
+    record_scan_scope(scan_id, scope)
