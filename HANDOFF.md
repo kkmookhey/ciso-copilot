@@ -80,15 +80,18 @@ built subagent-driven on branch **`feat/azure-scanner-slice-1b`**.
   literal, `iam:PassRole` uses a role-name pattern
   (`CisoCopilotScan-AzureScanTaskDef*`), and `AZURE_RUNNER_FN` stays
   wired (unused by code). The Api stack then deploys alone.
-- **Deferred:** retiring the legacy `ciso-copilot-shasta-runner-azure`
-  Lambda. It is now dead code (nothing invokes it) but still deployed +
-  cross-stack-wired. Removing it is a clean standalone two-phase deploy
-  (Api drops the import, then Scan drops the Lambda) — do it as a small
-  follow-up, NOT bundled with other export changes.
+**Legacy Azure Lambda retired — DONE (2026-05-22).** `commit 887e140`.
+The deferred follow-up: the `AzureRunner` `DockerImageFunction`
+(`ciso-copilot-shasta-runner-azure`) + its cross-stack wiring
+(`AZURE_RUNNER_FN` env vars, `grantInvoke`) removed. Shipped via the
+clean two-phase deploy — `CisoCopilotApi` first (drops the imports),
+then `CisoCopilotScan` (drops the Lambda + its orphaned exports) — which
+worked first try since it was a pure removal with no competing new
+export. The `shasta-runner-azure` ECR repo stays (the Fargate task def
+uses it).
 
 **▶ NEXT (Azure uplift):** Slice 2 — the web subscription picker (let
-the user choose which subscriptions to scan; spec §9). Plus the small
-deferred follow-up to retire the legacy Azure Lambda. Each gets its own
+the user choose which subscriptions to scan; spec §9). Gets its own
 plan via writing-plans.
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
