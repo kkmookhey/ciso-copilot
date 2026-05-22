@@ -4,9 +4,9 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (Azure scanner uplift Slice 1a — v2 Azure
-> scanner backend — built, deployed, live-verified on branch
-> feat/azure-scanner-slice-1a).
+> Last updated: 2026-05-22 (Azure scanner uplift Slice 1b — production
+> triggers rewired to the v2 Fargate scanner, built + deployed +
+> live-verified on branch feat/azure-scanner-slice-1b).
 
 ## 🚀 Azure Scanner Uplift — Slice 0 shipped (2026-05-22)
 
@@ -61,11 +61,35 @@ is now the v2 three-stage pipeline:
 - **Not yet wired to production triggers** — invoked manually via
   `ecs run-task`. The legacy Azure Lambda still exists.
 
-**▶ NEXT (Azure uplift):** Slice 1b — rewire the production triggers
-(`onboarding_azure_complete` + `connections_list._rescan_azure`) from
-`lambda.invoke` to `ecs:RunTask`, wire the `AZURE_SCAN_*` env vars in the
-CDK API stack, and retire the legacy Azure Lambda. Then Slice 2 — the
-web subscription picker. Each gets its own plan via writing-plans.
+**Slice 1b — production triggers on Fargate — DONE (2026-05-22).** Plan
+`docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1b.md`;
+built subagent-driven on branch **`feat/azure-scanner-slice-1b`**.
+- `onboarding_azure_complete` and `connections_list._rescan_azure` now
+  start **one** `ciso-copilot-azure-scan` Fargate task per connection
+  (all subscriptions, one `scans` row) via `ecs:RunTask` — no more
+  per-subscription legacy `lambda.invoke`. The rescan path is
+  tier-aware.
+- **Live-verified:** a rescan through the real `POST /connections/{id}/
+  rescan` API path ran scan `6cad579e-…` to `completed`/`phase=done`,
+  72 findings, subscription-keyed scope.
+- **Deploy gotcha paid in debugging time:** the first attempt deadlocked
+  — the plan's Task 3 added a new `Scan→Api` cross-stack export (Azure
+  task-def role ARNs) while removing the legacy Lambda dropped another,
+  so neither stack-deploy order worked. Fixed by making the Azure wiring
+  create **zero** cross-stack export churn: the task-def family is a
+  literal, `iam:PassRole` uses a role-name pattern
+  (`CisoCopilotScan-AzureScanTaskDef*`), and `AZURE_RUNNER_FN` stays
+  wired (unused by code). The Api stack then deploys alone.
+- **Deferred:** retiring the legacy `ciso-copilot-shasta-runner-azure`
+  Lambda. It is now dead code (nothing invokes it) but still deployed +
+  cross-stack-wired. Removing it is a clean standalone two-phase deploy
+  (Api drops the import, then Scan drops the Lambda) — do it as a small
+  follow-up, NOT bundled with other export changes.
+
+**▶ NEXT (Azure uplift):** Slice 2 — the web subscription picker (let
+the user choose which subscriptions to scan; spec §9). Plus the small
+deferred follow-up to retire the legacy Azure Lambda. Each gets its own
+plan via writing-plans.
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
 
