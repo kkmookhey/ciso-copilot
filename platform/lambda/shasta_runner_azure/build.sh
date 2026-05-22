@@ -29,6 +29,20 @@ rsync -a \
   --exclude='.pytest_cache' --exclude='.ruff_cache' \
   "$SHASTA_SRC/" .build/shasta/
 
+# Copy shared modules from sibling packages. Source of truth lives in
+# ai_scanner/ and scanner_core/; .gitignore excludes the runtime copies.
+echo "==> copying shared modules from ../ai_scanner"
+rm -rf app/detectors app/unified_writer.py
+mkdir -p app/detectors
+cp ../ai_scanner/detectors/base.py app/detectors/base.py
+touch                              app/detectors/__init__.py
+cp ../ai_scanner/unified_writer.py app/unified_writer.py
+
+echo "==> copying shared modules from ../scanner_core"
+rm -f app/scan_pipeline.py app/scan_state.py
+cp ../scanner_core/scan_pipeline.py app/scan_pipeline.py
+cp ../scanner_core/scan_state.py    app/scan_state.py
+
 echo "==> ECR auth"
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$REPO" >/dev/null
