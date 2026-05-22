@@ -57,6 +57,8 @@ def handler(event: dict, context) -> dict:
         return _rescan(event)
     if method == "DELETE" and "/connections/" in path and not path.rstrip("/").endswith("/rescan"):
         return _delete(event)
+    if method == "PATCH" and "/connections/" in path:
+        return _update_scope(event)
 
     return _resp(404, {"error": "not_found", "path": path, "method": method})
 
@@ -328,6 +330,59 @@ def _rescan_gcp(conn: dict, tenant_id: str) -> str:
         **scope,
     })
     return scan_id
+
+
+# ============================================================================
+# PATCH /connections/{id} — update the selected subscriptions
+# ============================================================================
+
+def _update_scope(event: dict) -> dict:
+    """Update which subscriptions an Azure connection scans.
+    Body: {"selected": ["<sub-id>", ...]}. Every id must be one of the
+    connection's discovered `scope.subscriptions`, and at least one must
+    be selected (a connection with zero selected subs cannot scan)."""
+    tenant_id = _resolve_tenant_id(event)
+    if not tenant_id:
+        return _resp(401, {"error": "no_tenant"})
+
+    conn_id = _extract_conn_id(event)
+    if not conn_id:
+        return _resp(400, {"error": "missing_conn_id"})
+
+    conn = _get_connection_full(conn_id, tenant_id)
+    if not conn:
+        return _resp(404, {"error": "connection_not_found"})
+    if conn["cloud_type"] != "azure":
+        return _resp(422, {"error": "not_an_azure_connection"})
+
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _resp(400, {"error": "invalid_json"})
+    selected = body.get("selected")
+    if not isinstance(selected, list) or not selected:
+        return _resp(422, {"error": "selected_must_be_nonempty_list"})
+
+    scope = conn.get("scope") or {}
+    discovered = set(scope.get("subscriptions") or [])
+    unknown = [s for s in selected if s not in discovered]
+    if unknown:
+        return _resp(422, {"error": "unknown_subscriptions", "subscriptions": unknown})
+
+    new_scope = {**scope, "selected": list(selected)}
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=(
+            "UPDATE cloud_connections "
+            "SET scope = CAST(:scope AS JSONB), updated_at = now() "
+            "WHERE conn_id = CAST(:cid AS UUID)"
+        ),
+        parameters=[
+            {"name": "cid",   "value": {"stringValue": conn_id}},
+            {"name": "scope", "value": {"stringValue": json.dumps(new_scope)}},
+        ],
+    )
+    return _resp(200, {"status": "updated", "selected": list(selected)})
 
 
 # ============================================================================
