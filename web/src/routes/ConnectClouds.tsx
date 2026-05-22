@@ -287,7 +287,7 @@ function ConnectionRow({
 }) {
   const navigate = useNavigate();
   const seedId =
-    conn.latest_scan &&
+    conn.cloud_type === "aws" && conn.latest_scan &&
     !["completed", "partial", "failed"].includes(conn.latest_scan.status)
       ? conn.latest_scan.scan_id
       : null;
@@ -307,8 +307,13 @@ function ConnectionRow({
     setScanMsg("Queuing scan…");
     try {
       const r = await api.rescanConnection(conn.conn_id, tier);
-      setScanId(r.scan_id);
-      setScanMsg(null);
+      if (isAws) {
+        setScanId(r.scan_id);
+        setScanMsg(null);
+      } else {
+        setScanMsg("Scan queued ✓");
+        window.setTimeout(() => setScanMsg(null), 4000);
+      }
     } catch (e) {
       setScanMsg(`Failed: ${(e as Error).message}`);
     }

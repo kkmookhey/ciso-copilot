@@ -20,7 +20,6 @@ interface ApiStackProps extends cdk.StackProps {
   dbCluster:          rds.DatabaseCluster;
   eventBus:           events.EventBus;
   cdnDistribution:    cloudfront.Distribution;
-  shastaRunner:       lambda.IFunction;
   shastaRunnerAzure:  lambda.IFunction;
   shastaRunnerEntra:  lambda.IFunction;
   shastaRunnerGcp:    lambda.IFunction;
