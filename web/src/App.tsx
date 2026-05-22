@@ -17,6 +17,7 @@ import { RepoPicker } from "./routes/RepoPicker";
 import { AIInventory } from "./routes/AIInventory";
 import { AssetDetail } from "./routes/AssetDetail";
 import { ChatShell } from "./chat/Shell";
+import { ContactDeepScan } from "./routes/ContactDeepScan";
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
         <Route element={<Shell />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/connect"   element={<ConnectClouds />} />
+          <Route path="/contact/deep-scan" element={<ContactDeepScan />} />
           <Route path="/findings"  element={<TopRisks />} />
           <Route path="/risks"     element={<Risks />} />
           <Route path="/policies"       element={<Policies />} />
