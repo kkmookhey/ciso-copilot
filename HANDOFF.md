@@ -5,7 +5,8 @@
 > what's actually built, what was broken and fixed, and what still hurts.
 >
 > Last updated: 2026-05-21 (AWS scanner uplift — Slices 0/1 + region
-> discovery + Scan Execution v2 built; v2 E2E verification in progress).
+> discovery + Scan Execution v2 built; V2-10 E2E verification COMPLETE —
+> Medium + Quick scans both verified).
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
 
@@ -62,7 +63,7 @@ New/rewritten modules: `scan_pipeline.py`, `scan_policy.py`,
 `assumed_role.py`, `scans_status/`. **101 scanner unit tests pass.**
 
 **Plan tasks V2-1..V2-9 — done + two-stage reviewed.**
-**V2-10 (build / deploy / E2E verify) — medium scan VERIFIED, Quick pending:**
+**V2-10 (build / deploy / E2E verify) — COMPLETE. Medium + Quick both VERIFIED:**
 - Image rebuilt + pushed; `CisoCopilotScan` + `CisoCopilotApi` deployed
   (Api re-deployed post-merge for the correct callback URL).
 - **Medium discovery scan `b3091a57-87b9-4eca-83cd-5dd812ec254f` —
@@ -76,11 +77,64 @@ New/rewritten modules: `scan_pipeline.py`, `scan_policy.py`,
   creds) but is over the ~15-25 min Medium target. Likely `ai_pass`
   running as a single serial unit + conservative per-service caps
   (flagged in spec §15). Tune later — not a blocker.
-- **▶ NEXT SESSION — finish V2-10:** run a **Quick**-tier scan and
-  confirm it moves `region_discovery→first_signal→crown_jewel→done`
-  with Phase-1 findings committed before `crown_jewel` ends (plan
-  `…scan-execution-v2-backend.md` Task 10, Step 6). Then the final
-  whole-branch review + write the web UX plan.
+- **Quick scan `bb2d4bcb-1e7d-4748-b211-5365548994a6` — VERIFIED
+  (2026-05-21).** Same conn as the Medium scan. Moved through
+  `region_discovery → first_signal → crown_jewel → done`; **Phase-1
+  early commit proven** — 72 findings observable while `phase` was
+  still `crown_jewel`, 116 total at `done`. `status=completed`,
+  17-region coverage map (9 active / 8 default_only, 0 errors).
+  Ran **~4m20s** (00:23:54→00:28:14) — within the ~3-5 min target.
+- **Scan-status API verified** — `GET /v1/scans/{id}` (via direct
+  `ScansStatusFn` invoke with synthetic Cognito claims) returns
+  `tier`/`status`/`phase`/`coverage_map`/`finding_count`, 200 OK.
+- Minor note: `ecs describe-tasks` reported `exitCode: null` for the
+  stopped Quick task (`stopCode: EssentialContainerExited`); DB state
+  (`completed`/`done` + full coverage map + `finished_at`) is the
+  authoritative success signal and confirms a clean run.
+### Whole-branch review + PR #4 merge (2026-05-21)
+Reviewed the full branch (55 commits, 63 files) via 3 parallel reviewers
+(scanner pipeline / coverage engine / infra). All returned "merge with
+fixes" — architecture sound, but real issues. **Fixed before merge:**
+- **A** — `scans_status` selected `started_at`/`finished_at` without
+  `::text`; the Data API dropped them → API returned null timestamps.
+- **B** — onboarding inserted a scan row relying on the `phase` column
+  default `'done'` → a fresh `queued` scan reported `phase=done`. Now
+  inserts `phase='region_discovery'` explicitly.
+- **C** — `main._absorb` dropped `global/*` unit failures from the
+  coverage map → a failed IAM module left the scan `completed` not
+  `partial`. Added a `"global"` bucket to `coverage_map`; `scans.scope`
+  now carries it as a top-level `global` key (regions stays regional).
+- **D** — `coverage/engine.py` didn't wrap `check.evaluate()`; one
+  malformed resource threw and killed the whole region's findings. Now
+  per-check try/except. New test `test_engine_survives_a_throwing_check`.
+- **E (documented, not fixed)** — `run_units` `batch_timeout` does NOT
+  bound wall-clock: the `ThreadPoolExecutor` `with`-block joins
+  stragglers and `future.cancel()` no-ops a running unit. The real hang
+  bound is the boto connect/read timeouts in `SCAN_BOTO_CONFIG`.
+  Docstring rewritten to say so honestly.
+
+102 scanner tests pass. **NOT yet deployed** — the fixes need a scanner
+image rebuild + `CisoCopilotApi` redeploy to go live.
+
+**Deferred from review (track for Slice 2 / follow-up):**
+- Engine collector failures (e.g. missing `sqs:ListQueues`) are logged
+  but not surfaced as `not_assessed` in `scans.scope` — a permission
+  gap looks like a clean result (spec §10.1 accuracy lever).
+- `ecs:RunTask` returns 200 with a `failures[]` array on capacity/subnet
+  problems; `onboarding_aws_complete` doesn't inspect it → a task that
+  failed to launch logs "started".
+- Quick Phase 1 runs global units only — no per-region census, and the
+  coverage map is written to `scans.scope` only after Phase 2. Spec
+  §7.4/§10.1 and the code disagree; reconcile when building the web UX.
+- Spec §8 still claims a wall-clock timeout bound (see E) — reconcile
+  the spec or implement real cancellation.
+- Engine check-matching is O(checks×resources) per service — fine at 3
+  services, regroup before scaling to ~40.
+
+- **▶ NEXT SESSION:** write + execute the web UX plan (scan-performance
+  spec §10 — in-progress scan view, scan-type picker, Deep → Contact
+  Us). Then rebuild/redeploy the scanner image + Api stack to ship the
+  A–D fixes.
 
 **Still TODO on the v2 work (not planned/built):**
 - The **web UX** (scan-performance spec §10) — in-progress scan view,
