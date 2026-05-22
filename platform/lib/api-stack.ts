@@ -32,8 +32,6 @@ interface ApiStackProps extends cdk.StackProps {
   scanTaskDefTaskRoleArn:      string;
   scanTaskDefExecutionRoleArn: string;
   azureScanTaskDefFamily:           string;
-  azureScanTaskDefTaskRoleArn:      string;
-  azureScanTaskDefExecutionRoleArn: string;
   vpc:                     ec2.IVpc;
   scanTaskSecurityGroupId: string;
   entraAppId:         string;
@@ -174,6 +172,10 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(15),
       environment: {
         ...dbEnv,
+        // AZURE_RUNNER_FN is unused by the Lambda code (Azure rescans now
+        // ecs:RunTask) but kept wired so retiring the legacy Azure Lambda
+        // stays a separate, clean cross-stack change.
+        AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
         AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
         ENTRA_RUNNER_FN:        props.shastaRunnerEntra.functionName,
         GCP_RUNNER_FN:          props.shastaRunnerGcp.functionName,
@@ -210,9 +212,13 @@ export class ApiStack extends cdk.Stack {
       resources: [
         props.scanTaskDefTaskRoleArn,
         props.scanTaskDefExecutionRoleArn,
-        props.azureScanTaskDefTaskRoleArn,
-        props.azureScanTaskDefExecutionRoleArn,
       ],
+    }));
+    // Azure scan task roles — name-pattern scoped (the Azure task def lives
+    // in the Scan stack; a name pattern avoids a cross-stack export).
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [`arn:aws:iam::${this.account}:role/CisoCopilotScan-AzureScanTaskDef*`],
     }));
 
     const findingsListFn = new lambda.Function(this, 'FindingsListFn', {
@@ -561,6 +567,8 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
+        // AZURE_RUNNER_FN unused by the code — kept wired (see ConnectionsListFn).
+        AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
         AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
@@ -582,10 +590,7 @@ export class ApiStack extends cdk.Stack {
     }));
     onboardingAzureCompleteFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['iam:PassRole'],
-      resources: [
-        props.azureScanTaskDefTaskRoleArn,
-        props.azureScanTaskDefExecutionRoleArn,
-      ],
+      resources: [`arn:aws:iam::${this.account}:role/CisoCopilotScan-AzureScanTaskDef*`],
     }));
     props.shastaRunnerAzure.grantInvoke(onboardingAzureCompleteFn);
 

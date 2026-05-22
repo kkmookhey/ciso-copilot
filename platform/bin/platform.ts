@@ -62,8 +62,6 @@ new ApiStack(app, 'CisoCopilotApi', {
   scanTaskDefTaskRoleArn:      scanStack.scanTaskDef.taskRole.roleArn,
   scanTaskDefExecutionRoleArn: scanStack.scanTaskDef.executionRole!.roleArn,
   azureScanTaskDefFamily:           'ciso-copilot-azure-scan',
-  azureScanTaskDefTaskRoleArn:      scanStack.azureScanTaskDef.taskRole.roleArn,
-  azureScanTaskDefExecutionRoleArn: scanStack.azureScanTaskDef.executionRole!.roleArn,
   vpc:                     network.vpc,
   scanTaskSecurityGroupId: scanStack.scanTaskSecurityGroupId,
   entraAppId:         config.entraClientId,
