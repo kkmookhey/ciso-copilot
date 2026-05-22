@@ -1,4 +1,4 @@
-# app/tests/test_scan_pipeline.py
+# scanner_core/tests/test_scan_pipeline.py
 """scan_pipeline runs scan units concurrently, merges their emissions,
 isolates failures, and bounds per-service concurrency."""
 import threading

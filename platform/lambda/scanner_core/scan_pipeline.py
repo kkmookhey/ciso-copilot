@@ -1,4 +1,4 @@
-# app/scan_pipeline.py
+# scanner_core/scan_pipeline.py
 """Parallel scan-unit pipeline.
 
 All scanner work is expressed as independent ScanUnits, each producing
