@@ -50,7 +50,9 @@ export interface Connection {
   last_scan_at:       string | null;
   created_at:         string;
   scope?:             { subscriptions?: string[]; selected?: string[];
-                        subscription_names?: Record<string, string> };
+                        subscription_names?: Record<string, string>;
+                        mode?:               string;
+                        projects?:           Record<string, string> };
   latest_scan:        LatestScan | null;
 }
 
