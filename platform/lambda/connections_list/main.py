@@ -34,10 +34,10 @@ DB_CLUSTER_ARN   = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN    = os.environ["DB_SECRET_ARN"]
 DB_NAME          = os.environ["DB_NAME"]
 ENTRA_RUNNER_FN  = os.environ.get("ENTRA_RUNNER_FN", "")
-GCP_RUNNER_FN    = os.environ.get("GCP_RUNNER_FN", "")
 SCAN_CLUSTER_ARN       = os.environ.get("SCAN_CLUSTER_ARN", "")
 SCAN_TASK_DEF_ARN      = os.environ.get("SCAN_TASK_DEF_ARN", "")
 AZURE_SCAN_TASK_DEF    = os.environ.get("AZURE_SCAN_TASK_DEF", "")
+GCP_SCAN_TASK_DEF      = os.environ.get("GCP_SCAN_TASK_DEF", "")
 SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
 SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
 
@@ -156,7 +156,7 @@ def _rescan(event: dict) -> dict:
         elif cloud == "entra":
             scan_id = _rescan_entra(conn, tenant_id)
         elif cloud == "gcp":
-            scan_id = _rescan_gcp(conn, tenant_id)
+            scan_id = _rescan_gcp(conn, tenant_id, tier)
         else:
             return _resp(422, {"error": "unsupported_cloud_type", "cloud_type": cloud})
     except _IncompleteConnection as e:
@@ -314,9 +314,11 @@ def _rescan_entra(conn: dict, tenant_id: str) -> str:
     return scan_id
 
 
-def _rescan_gcp(conn: dict, tenant_id: str) -> str:
-    if not GCP_RUNNER_FN:
-        raise _IncompleteConnection("GCP_RUNNER_FN not configured")
+def _rescan_gcp(conn: dict, tenant_id: str, tier: str) -> str:
+    """Start one v2 GCP Fargate scan at `tier`. Mirrors _rescan_azure."""
+    if not (GCP_SCAN_TASK_DEF and SCAN_CLUSTER_ARN and SCAN_SUBNET_IDS):
+        raise _IncompleteConnection("gcp scan task not configured")
+
     scope = conn.get("scope") or {}
     required = ("project_id", "project_number", "sa_email", "wif_pool", "wif_provider")
     missing = [k for k in required if not scope.get(k)]
@@ -324,13 +326,44 @@ def _rescan_gcp(conn: dict, tenant_id: str) -> str:
         raise _IncompleteConnection(f"missing scope fields: {','.join(missing)}")
 
     scan_id = str(uuid.uuid4())
-    _insert_scan(scan_id, tenant_id, conn["conn_id"], scope)
-    _invoke_async(GCP_RUNNER_FN, {
-        "scan_id":   scan_id,
-        "tenant_id": tenant_id,
-        "conn_id":   conn["conn_id"],
-        **scope,
-    })
+    _insert_scan(scan_id, tenant_id, conn["conn_id"], {}, tier=tier)
+    try:
+        ecs.run_task(
+            cluster=SCAN_CLUSTER_ARN,
+            taskDefinition=GCP_SCAN_TASK_DEF,
+            launchType="FARGATE",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets":        [s for s in SCAN_SUBNET_IDS.split(",") if s],
+                    "securityGroups": [SCAN_SECURITY_GROUP_ID] if SCAN_SECURITY_GROUP_ID else [],
+                    "assignPublicIp": "DISABLED",
+                },
+            },
+            overrides={
+                "containerOverrides": [{
+                    "name": "scanner",
+                    "environment": [
+                        {"name": "SCAN_ID",            "value": scan_id},
+                        {"name": "TENANT_ID",          "value": tenant_id},
+                        {"name": "CONN_ID",            "value": conn["conn_id"]},
+                        {"name": "PROJECT_IDS",        "value": scope["project_id"]},
+                        {"name": "WIF_PROJECT_NUMBER", "value": scope["project_number"]},
+                        {"name": "SA_EMAIL",           "value": scope["sa_email"]},
+                        {"name": "WIF_POOL",           "value": scope["wif_pool"]},
+                        {"name": "WIF_PROVIDER",       "value": scope["wif_provider"]},
+                        {"name": "SCAN_TIER",          "value": tier},
+                    ],
+                }],
+            },
+        )
+        print(f"gcp rescan {scan_id} ({tier}) started for {conn['conn_id']}")
+    except Exception as e:
+        print(f"WARN: gcp rescan RunTask failed for {conn['conn_id']}: {e}")
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql="UPDATE scans SET status='failed' WHERE scan_id = CAST(:sid AS UUID)",
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
     return scan_id
 
 
