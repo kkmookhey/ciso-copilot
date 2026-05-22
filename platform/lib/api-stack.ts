@@ -31,6 +31,9 @@ interface ApiStackProps extends cdk.StackProps {
   scanTaskDefFamily:           string;
   scanTaskDefTaskRoleArn:      string;
   scanTaskDefExecutionRoleArn: string;
+  azureScanTaskDefFamily:           string;
+  azureScanTaskDefTaskRoleArn:      string;
+  azureScanTaskDefExecutionRoleArn: string;
   vpc:                     ec2.IVpc;
   scanTaskSecurityGroupId: string;
   entraAppId:         string;
@@ -171,7 +174,7 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(15),
       environment: {
         ...dbEnv,
-        AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
+        AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
         ENTRA_RUNNER_FN:        props.shastaRunnerEntra.functionName,
         GCP_RUNNER_FN:          props.shastaRunnerGcp.functionName,
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
@@ -199,10 +202,16 @@ export class ApiStack extends cdk.Stack {
       resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.scanTaskDefFamily}:*`],
     }));
     connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.azureScanTaskDefFamily}:*`],
+    }));
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['iam:PassRole'],
       resources: [
         props.scanTaskDefTaskRoleArn,
         props.scanTaskDefExecutionRoleArn,
+        props.azureScanTaskDefTaskRoleArn,
+        props.azureScanTaskDefExecutionRoleArn,
       ],
     }));
 
@@ -552,7 +561,10 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
-        AZURE_RUNNER_FN: props.shastaRunnerAzure.functionName,
+        AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
+        SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
+        SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
+        SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingAzureCompleteFn);
@@ -563,6 +575,17 @@ export class ApiStack extends cdk.Stack {
         'secretsmanager:GetSecretValue',
       ],
       resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`],
+    }));
+    onboardingAzureCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.azureScanTaskDefFamily}:*`],
+    }));
+    onboardingAzureCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [
+        props.azureScanTaskDefTaskRoleArn,
+        props.azureScanTaskDefExecutionRoleArn,
+      ],
     }));
     props.shastaRunnerAzure.grantInvoke(onboardingAzureCompleteFn);
 
