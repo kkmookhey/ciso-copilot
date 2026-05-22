@@ -408,9 +408,9 @@ export const api = {
       { method: "POST", body: JSON.stringify({ decision }) },
     ),
   listConnections: ()                         => call<{ connections: Connection[] }>("/connections"),
-  rescanConnection: (connId: string) =>
+  rescanConnection: (connId: string, tier: "quick" | "medium" = "medium") =>
     call<{ scan_id: string; status: string }>(`/connections/${connId}/rescan`, {
-      method: "POST", body: "{}",
+      method: "POST", body: JSON.stringify({ tier }),
     }),
   getScanStatus: (scanId: string) => call<ScanStatus>(`/scans/${scanId}`),
   deleteConnection: (connId: string) =>

@@ -172,10 +172,14 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(15),
       environment: {
         ...dbEnv,
-        SHASTA_RUNNER_FN: props.shastaRunner.functionName,
-        AZURE_RUNNER_FN:  props.shastaRunnerAzure.functionName,
-        ENTRA_RUNNER_FN:  props.shastaRunnerEntra.functionName,
-        GCP_RUNNER_FN:    props.shastaRunnerGcp.functionName,
+        SHASTA_RUNNER_FN:       props.shastaRunner.functionName,
+        AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
+        ENTRA_RUNNER_FN:        props.shastaRunnerEntra.functionName,
+        GCP_RUNNER_FN:          props.shastaRunnerGcp.functionName,
+        SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
+        SCAN_TASK_DEF_ARN:      props.scanTaskDefFamily,
+        SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
+        SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
       },
     });
     props.dbCluster.grantDataApiAccess(connectionsListFn);
@@ -191,6 +195,18 @@ export class ApiStack extends cdk.Stack {
         'secretsmanager:DeleteSecret',
       ],
       resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/connections/*`],
+    }));
+    // Allow the rescan path to start the v2 Fargate scanner task.
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.scanTaskDefFamily}:*`],
+    }));
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [
+        props.scanTaskDefTaskRoleArn,
+        props.scanTaskDefExecutionRoleArn,
+      ],
     }));
 
     const findingsListFn = new lambda.Function(this, 'FindingsListFn', {
