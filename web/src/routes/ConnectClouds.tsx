@@ -394,7 +394,7 @@ function ConnectionRow({
     setScanMsg("Queuing scan…");
     try {
       const r = await api.rescanConnection(conn.conn_id, tier);
-      if (isAws) {
+      if (isAws || isAzure) {
         setScanId(r.scan_id);
         setScanMsg(null);
       } else {

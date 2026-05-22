@@ -356,6 +356,8 @@ def _update_scope(event: dict) -> dict:
         return _resp(404, {"error": "connection_not_found"})
     if conn["cloud_type"] != "azure":
         return _resp(422, {"error": "not_an_azure_connection"})
+    if conn["status"] != "active":
+        return _resp(409, {"error": "connection_not_active", "current_status": conn["status"]})
 
     try:
         body = json.loads(event.get("body") or "{}")
