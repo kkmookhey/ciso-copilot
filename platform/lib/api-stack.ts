@@ -464,6 +464,7 @@ export class ApiStack extends cdk.Stack {
     const connectionByIdRes = connectionsRes.addResource('{id}');
     connectionsRes.addMethod('GET', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
     connectionByIdRes.addMethod('DELETE', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
+    connectionByIdRes.addMethod('PATCH', new apigw.LambdaIntegration(connectionsListFn), authedOpts);
     connectionByIdRes.addResource('rescan').addMethod(
       'POST', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
     );
