@@ -77,7 +77,7 @@ def _list_connections(event: dict) -> dict:
         sql=(
             "SELECT c.conn_id::text, c.cloud_type, c.display_name, c.status, "
             "       c.account_identifier, c.signals::text, "
-            "       c.last_scan_at::text, c.created_at::text, "
+            "       c.last_scan_at::text, c.created_at::text, c.scope::text, "
             "       s.scan_id::text, s.tier, s.status, s.phase, s.started_at::text "
             "FROM cloud_connections c "
             "LEFT JOIN LATERAL ("
@@ -94,13 +94,13 @@ def _list_connections(event: dict) -> dict:
     connections = []
     for r in rs.get("records", []):
         latest_scan = None
-        if not r[8].get("isNull"):
+        if not r[9].get("isNull"):
             latest_scan = {
-                "scan_id":    r[8].get("stringValue"),
-                "tier":       r[9].get("stringValue"),
-                "status":     r[10].get("stringValue"),
-                "phase":      r[11].get("stringValue"),
-                "started_at": r[12].get("stringValue") if not r[12].get("isNull") else None,
+                "scan_id":    r[9].get("stringValue"),
+                "tier":       r[10].get("stringValue"),
+                "status":     r[11].get("stringValue"),
+                "phase":      r[12].get("stringValue"),
+                "started_at": r[13].get("stringValue") if not r[13].get("isNull") else None,
             }
         connections.append({
             "conn_id":            r[0].get("stringValue"),
@@ -111,6 +111,7 @@ def _list_connections(event: dict) -> dict:
             "signals":            json.loads(r[5].get("stringValue") or "{}"),
             "last_scan_at":       r[6].get("stringValue") if not r[6].get("isNull") else None,
             "created_at":         r[7].get("stringValue"),
+            "scope":              json.loads(r[8].get("stringValue") or "{}"),
             "latest_scan":        latest_scan,
         })
 
