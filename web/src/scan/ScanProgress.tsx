@@ -8,11 +8,15 @@ export function ScanProgress({ scan }: { scan: ScanStatus }) {
   const done   = scan.status === "completed" || scan.status === "partial";
   const failed = scan.status === "failed";
   const queued = scan.status === "queued";
-  const regions = scan.coverage_map?.regions
-    ? Object.values(scan.coverage_map.regions)
-    : null;
-  const activeCount = regions
-    ? regions.filter((r) => r.state === "active").length
+  // AWS scans carry a region-keyed coverage map; Azure scans a
+  // subscription-keyed one. Render whichever is present.
+  const census = scan.coverage_map?.regions
+    ?? scan.coverage_map?.subscriptions
+    ?? null;
+  const censusUnit = scan.coverage_map?.subscriptions ? "subscriptions" : "regions";
+  const cells = census ? Object.values(census) : null;
+  const activeCount = cells
+    ? cells.filter((c) => c.state === "active").length
     : null;
 
   return (
@@ -30,9 +34,9 @@ export function ScanProgress({ scan }: { scan: ScanStatus }) {
       ) : (
         <div className="mt-1 text-xs text-blue-700">{phaseLabel(scan.phase)}</div>
       )}
-      {regions && (
+      {cells && (
         <div className="mt-1 text-xs text-blue-600">
-          {regions.length} regions scanned
+          {cells.length} {censusUnit} scanned
           {activeCount != null ? ` · ${activeCount} active` : ""}
         </div>
       )}

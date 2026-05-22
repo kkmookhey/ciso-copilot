@@ -374,7 +374,7 @@ function ConnectionRow({
 }) {
   const navigate = useNavigate();
   const seedId =
-    conn.cloud_type === "aws" && conn.latest_scan &&
+    ["aws", "azure"].includes(conn.cloud_type) && conn.latest_scan &&
     !["completed", "partial", "failed"].includes(conn.latest_scan.status)
       ? conn.latest_scan.scan_id
       : null;
