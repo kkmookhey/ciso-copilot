@@ -33,11 +33,11 @@ import boto3
 DB_CLUSTER_ARN   = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN    = os.environ["DB_SECRET_ARN"]
 DB_NAME          = os.environ["DB_NAME"]
-AZURE_RUNNER_FN  = os.environ.get("AZURE_RUNNER_FN", "")
 ENTRA_RUNNER_FN  = os.environ.get("ENTRA_RUNNER_FN", "")
 GCP_RUNNER_FN    = os.environ.get("GCP_RUNNER_FN", "")
 SCAN_CLUSTER_ARN       = os.environ.get("SCAN_CLUSTER_ARN", "")
 SCAN_TASK_DEF_ARN      = os.environ.get("SCAN_TASK_DEF_ARN", "")
+AZURE_SCAN_TASK_DEF    = os.environ.get("AZURE_SCAN_TASK_DEF", "")
 SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
 SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
 
@@ -149,7 +149,7 @@ def _rescan(event: dict) -> dict:
         if cloud == "aws":
             scan_id = _rescan_aws(conn, tenant_id, tier)
         elif cloud == "azure":
-            scan_id = _rescan_azure(conn, tenant_id)
+            scan_id = _rescan_azure(conn, tenant_id, tier)
         elif cloud == "entra":
             scan_id = _rescan_entra(conn, tenant_id)
         elif cloud == "gcp":
@@ -230,9 +230,11 @@ def _rescan_aws(conn: dict, tenant_id: str, tier: str) -> str:
     return scan_id
 
 
-def _rescan_azure(conn: dict, tenant_id: str) -> str:
-    if not AZURE_RUNNER_FN:
-        raise _IncompleteConnection("AZURE_RUNNER_FN not configured")
+def _rescan_azure(conn: dict, tenant_id: str, tier: str) -> str:
+    """Start one v2 Azure Fargate scan at `tier` — one task scans every
+    subscription in the connection's scope. Mirrors _rescan_aws."""
+    if not (AZURE_SCAN_TASK_DEF and SCAN_CLUSTER_ARN and SCAN_SUBNET_IDS):
+        raise _IncompleteConnection("azure scan task not configured")
     secret_arn = conn.get("credentials_secret_arn")
     if not secret_arn:
         raise _IncompleteConnection("missing credentials_secret_arn")
@@ -248,24 +250,45 @@ def _rescan_azure(conn: dict, tenant_id: str) -> str:
     if not subscriptions:
         raise _IncompleteConnection("missing subscriptions in scope")
 
-    # Fire one scan per subscription (mirrors onboarding_azure_complete). Return
-    # the first scan_id — the UI shows "queued" and the user will see all rows
-    # land in the scans table.
-    first_scan_id = None
-    for sub_id in subscriptions:
-        scan_id = str(uuid.uuid4())
-        _insert_scan(scan_id, tenant_id, conn["conn_id"], {"subscription_id": sub_id})
-        _invoke_async(AZURE_RUNNER_FN, {
-            "scan_id":         scan_id,
-            "tenant_id":       tenant_id,
-            "conn_id":         conn["conn_id"],
-            "azure_tenant_id": azure_tenant_id,
-            "client_id":       client_id,
-            "secret_arn":      secret_arn,
-            "subscription_id": sub_id,
-        })
-        first_scan_id = first_scan_id or scan_id
-    return first_scan_id or ""
+    scan_id = str(uuid.uuid4())
+    _insert_scan(scan_id, tenant_id, conn["conn_id"], {}, tier=tier)
+    try:
+        ecs.run_task(
+            cluster=SCAN_CLUSTER_ARN,
+            taskDefinition=AZURE_SCAN_TASK_DEF,
+            launchType="FARGATE",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets":        [s for s in SCAN_SUBNET_IDS.split(",") if s],
+                    "securityGroups": [SCAN_SECURITY_GROUP_ID] if SCAN_SECURITY_GROUP_ID else [],
+                    "assignPublicIp": "DISABLED",
+                },
+            },
+            overrides={
+                "containerOverrides": [{
+                    "name": "scanner",
+                    "environment": [
+                        {"name": "SCAN_ID",          "value": scan_id},
+                        {"name": "TENANT_ID",        "value": tenant_id},
+                        {"name": "CONN_ID",          "value": conn["conn_id"]},
+                        {"name": "AZURE_TENANT_ID",  "value": azure_tenant_id},
+                        {"name": "CLIENT_ID",        "value": client_id},
+                        {"name": "SECRET_ARN",       "value": secret_arn},
+                        {"name": "SUBSCRIPTION_IDS", "value": ",".join(subscriptions)},
+                        {"name": "SCAN_TIER",        "value": tier},
+                    ],
+                }],
+            },
+        )
+        print(f"azure rescan {scan_id} ({tier}) started for {conn['conn_id']}")
+    except Exception as e:
+        print(f"WARN: azure rescan RunTask failed for {conn['conn_id']}: {e}")
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql="UPDATE scans SET status='failed' WHERE scan_id = CAST(:sid AS UUID)",
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
+    return scan_id
 
 
 def _rescan_entra(conn: dict, tenant_id: str) -> str:
