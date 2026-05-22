@@ -1,4 +1,6 @@
-# shasta-runner-gcp — Lambda container for GCP scans (Workload Identity Federation).
+# shasta-runner-gcp — container for GCP scans (Workload Identity Federation).
+# Runs as an ECS Fargate task: `python run.py`. The Lambda CMD is retained
+# so the legacy GCP Lambda still works until it is retired (Slice 1b).
 
 FROM public.ecr.aws/lambda/python:3.12
 
