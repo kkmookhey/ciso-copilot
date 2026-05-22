@@ -20,20 +20,26 @@ export function useScanStatus(scanId: string | null, intervalMs = 4000): UseScan
   useEffect(() => {
     if (!scanId) { setScan(null); setLoading(false); setError(null); return; }
     let cancelled = false;
+    let errorCount = 0;
+    const MAX_ERRORS = 5;
     setLoading(true);
 
     const tick = async () => {
       try {
         const s = await api.getScanStatus(scanId);
         if (cancelled) return;
+        errorCount = 0;
         setScan(s); setError(null); setLoading(false);
         if (!TERMINAL.has(s.status)) {
           timer.current = window.setTimeout(tick, intervalMs);
         }
       } catch (e) {
         if (cancelled) return;
+        errorCount += 1;
         setError((e as Error).message); setLoading(false);
-        timer.current = window.setTimeout(tick, intervalMs * 2);
+        if (errorCount < MAX_ERRORS) {
+          timer.current = window.setTimeout(tick, intervalMs * 2);
+        }
       }
     };
     tick();

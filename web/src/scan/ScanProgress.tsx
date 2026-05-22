@@ -7,6 +7,7 @@ import { phaseLabel, scanTierLabel } from "./scanLabels";
 export function ScanProgress({ scan }: { scan: ScanStatus }) {
   const done   = scan.status === "completed" || scan.status === "partial";
   const failed = scan.status === "failed";
+  const queued = scan.status === "queued";
   const regions = scan.coverage_map?.regions
     ? Object.values(scan.coverage_map.regions)
     : null;
@@ -18,7 +19,7 @@ export function ScanProgress({ scan }: { scan: ScanStatus }) {
     <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm">
       <div className="flex items-center justify-between">
         <span className="font-medium text-blue-800">
-          {scanTierLabel(scan.tier)} {done ? "complete" : failed ? "failed" : "running"}
+          {scanTierLabel(scan.tier)} {done ? "complete" : failed ? "failed" : queued ? "queued" : "running"}
         </span>
         <span className="text-xs text-blue-600">{scan.finding_count} findings</span>
       </div>

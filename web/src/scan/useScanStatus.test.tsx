@@ -31,6 +31,15 @@ describe("useScanStatus", () => {
     expect(getScanStatus.mock.calls.length).toBe(callsAfterTerminal);
   });
 
+  it("surfaces the error and stops after 5 consecutive failures", async () => {
+    getScanStatus.mockRejectedValue(new Error("500 boom"));
+    const { result } = renderHook(() => useScanStatus("s3", 10));
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    // Give it well past 5 retries worth of time, then assert it capped.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(getScanStatus.mock.calls.length).toBe(5);
+  });
+
   it("keeps polling while the scan is running", async () => {
     getScanStatus.mockResolvedValue({
       scan_id: "s2", tier: "quick", status: "running", phase: "crown_jewel",

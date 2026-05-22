@@ -25,6 +25,11 @@ describe("ScanProgress", () => {
     expect(screen.getAllByText(/failed/i).length).toBeGreaterThan(0);
   });
 
+  it("labels a queued scan as queued, not running", () => {
+    render(<ScanProgress scan={{ ...base, status: "queued", phase: "region_discovery" }} />);
+    expect(screen.getByText(/Quick Scan queued/i)).toBeTruthy();
+  });
+
   it("shows the region census once the coverage map is populated", () => {
     render(<ScanProgress scan={{
       ...base, status: "completed", phase: "done",
