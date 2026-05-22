@@ -15,7 +15,9 @@ Response for GET:
         "account_identifier": "<account_id or sub_id>",
         "signals":     {"pull_scan": bool, "alerts": bool, "drift": bool},
         "last_scan_at": "iso8601" | null,
-        "created_at":   "iso8601"
+        "created_at":   "iso8601",
+        "latest_scan":  {"scan_id": "uuid", "tier": str, "status": str,
+                         "phase": str, "started_at": "iso8601" | null} | null
       }, ...
     ]
   }
@@ -69,17 +71,33 @@ def _list_connections(event: dict) -> dict:
         secretArn=DB_SECRET_ARN,
         database=DB_NAME,
         sql=(
-            "SELECT conn_id::text, cloud_type, display_name, status, "
-            "       account_identifier, signals::text, last_scan_at::text, created_at::text "
-            "FROM cloud_connections "
-            "WHERE tenant_id = CAST(:tid AS UUID) "
-            "ORDER BY created_at DESC"
+            "SELECT c.conn_id::text, c.cloud_type, c.display_name, c.status, "
+            "       c.account_identifier, c.signals::text, "
+            "       c.last_scan_at::text, c.created_at::text, "
+            "       s.scan_id::text, s.tier, s.status, s.phase, s.started_at::text "
+            "FROM cloud_connections c "
+            "LEFT JOIN LATERAL ("
+            "  SELECT scan_id, tier, status, phase, started_at "
+            "  FROM scans WHERE scans.conn_id = c.conn_id "
+            "  ORDER BY started_at DESC LIMIT 1"
+            ") s ON true "
+            "WHERE c.tenant_id = CAST(:tid AS UUID) "
+            "ORDER BY c.created_at DESC"
         ),
         parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
     )
 
     connections = []
     for r in rs.get("records", []):
+        latest_scan = None
+        if not r[8].get("isNull"):
+            latest_scan = {
+                "scan_id":    r[8].get("stringValue"),
+                "tier":       r[9].get("stringValue"),
+                "status":     r[10].get("stringValue"),
+                "phase":      r[11].get("stringValue"),
+                "started_at": r[12].get("stringValue") if not r[12].get("isNull") else None,
+            }
         connections.append({
             "conn_id":            r[0].get("stringValue"),
             "cloud_type":         r[1].get("stringValue"),
@@ -89,6 +107,7 @@ def _list_connections(event: dict) -> dict:
             "signals":            json.loads(r[5].get("stringValue") or "{}"),
             "last_scan_at":       r[6].get("stringValue") if not r[6].get("isNull") else None,
             "created_at":         r[7].get("stringValue"),
+            "latest_scan":        latest_scan,
         })
 
     return _resp(200, {"connections": connections})
