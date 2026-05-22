@@ -199,6 +199,11 @@ def _build_units(subscriptions: list[str], module_names: list[str],
 def _module_unit(run_fn, base_client, sub_id: str, tenant_id: str):
     """Build the `run` callable for one (subscription, module) unit."""
     def _run() -> dict:
+        # Fresh AzureClient per unit: `for_subscription` returns an
+        # unvalidated client with its own mgmt-client cache, so units
+        # never share mutable Azure SDK state across the thread pool.
+        # `validate_credentials` is required — `for_subscription` does
+        # not call it — and is what populates the client's account_info.
         client = base_client.for_subscription(sub_id)
         client.validate_credentials()
         shasta_findings = run_fn(client)
