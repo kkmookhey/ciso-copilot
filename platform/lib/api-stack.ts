@@ -21,7 +21,7 @@ interface ApiStackProps extends cdk.StackProps {
   eventBus:           events.EventBus;
   cdnDistribution:    cloudfront.Distribution;
   shastaRunnerEntra:  lambda.IFunction;
-  shastaRunnerGcp:    lambda.IFunction;
+  gcpScanTaskDefFamily:             string;
   scanCluster:                 ecs.Cluster;
   // Task def family name (e.g. "ciso-copilot-aws-scan"). Passed as a plain
   // string to avoid a cross-stack CFN export on an ARN that changes every
@@ -173,7 +173,7 @@ export class ApiStack extends cdk.Stack {
         ...dbEnv,
         AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
         ENTRA_RUNNER_FN:        props.shastaRunnerEntra.functionName,
-        GCP_RUNNER_FN:          props.shastaRunnerGcp.functionName,
+        GCP_SCAN_TASK_DEF:      props.gcpScanTaskDefFamily,
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
         SCAN_TASK_DEF_ARN:      props.scanTaskDefFamily,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
@@ -181,10 +181,9 @@ export class ApiStack extends cdk.Stack {
       },
     });
     props.dbCluster.grantDataApiAccess(connectionsListFn);
-    // Rescan dispatches into the Entra + GCP scanner Lambdas (AWS + Azure
+    // Rescan dispatches into the Entra scanner Lambda (AWS / Azure / GCP
     // rescans use ecs:RunTask) + reads/deletes the per-connection secret.
     props.shastaRunnerEntra.grantInvoke(connectionsListFn);
-    props.shastaRunnerGcp.grantInvoke(connectionsListFn);
     connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
       actions: [
         'secretsmanager:GetSecretValue',
@@ -213,6 +212,20 @@ export class ApiStack extends cdk.Stack {
     connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
       actions:   ['iam:PassRole'],
       resources: [`arn:aws:iam::${this.account}:role/CisoCopilotScan-AzureScanTaskDef*`],
+    }));
+    // GCP scan task — RunTask on the gcp-scan family; PassRole for the
+    // task role (the literal 'ciso-copilot-gcp-scanner' role) + the
+    // CDK-named execution role (name-pattern scoped, no cross-stack export).
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.gcpScanTaskDefFamily}:*`],
+    }));
+    connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [
+        `arn:aws:iam::${this.account}:role/ciso-copilot-gcp-scanner`,
+        `arn:aws:iam::${this.account}:role/CisoCopilotScan-GcpScanTaskDef*`,
+      ],
     }));
 
     const findingsListFn = new lambda.Function(this, 'FindingsListFn', {
@@ -665,11 +678,24 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
-        GCP_RUNNER_FN: props.shastaRunnerGcp.functionName,
+        GCP_SCAN_TASK_DEF:      props.gcpScanTaskDefFamily,
+        SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
+        SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
+        SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingGcpCompleteFn);
-    props.shastaRunnerGcp.grantInvoke(onboardingGcpCompleteFn);
+    onboardingGcpCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.gcpScanTaskDefFamily}:*`],
+    }));
+    onboardingGcpCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [
+        `arn:aws:iam::${this.account}:role/ciso-copilot-gcp-scanner`,
+        `arn:aws:iam::${this.account}:role/CisoCopilotScan-GcpScanTaskDef*`,
+      ],
+    }));
 
     const onboardingGcp = onboarding.addResource('gcp');
     onboardingGcp.addResource('initiate').addMethod(

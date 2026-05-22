@@ -4,8 +4,51 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (GCP scanner uplift Slice 1a built, deployed,
-> and live-verified on branch feat/gcp-scanner-slice-1a).
+> Last updated: 2026-05-22 (GCP scanner uplift Slice 1b shipped — production
+> Fargate triggers wired, legacy GCP Lambda retired, live-verified on branch
+> feat/gcp-scanner-slice-1b).
+
+## 🚀 GCP Scanner Uplift — Slice 1b shipped (2026-05-22)
+
+Roadmap item #1, GCP leg. Plan
+`docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1b.md`.
+Built subagent-driven on branch **`feat/gcp-scanner-slice-1b`** (not yet
+merged).
+
+**Slice 1b — production Fargate triggers + legacy Lambda retired — DONE.**
+- `onboarding_gcp_complete` and `connections_list._rescan_gcp` now start
+  one `ciso-copilot-gcp-scan` Fargate task per connection via
+  `ecs:RunTask` — no more `lambda.invoke` of the legacy scanner. The
+  rescan path is tier-aware.
+- Cross-stack export hygiene preserved: literal task-def family
+  (`'ciso-copilot-gcp-scan'`), `iam:PassRole` covers the literal
+  `ciso-copilot-gcp-scanner` task role + the `CisoCopilotScan-GcpScanTaskDef*`
+  exec-role name-pattern — zero new cross-stack exports.
+- **Live-verified:** a rescan through the real `ConnectionsListFn`
+  Lambda (synthetic API Gateway event, real deployed function) ran scan
+  `5f322c7a-…` `manual`/`completed`/`phase=done`, **102 findings, 46
+  entities, 45 edges** — same shape as Slice 1a's manual verification,
+  confirming the entire `POST /connections/{id}/rescan` → `_rescan_gcp`
+  → `ecs.run_task` → Fargate path works end-to-end on production.
+- **Legacy GCP Lambda retired** — `ciso-copilot-shasta-runner-gcp` is
+  gone (`get-function` → `ResourceNotFoundException`). The Data API grant
+  that lived on the Lambda was relocated onto `gcpScannerRole` so the
+  Fargate task (which shares that role) keeps Aurora access.
+- **Deploy gotcha paid in debugging time:** `npx cdk deploy
+  CisoCopilotApi` (without `--exclusively`) pulled `CisoCopilotScan` in
+  as a dependency and deployed Scan FIRST, hitting the export-still-in-use
+  deadlock and rolling back cleanly. Resolved by deploying with
+  `--exclusively`: Api first (drops the imports), then Scan (drops the
+  Lambda + orphaned exports). Both stacks `UPDATE_COMPLETE`. The Azure
+  1b deploy used the same `--exclusively` flag — the plan should always
+  spell it out explicitly for two-phase deploys.
+
+**▶ NEXT** (no slice in flight): per the prior sequencing decision,
+before Slice 2b run a short cross-cloud **Scan-screen brainstorm**
+(post-onboard scope + tier picker, replacing the silent auto-scan-on-
+onboard). It supersedes the Connect-page per-row picker Azure shipped.
+Slice 2a (org-level onboarding) is independent and can proceed before or
+after the Scan-screen brainstorm.
 
 ## 🚀 GCP Scanner Uplift — Slice 1a shipped (2026-05-22)
 
