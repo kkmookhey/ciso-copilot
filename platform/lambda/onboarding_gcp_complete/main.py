@@ -24,10 +24,13 @@ import boto3
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
-GCP_RUNNER_FN  = os.environ.get("GCP_RUNNER_FN", "")
+GCP_SCAN_TASK_DEF      = os.environ.get("GCP_SCAN_TASK_DEF", "")
+SCAN_CLUSTER_ARN       = os.environ.get("SCAN_CLUSTER_ARN", "")
+SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
+SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
 
-rds_data       = boto3.client("rds-data")
-lambda_client  = boto3.client("lambda")
+rds_data = boto3.client("rds-data")
+ecs      = boto3.client("ecs")
 
 
 def handler(event: dict, context) -> dict:
@@ -83,10 +86,10 @@ def handler(event: dict, context) -> dict:
 
     print(f"gcp connection {conn['conn_id']} active — project {project_id}")
 
-    initial_scan_id = _enqueue_initial_scan(
-        tenant_id      = conn["tenant_id"],
-        conn_id        = conn["conn_id"],
-        scope          = scope,
+    initial_scan_id = _run_initial_scan(
+        tenant_id = conn["tenant_id"],
+        conn_id   = conn["conn_id"],
+        scope     = scope,
     )
 
     return _resp(200, {
@@ -117,41 +120,67 @@ def _get_connection_by_external_id(external_id: str) -> dict | None:
     }
 
 
-def _enqueue_initial_scan(*, tenant_id: str, conn_id: str, scope: dict) -> str | None:
-    if not GCP_RUNNER_FN:
-        print("WARN: GCP_RUNNER_FN not configured; skipping initial scan")
+def _run_initial_scan(*, tenant_id: str, conn_id: str, scope: dict) -> str | None:
+    """Insert one `scans` row and start one v2 GCP Fargate task that
+    scans the connection's project. Mirrors onboarding_azure_complete."""
+    if not (GCP_SCAN_TASK_DEF and SCAN_CLUSTER_ARN and SCAN_SUBNET_IDS):
+        print("WARN: gcp scan task not configured; skipping initial scan")
         return None
 
     scan_id = str(uuid.uuid4())
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
-            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, scope) "
-            "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
-            "        'onboarding', 'queued', CAST(:scope AS JSONB))"
+            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, "
+            "                   status, tier, phase) "
+            "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), "
+            "        CAST(:cid AS UUID), 'onboarding', 'queued', "
+            "        'quick', 'region_discovery')"
         ),
         parameters=[
-            {"name": "sid",   "value": {"stringValue": scan_id}},
-            {"name": "tid",   "value": {"stringValue": tenant_id}},
-            {"name": "cid",   "value": {"stringValue": conn_id}},
-            {"name": "scope", "value": {"stringValue": json.dumps(scope)}},
+            {"name": "sid", "value": {"stringValue": scan_id}},
+            {"name": "tid", "value": {"stringValue": tenant_id}},
+            {"name": "cid", "value": {"stringValue": conn_id}},
         ],
     )
 
     try:
-        lambda_client.invoke(
-            FunctionName   = GCP_RUNNER_FN,
-            InvocationType = "Event",
-            Payload=json.dumps({
-                "scan_id":   scan_id,
-                "tenant_id": tenant_id,
-                "conn_id":   conn_id,
-                **scope,
-            }).encode(),
+        ecs.run_task(
+            cluster=SCAN_CLUSTER_ARN,
+            taskDefinition=GCP_SCAN_TASK_DEF,
+            launchType="FARGATE",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets":        [s for s in SCAN_SUBNET_IDS.split(",") if s],
+                    "securityGroups": [SCAN_SECURITY_GROUP_ID] if SCAN_SECURITY_GROUP_ID else [],
+                    "assignPublicIp": "DISABLED",
+                },
+            },
+            overrides={
+                "containerOverrides": [{
+                    "name": "scanner",
+                    "environment": [
+                        {"name": "SCAN_ID",            "value": scan_id},
+                        {"name": "TENANT_ID",          "value": tenant_id},
+                        {"name": "CONN_ID",            "value": conn_id},
+                        {"name": "PROJECT_IDS",        "value": scope["project_id"]},
+                        {"name": "WIF_PROJECT_NUMBER", "value": scope["project_number"]},
+                        {"name": "SA_EMAIL",           "value": scope["sa_email"]},
+                        {"name": "WIF_POOL",           "value": scope["wif_pool"]},
+                        {"name": "WIF_PROVIDER",       "value": scope["wif_provider"]},
+                        {"name": "SCAN_TIER",          "value": "quick"},
+                    ],
+                }],
+            },
         )
-        print(f"gcp scan {scan_id} enqueued")
+        print(f"gcp onboarding scan {scan_id} started for {conn_id}")
     except Exception as e:
-        print(f"WARN: gcp scan invoke failed: {e}")
+        print(f"WARN: gcp scan RunTask failed for {conn_id}: {e}")
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql="UPDATE scans SET status='failed' WHERE scan_id = CAST(:sid AS UUID)",
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
 
     return scan_id
 
