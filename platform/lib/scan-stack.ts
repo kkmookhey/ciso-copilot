@@ -49,8 +49,10 @@ export class ScanStack extends cdk.Stack {
   public readonly scanCluster:        ecs.Cluster;
   public readonly scanTaskDef:        ecs.FargateTaskDefinition;
   public readonly azureScanTaskDef:   ecs.FargateTaskDefinition;
+  public readonly gcpScanTaskDef:     ecs.FargateTaskDefinition;
   public readonly scanTaskSecurityGroupId: string;
   public readonly azureScanTaskDefFamily: string;
+  public readonly gcpScanTaskDefFamily:   string;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -213,13 +215,18 @@ export class ScanStack extends cdk.Stack {
     this.entraScannerSecret.grantRead(this.shastaRunnerEntra);
 
     // ===== GCP scanner =====
-    // Pre-create the IAM role with a fixed name so customer's WIF binding
-    // can stably reference 'arn:aws:sts::470226123496:assumed-role/ciso-copilot-gcp-scanner'.
-    // Without a fixed name, CDK appends a random suffix and the binding breaks
-    // every time the stack is replaced.
+    // Shared by the legacy GCP Lambda AND the new Fargate task. The
+    // customer's WIF provider (cfn/gcp/onboard.sh) trusts the AWS role
+    // named 'ciso-copilot-gcp-scanner' — the assumed-role identity of
+    // whatever runs the scan must carry that name, so this single role
+    // is used as both the Lambda role and the Fargate task role. The
+    // trust policy admits both service principals.
     const gcpScannerRole = new iam.Role(this, 'GcpScannerRole', {
       roleName: 'ciso-copilot-gcp-scanner',
-      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      assumedBy: new iam.CompositePrincipal(
+        new iam.ServicePrincipal('lambda.amazonaws.com'),
+        new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      ),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
       ],
@@ -235,6 +242,40 @@ export class ScanStack extends cdk.Stack {
       environment: dbEnv,
     });
     props.dbCluster.grantDataApiAccess(this.shastaRunnerGcp);
+
+    // ===== GCP scanner — v2 Fargate task =====
+    // The customer WIF provider trusts the 'ciso-copilot-gcp-scanner'
+    // role; gcpScannerRole IS that role, used here as the task role so
+    // google-auth's GetCallerIdentity reflects the trusted name.
+    const gcpScanTaskDef = new ecs.FargateTaskDefinition(this, 'GcpScanTaskDef', {
+      family:         'ciso-copilot-gcp-scan',
+      cpu:            4096,
+      memoryLimitMiB: 8192,
+      taskRole:       gcpScannerRole,
+    });
+
+    gcpScanTaskDef.addContainer('scanner', {
+      image: ecs.ContainerImage.fromEcrRepository(props.shastaRunnerGcpRepo, 'latest'),
+      entryPoint: ['python'],
+      command:    ['run.py'],
+      environment: dbEnv,
+      logging: ecs.LogDriver.awsLogs({
+        streamPrefix: 'gcp-scan',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+    });
+
+    // gcpScannerRole already has Data API access granted via the
+    // GcpRunner Lambda's grantDataApiAccess call below — the Fargate
+    // task shares the same role, so no extra grant is needed. The WIF
+    // GetCallerIdentity call requires no IAM policy (a principal may
+    // always describe itself).
+
+    this.gcpScanTaskDef       = gcpScanTaskDef;
+    this.gcpScanTaskDefFamily = 'ciso-copilot-gcp-scan';
+
+    new cdk.CfnOutput(this, 'GcpScanTaskDefArn',    { value: gcpScanTaskDef.taskDefinitionArn });
+    new cdk.CfnOutput(this, 'GcpScanTaskDefFamily', { value: 'ciso-copilot-gcp-scan' });
 
     // ========================================================================
     // ai-scan-queue — SQS work queue for the AI scanner Lambda
