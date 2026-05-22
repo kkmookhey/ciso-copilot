@@ -331,18 +331,30 @@ function SubscriptionPicker({ conn, onSaved }: {
       {open && (
         <div className="mt-2 rounded-lg border border-slate-200 p-3">
           <ul className="space-y-1">
-            {all.map((sub) => (
-              <li key={sub}>
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={checked.has(sub)}
-                    onChange={() => toggle(sub)}
-                  />
-                  <span className="font-mono">{sub}</span>
-                </label>
-              </li>
-            ))}
+            {all.map((sub) => {
+              const name = conn.scope?.subscription_names?.[sub];
+              return (
+                <li key={sub}>
+                  <label className="flex items-center gap-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={checked.has(sub)}
+                      onChange={() => toggle(sub)}
+                    />
+                    {name ? (
+                      <>
+                        <span className="truncate">{name}</span>
+                        <span className="font-mono text-slate-400 shrink-0">
+                          ({sub.slice(0, 8)}…)
+                        </span>
+                      </>
+                    ) : (
+                      <span className="font-mono">{sub}</span>
+                    )}
+                  </label>
+                </li>
+              );
+            })}
           </ul>
           {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
           <div className="mt-2 flex items-center gap-2">

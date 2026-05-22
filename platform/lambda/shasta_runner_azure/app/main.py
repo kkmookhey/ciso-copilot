@@ -18,6 +18,7 @@ Three stages (spec sections 4-5):
 from __future__ import annotations
 
 import json
+import os
 import traceback
 from dataclasses import dataclass
 
@@ -52,7 +53,12 @@ from unified_writer import commit_scan, mark_scan_failed
 
 _SCANNER_VERSION  = "shasta_runner_azure.0.2.0"
 
-sm = boto3.client("secretsmanager")
+DB_CLUSTER_ARN = os.environ.get("DB_CLUSTER_ARN", "")
+DB_SECRET_ARN  = os.environ.get("DB_SECRET_ARN", "")
+DB_NAME        = os.environ.get("DB_NAME", "")
+
+sm  = boto3.client("secretsmanager")
+rds = boto3.client("rds-data")
 
 # Module name -> Shasta entry point. Each takes an AzureClient, returns
 # list[Finding]. The names match azure_units' tier lists.
@@ -105,6 +111,17 @@ def handler(event: dict, context) -> dict:
             sm.get_secret_value(SecretId=secret_arn)["SecretString"])
         apply_sp_credentials(secret)
         base_client = AzureClient(tenant_id=azure_tenant_id)
+
+        # Persist subscription display names onto the connection so the
+        # web subscription picker can show readable names, not GUIDs.
+        # Best-effort — a name-capture failure must never fail the scan.
+        try:
+            names = {s["subscription_id"]: s["display_name"]
+                     for s in base_client.list_subscriptions()
+                     if s.get("subscription_id") and s.get("display_name")}
+            _record_subscription_names(conn_id, names)
+        except Exception as e:
+            print(f"WARN: subscription-name capture failed: {e}")
 
         # --- Stage 1 + 2: subscription discovery ------------------------
         def _probe(sub_id: str) -> str:
@@ -227,3 +244,22 @@ def _absorb(results, entities, edges, findings, coverage_map) -> None:
         else:
             bucket["errors"].append(
                 f"{o.status}: {o.name} {o.detail}".strip())
+
+
+def _record_subscription_names(conn_id: str, names: dict[str, str]) -> None:
+    """Persist {subscription_id: display_name} into the connection's
+    scope so the web subscription picker shows readable names. Additive
+    — jsonb_set leaves scope.subscriptions / scope.selected untouched."""
+    if not names:
+        return
+    rds.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=("UPDATE cloud_connections "
+             "SET scope = jsonb_set(COALESCE(scope, '{}'::jsonb), "
+             "                      '{subscription_names}', CAST(:names AS JSONB)) "
+             "WHERE conn_id = CAST(:cid AS UUID)"),
+        parameters=[
+            {"name": "cid",   "value": {"stringValue": conn_id}},
+            {"name": "names", "value": {"stringValue": json.dumps(names)}},
+        ],
+    )

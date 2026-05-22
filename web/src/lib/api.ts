@@ -49,7 +49,8 @@ export interface Connection {
   signals:            { pull_scan?: boolean; alerts?: boolean; drift?: boolean };
   last_scan_at:       string | null;
   created_at:         string;
-  scope?:             { subscriptions?: string[]; selected?: string[] };
+  scope?:             { subscriptions?: string[]; selected?: string[];
+                        subscription_names?: Record<string, string> };
   latest_scan:        LatestScan | null;
 }
 
