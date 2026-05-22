@@ -4,9 +4,9 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (Azure scanner uplift Slice 0 — shared
-> scanner_core extraction — built, deployed, live-verified on branch
-> feat/azure-scanner-uplift).
+> Last updated: 2026-05-22 (Azure scanner uplift Slice 1a — v2 Azure
+> scanner backend — built, deployed, live-verified on branch
+> feat/azure-scanner-slice-1a).
 
 ## 🚀 Azure Scanner Uplift — Slice 0 shipped (2026-05-22)
 
@@ -39,10 +39,33 @@ deliberately did NOT move (AWS-region-shaped / multi-consumer — see spec
   findings, 17-region scope object, ~3 min — confirming the refactored
   scanner runs end-to-end with zero behaviour regression.
 
-**▶ NEXT (Azure uplift):** Slice 1 — Azure v2 pipeline backend (adapter
-modules, `run.py`, Fargate task def, `ecs:RunTask`, subscription-keyed
-coverage map, tiering). Slice 2 — web subscription picker. Each gets its
-own plan via writing-plans.
+**Slice 1a — v2 Azure scanner backend — DONE (2026-05-22).** Plan
+`docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1a.md`;
+built subagent-driven on branch **`feat/azure-scanner-slice-1a`** (not
+yet merged). The Azure scanner (`platform/lambda/shasta_runner_azure/`)
+is now the v2 three-stage pipeline:
+- Five pure adapter modules (`azure_id_to_entity`, `azure_findings`,
+  `subscription_discovery`, `azure_units`, `azure_credential`) + `run.py`
+  — 26 unit tests pass.
+- `main.py` rewritten as the orchestrator: subscription discovery →
+  tier-aware parallel subscription×Shasta-module `ScanUnit`s through
+  `scanner_core.run_units` → `unified_writer.commit_scan`. Two-phase
+  Quick. Legacy direct-`findings` writes gone.
+- New `ciso-copilot-azure-scan` Fargate task def (CDK); `build.sh`
+  copies the shared `scanner_core`/`ai_scanner` modules.
+- **Live-verified:** Quick scan `10ffeb40-…` on the Azure connection
+  `79964b99-…` ran `completed`/`phase=done`, 72 findings, **16 entities
+  across 5 Azure kinds** (the legacy scanner wrote zero entities).
+  Subscription discovery classified one sub `active` (6 Quick modules
+  ran), one `empty` (skipped). Subscription-keyed `scope` map written.
+- **Not yet wired to production triggers** — invoked manually via
+  `ecs run-task`. The legacy Azure Lambda still exists.
+
+**▶ NEXT (Azure uplift):** Slice 1b — rewire the production triggers
+(`onboarding_azure_complete` + `connections_list._rescan_azure`) from
+`lambda.invoke` to `ecs:RunTask`, wire the `AZURE_SCAN_*` env vars in the
+CDK API stack, and retire the legacy Azure Lambda. Then Slice 2 — the
+web subscription picker. Each gets its own plan via writing-plans.
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
 
