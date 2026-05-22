@@ -83,7 +83,7 @@ def handler(event: dict, context) -> dict:
             {"name": "cid",   "value": {"stringValue": conn["conn_id"]}},
             {"name": "sec",   "value": {"stringValue": secret_arn}},
             {"name": "tid",   "value": {"stringValue": azure_tenant_id}},
-            {"name": "scope", "value": {"stringValue": json.dumps({"subscriptions": subscription_ids})}},
+            {"name": "scope", "value": {"stringValue": json.dumps({"subscriptions": subscription_ids, "selected": subscription_ids})}},
         ],
     )
 

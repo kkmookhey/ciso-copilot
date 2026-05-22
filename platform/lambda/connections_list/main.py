@@ -249,7 +249,9 @@ def _rescan_azure(conn: dict, tenant_id: str, tier: str) -> str:
         raise _IncompleteConnection("missing azure_tenant_id or client_id in secret")
 
     scope = conn.get("scope") or {}
-    subscriptions = scope.get("subscriptions") or []
+    # Scan the user-selected subset; fall back to all discovered
+    # subscriptions if the connection predates the picker.
+    subscriptions = scope.get("selected") or scope.get("subscriptions") or []
     if not subscriptions:
         raise _IncompleteConnection("missing subscriptions in scope")
 
