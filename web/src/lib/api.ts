@@ -18,8 +18,9 @@ export interface LatestScan {
 }
 
 export interface ScanCoverageMap {
-  tier?:    string;
-  regions?: Record<string, { state: string; errors?: string[] }>;
+  tier?:          string;
+  regions?:       Record<string, { state: string; errors?: string[] }>;
+  subscriptions?: Record<string, { state: string; errors?: string[] }>;
 }
 
 export interface ScanStatus {
@@ -48,6 +49,7 @@ export interface Connection {
   signals:            { pull_scan?: boolean; alerts?: boolean; drift?: boolean };
   last_scan_at:       string | null;
   created_at:         string;
+  scope?:             { subscriptions?: string[]; selected?: string[] };
   latest_scan:        LatestScan | null;
 }
 
@@ -411,6 +413,11 @@ export const api = {
   rescanConnection: (connId: string, tier: "quick" | "medium" = "medium") =>
     call<{ scan_id: string; status: string }>(`/connections/${connId}/rescan`, {
       method: "POST", body: JSON.stringify({ tier }),
+    }),
+  updateConnectionSubscriptions: (connId: string, selected: string[]):
+      Promise<{ status: string; selected: string[] }> =>
+    call<{ status: string; selected: string[] }>(`/connections/${connId}`, {
+      method: "PATCH", body: JSON.stringify({ selected }),
     }),
   getScanStatus: (scanId: string) => call<ScanStatus>(`/scans/${scanId}`),
   deleteConnection: (connId: string) =>
