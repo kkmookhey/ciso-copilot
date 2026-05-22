@@ -75,17 +75,21 @@ A new sibling package, copied into each scanner's Docker image by
 
 - `scan_pipeline.py` — `run_units`, `ConcurrencyLimiter`, `ScanUnit`.
   Moves from `shasta_runner/app/`, unchanged.
-- `unified_writer.py` — `commit_scan`. Re-homed here as the canonical
-  writer. The AWS scanner and `ai_scanner` both copy it from
-  `scanner_core/` instead of from `ai_scanner/`.
 - `scan_state.py` — **new.** Extracted from AWS `main.py`: the
-  `scans.phase` / `scans.tier` updates and the coverage-map writer
-  (`_record_scan_scope`), made cloud-shape-agnostic (the map payload is
-  passed in by the caller, so a region-keyed or subscription-keyed map
-  both work).
+  `scans` status/phase/stats update (`update_scan`) and the coverage-map
+  writer (`record_scan_scope`). Cloud-shape-agnostic: `record_scan_scope`
+  takes an already-shaped `scope` dict, so a region-keyed or
+  subscription-keyed map both work. DB config is read lazily (inside the
+  functions), so the module imports cleanly without env vars set.
 
-`scan_policy.py` does **not** move — it is AWS-region-shaped and stays
-in `shasta_runner/app/` (see §3 decision #4).
+Two modules that do **not** move:
+- `scan_policy.py` — AWS-region-shaped; stays in `shasta_runner/app/`
+  (see §3 decision #4).
+- `unified_writer.py` — its canonical home stays `ai_scanner/`. It is
+  already copied into `shasta_runner` and `entities_api` by their
+  `build.sh`; the Azure scanner's `build.sh` copies it from `ai_scanner/`
+  the same way. Re-homing it would touch three consumers plus
+  `ai_scanner`'s own imports/tests for no functional gain.
 
 ### 4.2 Azure adapter — `platform/lambda/shasta_runner_azure/app/`
 
@@ -229,11 +233,12 @@ Subscription-keyed, mirroring AWS's region-keyed map:
 Multi-slice, like the AWS uplift. Each slice ships independently and gets
 its own plan via the writing-plans skill.
 
-- **Slice 0 — Shared core extraction.** Move `scan_pipeline` into
-  `scanner_core/`; re-home `unified_writer` there; add the new
-  `scan_state` module; update AWS scanner + `ai_scanner` `build.sh` and
-  imports; regression-verify the AWS scanner (102 tests). No Azure
-  change. Low-risk; ships first.
+- **Slice 0 — Shared core extraction.** Create `scanner_core/`; move
+  `scan_pipeline` into it; add the new `scan_state` module (extracted
+  from AWS `main.py`); wire `shasta_runner/build.sh` to copy
+  `scanner_core/` modules into `app/`; update AWS `main.py` imports;
+  regression-verify the AWS scanner (102 tests). No Azure change, no
+  `ai_scanner` change. Low-risk; ships first.
 - **Slice 1 — Azure v2 pipeline backend.** Azure adapter modules,
   `run.py`, Fargate task def, `ecs:RunTask` wiring, one-scan-row-per-
   connection, subscription-keyed coverage map, tiering. Scanner works
