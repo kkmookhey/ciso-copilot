@@ -4,16 +4,15 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-21 (AWS scanner uplift — Slices 0/1 + region
-> discovery + Scan Execution v2 built; V2-10 E2E verification COMPLETE —
-> Medium + Quick scans both verified).
+> Last updated: 2026-05-21 (AWS scanner uplift merged to main; Scan
+> Progress & Scan-Type UX — scan-performance spec §10 — built, deployed,
+> and merged to main).
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
 
-Roadmap major item #1 ("Scanner comprehensiveness uplift"). All work is
-on branch **`feat/aws-scanner-uplift`** (PR #4, not yet merged to main —
-~53 commits ahead). `main` — including the `shasta.transilience.cloud`
-domain cutover (`01533cd`) — **has been merged into the branch**.
+Roadmap major item #1 ("Scanner comprehensiveness uplift"). **PR #4
+(`feat/aws-scanner-uplift`, 55 commits) was merged to `main`** on
+2026-05-21 (`e127eb8`), after a 3-reviewer whole-branch review.
 
 **Specs (all approved) — `docs/superpowers/specs/`:**
 - `2026-05-20-aws-scanner-uplift-design.md` — the overall uplift: tiered
@@ -47,7 +46,7 @@ subsumed by the v2 spec.
 scan re-assumes the customer role automatically, never hits
 `RequestExpired`.
 
-### Scan Execution v2 — backend BUILT; E2E verification IN PROGRESS
+### Scan Execution v2 — backend BUILT, VERIFIED, merged to main
 The scanner is now a **three-stage parallel pipeline**: (1) region
 eligibility, (2) four-state footprint probe
 (`active`/`default_only`/`empty`/`unknown`), (3) tier-aware scan units
@@ -113,8 +112,12 @@ fixes" — architecture sound, but real issues. **Fixed before merge:**
   bound is the boto connect/read timeouts in `SCAN_BOTO_CONFIG`.
   Docstring rewritten to say so honestly.
 
-102 scanner tests pass. **NOT yet deployed** — the fixes need a scanner
-image rebuild + `CisoCopilotApi` redeploy to go live.
+102 scanner tests pass. **A + B are LIVE** — they touch `scans_status`
+and `onboarding_aws_complete`, deployed with the `CisoCopilotApi` deploy
+on 2026-05-21. **C / D / E are committed to main but NOT live** — they
+touch the scanner files (`main.py`, `coverage/engine.py`,
+`scan_pipeline.py`) which need a Docker image rebuild (`build.sh`) +
+`CisoCopilotScan` deploy to ship.
 
 **Deferred from review (track for Slice 2 / follow-up):**
 - Engine collector failures (e.g. missing `sqs:ListQueues`) are logged
@@ -131,16 +134,41 @@ image rebuild + `CisoCopilotApi` redeploy to go live.
 - Engine check-matching is O(checks×resources) per service — fine at 3
   services, regroup before scaling to ~40.
 
-- **▶ NEXT SESSION:** write + execute the web UX plan (scan-performance
-  spec §10 — in-progress scan view, scan-type picker, Deep → Contact
-  Us). Then rebuild/redeploy the scanner image + Api stack to ship the
-  A–D fixes.
+### Scan Progress & Scan-Type UX — SHIPPED + MERGED (2026-05-21)
+Scan-performance spec §10. Plan `docs/superpowers/plans/2026-05-21-scan-progress-ux.md`;
+built subagent-driven (7 tasks, each spec- + quality-reviewed, plus a
+final whole-branch review). Merged to `main` (`dad4c16`).
+- **Backend:** `GET /connections` now carries each connection's
+  `latest_scan` ({scan_id, tier, status, phase, started_at}); AWS rescan
+  (`connections_list._rescan_aws`) is **tier-aware** and runs the v2
+  Fargate scanner (was: legacy Lambda, no tier). Dead `SHASTA_RUNNER_FN`
+  wiring removed.
+- **Web:** shared `web/src/scan/` module (`useScanStatus` polling hook,
+  `ScanTypeBadge`, `ScanProgress`, `scanLabels`); the ConnectClouds
+  Quick/Medium/Deep scan picker + live progress card (AWS-only); the
+  `/contact/deep-scan` Contact-Us route (Deep-tier gate); scan-type
+  badges on the Findings / Risks / Dashboard headers.
+- **Deployed:** `CisoCopilotApi` + `CisoCopilotScan` (a cross-stack
+  export-removal deadlock from dropping the `shastaRunner` prop was
+  resolved by the two-phase `--exclusively` deploy — Api first, then
+  Scan). Web built + synced to S3 + CloudFront invalidated.
+- **E2E verified:** a live tiered Quick rescan (`c660c70b-…`) moved
+  `region_discovery → first_signal → crown_jewel → done`, 72 findings
+  committed in Phase 1, 116 at completion. `GET /connections` returns
+  `latest_scan`; the scan-status API serves the progress data the web
+  polls. **The web UI rendering itself was not browser-tested** — verify
+  the picker / progress card / badges visually next session.
+- **Known limitation carried in:** the live region census in
+  `ScanProgress` only shows at completion (the scanner writes the
+  coverage map to `scans.scope` only after Phase 2 — the deferred item
+  below). The progress card degrades gracefully (phase + finding count
+  while running).
 
-**Still TODO on the v2 work (not planned/built):**
-- The **web UX** (scan-performance spec §10) — in-progress scan view,
-  scan-type labels on results, the Quick/Medium/Deep scan-type picker,
-  Deep → Contact Us. Needs its own plan.
-- Final whole-branch review + merge of PR #4.
+**▶ NEXT SESSION:** (1) browser-smoke the new web UX (picker, progress
+card, scan-type badges, Deep→Contact-Us) on https://dil1ztnjosz43.cloudfront.net/.
+(2) Ship the C/D/E scanner fixes — `build.sh` rebuild + `CisoCopilotScan`
+deploy. (3) Then the deferred review items below / the Azure scanner
+uplift brainstorm.
 
 ### Gotchas paid in debugging time
 - **Assumed-role creds expire at 1 h** → multi-region scans used to die
