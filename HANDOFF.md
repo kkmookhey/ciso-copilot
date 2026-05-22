@@ -114,10 +114,12 @@ fixes" — architecture sound, but real issues. **Fixed before merge:**
 
 102 scanner tests pass. **A + B are LIVE** — they touch `scans_status`
 and `onboarding_aws_complete`, deployed with the `CisoCopilotApi` deploy
-on 2026-05-21. **C / D / E are committed to main but NOT live** — they
-touch the scanner files (`main.py`, `coverage/engine.py`,
-`scan_pipeline.py`) which need a Docker image rebuild (`build.sh`) +
-`CisoCopilotScan` deploy to ship.
+on 2026-05-21. **C / D / E are now LIVE too (2026-05-21)** — `build.sh`
+rebuilt + pushed the `shasta-runner:latest` image
+(`sha256:7cce1043…`); `CisoCopilotScan` deployed (reported "no changes"
+— the ECS task def pins the `:latest` tag, which CDK does not diff, so
+the next scan's `RunTask` pulls the updated image). C/D/E take effect on
+the next AWS scan.
 
 **Deferred from review (track for Slice 2 / follow-up):**
 - Engine collector failures (e.g. missing `sqs:ListQueues`) are logged
@@ -164,11 +166,38 @@ final whole-branch review). Merged to `main` (`dad4c16`).
   below). The progress card degrades gracefully (phase + finding count
   while running).
 
-**▶ NEXT SESSION:** (1) browser-smoke the new web UX (picker, progress
-card, scan-type badges, Deep→Contact-Us) on https://dil1ztnjosz43.cloudfront.net/.
-(2) Ship the C/D/E scanner fixes — `build.sh` rebuild + `CisoCopilotScan`
-deploy. (3) Then the deferred review items below / the Azure scanner
-uplift brainstorm.
+**Web UX browser-smoke (2026-05-21) — DONE.** KK smoke-tested the new
+web UX on https://dil1ztnjosz43.cloudfront.net/. Scan picker works; live
+scan updates render correctly under the cloud being scanned. **One bug
+found + fixed + deployed:** the `ScanPicker` dropdown
+(`web/src/routes/ConnectClouds.tsx`) did not dismiss on outside-click —
+it stayed stuck on screen if you didn't pick a tier. Added a
+`pointerdown`/`Escape` close handler; web rebuilt + synced + CloudFront
+invalidated. Also noted: `TEST_PLAN.md` T1.3 is stale — the email-first
+sign-in flow is now ported to web (a `you@company.com` field, not the
+old "Sign in with corporate account" button).
+
+**UI/UX polish — first batch shipped (2026-05-21).** KK raised a
+9-item UI/UX list; the three "looks-broken" ones were fixed + deployed
+this session:
+- **#2 — empty chat bubbles.** `MessageStream.tsx` now skips rendering
+  any message bubble with empty/whitespace text (a tool-only turn or a
+  failed/in-flight stream left blank "blob" bubbles). KK reported the
+  blobs were transient — this is a defensive guard so they can't
+  resurface.
+- **#6 — policy editor modal title.** `PolicyEditor` takes an
+  `initialTitle` prop; the list passes `p.title` so the header shows the
+  name immediately instead of "Loading…".
+- **#8 — AWS connection-row identifier.** When `account_identifier` is
+  null (e.g. pending AWS rows), the row now shows `Added <date>` instead
+  of a bare "—", so two AWS rows are distinguishable.
+
+**▶ NEXT SESSION:** (1) The deferred PR-#4 review items below.
+(2) The Azure scanner uplift brainstorm. (3) Incremental #6 — APNs push
+end-to-end test. (4) The remaining 6 UI/UX-polish items KK deferred
+(skeleton loaders, chat auto-titling, inline-editable risk Owner/Due,
+single-bar "By cloud" chart, Connect-page layout, Trust-Center save
+toast) — none blocking, batch in a dedicated UI-polish session.
 
 ### Gotchas paid in debugging time
 - **Assumed-role creds expire at 1 h** → multi-region scans used to die

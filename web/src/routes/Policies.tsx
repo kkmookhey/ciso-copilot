@@ -5,6 +5,7 @@ export function Policies() {
   const [list,      setList]      = useState<PolicySummary[] | null>(null);
   const [templates, setTemplates] = useState<PolicyTemplate[] | null>(null);
   const [openId,    setOpenId]    = useState<string | null>(null);
+  const [openTitle, setOpenTitle] = useState<string | null>(null);
   const [showNew,   setShowNew]   = useState(false);
   const [showBulk,  setShowBulk]  = useState(false);
   const [err,       setErr]       = useState<string | null>(null);
@@ -66,7 +67,7 @@ export function Policies() {
             {list.map((p) => (
               <li key={p.policy_id}>
                 <button
-                  onClick={() => setOpenId(p.policy_id)}
+                  onClick={() => { setOpenId(p.policy_id); setOpenTitle(p.title); }}
                   className="w-full text-left p-4 hover:bg-slate-50 transition flex items-center justify-between"
                 >
                   <div>
@@ -83,12 +84,19 @@ export function Policies() {
         )}
       </div>
 
-      {openId && <PolicyEditor policyId={openId} onClose={() => setOpenId(null)} onSaved={reload} />}
+      {openId && (
+        <PolicyEditor
+          policyId={openId}
+          initialTitle={openTitle ?? undefined}
+          onClose={() => { setOpenId(null); setOpenTitle(null); }}
+          onSaved={reload}
+        />
+      )}
       {showNew && templates && (
         <NewPolicyModal
           templates={templates}
           onClose={() => setShowNew(false)}
-          onCreated={(id) => { setShowNew(false); setOpenId(id); reload(); }}
+          onCreated={(id) => { setShowNew(false); setOpenId(id); setOpenTitle(null); reload(); }}
         />
       )}
       {showBulk && (
@@ -283,8 +291,9 @@ function NewPolicyModal({ templates, onClose, onCreated }: {
   );
 }
 
-function PolicyEditor({ policyId, onClose, onSaved }: {
+function PolicyEditor({ policyId, initialTitle, onClose, onSaved }: {
   policyId: string;
+  initialTitle?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -340,7 +349,7 @@ function PolicyEditor({ policyId, onClose, onSaved }: {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           <div>
-            <h2 className="font-semibold">{policy?.title ?? "Loading…"}</h2>
+            <h2 className="font-semibold">{policy?.title ?? initialTitle ?? "Loading…"}</h2>
             {policy && (
               <p className="text-xs text-slate-500 mt-0.5">
                 v{policy.version} · {policy.soc2_controls.join(", ")}

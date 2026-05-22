@@ -66,6 +66,9 @@ export function MessageStream({
             </div>
           );
         }
+        // Skip empty bubbles — a tool-only turn or a failed/in-flight stream
+        // leaves a message with no text, which would render as a blank blob.
+        if (!m.content?.text?.trim()) return null;
         return (
           <div key={i} style={{ margin: "12px 0",
             textAlign: m.role === "user" ? "right" : "left" }}>

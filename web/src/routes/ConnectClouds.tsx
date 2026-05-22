@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type AIConnection, type Connection } from "../lib/api";
 import { useScanStatus } from "../scan/useScanStatus";
@@ -329,7 +329,9 @@ function ConnectionRow({
             <span className="uppercase text-xs text-slate-500 font-mono">{conn.cloud_type}</span>
             <span className="truncate">{conn.display_name}</span>
           </div>
-          <div className="text-xs text-slate-500 truncate">{conn.account_identifier ?? "—"}</div>
+          <div className="text-xs text-slate-500 truncate">
+            {conn.account_identifier ?? `Added ${formatDate(conn.created_at)}`}
+          </div>
           {actionMsg && <div className="text-xs text-blue-600 mt-1">{actionMsg}</div>}
           {scanMsg && <div className="text-xs text-blue-600 mt-1">{scanMsg}</div>}
         </div>
@@ -366,9 +368,27 @@ function ConnectionRow({
 
 function ScanPicker({ onPick }: { onPick: (tier: "quick" | "medium" | "deep") => void }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const tiers: Array<"quick" | "medium" | "deep"> = ["quick", "medium", "deep"];
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div className="relative" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
