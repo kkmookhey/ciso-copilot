@@ -17,9 +17,13 @@ export function ConnectClouds() {
   const [cloudConnections, setCloudConnections] = useState<Connection[]>([]);
   const [cloudActionMsg,   setCloudActionMsg]   = useState<Record<string, string>>({});
 
+  function reloadConnections() {
+    api.listConnections().then((r) => setCloudConnections(r.connections)).catch(() => { /* non-fatal */ });
+  }
+
   useEffect(() => {
     api.listAIConnections().then((r) => setAiConnections(r.connections)).catch(() => { /* non-fatal */ });
-    api.listConnections().then((r) => setCloudConnections(r.connections)).catch(() => { /* non-fatal */ });
+    reloadConnections();
   }, []);
 
   async function deleteCloud(connId: string, status: Connection["status"]) {
@@ -121,6 +125,7 @@ export function ConnectClouds() {
                 conn={c}
                 actionMsg={cloudActionMsg[c.conn_id]}
                 onDelete={deleteCloud}
+                onConnSaved={reloadConnections}
               />
             ))}
           </ul>
@@ -278,12 +283,94 @@ function CloudStatusPill({ status }: { status: Connection["status"] }) {
   );
 }
 
+function SubscriptionPicker({ conn, onSaved }: {
+  conn: Connection;
+  onSaved: () => void;
+}) {
+  const all = conn.scope?.subscriptions ?? [];
+  // selected defaults to all when scope.selected is absent (pre-picker connections)
+  const initial = conn.scope?.selected ?? all;
+  const [open, setOpen]       = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set(initial));
+  const [busy, setBusy]       = useState(false);
+  const [err, setErr]         = useState<string | null>(null);
+
+  if (all.length === 0) return null;
+
+  function toggle(sub: string) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(sub) ? next.delete(sub) : next.add(sub);
+      return next;
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.updateConnectionSubscriptions(conn.conn_id, [...checked]);
+      onSaved();
+      setOpen(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs text-slate-600 hover:text-slate-900"
+      >
+        {open ? "▾" : "▸"} Subscriptions ({checked.size} of {all.length} scanned)
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg border border-slate-200 p-3">
+          <ul className="space-y-1">
+            {all.map((sub) => (
+              <li key={sub}>
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={checked.has(sub)}
+                    onChange={() => toggle(sub)}
+                  />
+                  <span className="font-mono">{sub}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {err && <div className="mt-2 text-xs text-red-600">{err}</div>}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy || checked.size === 0}
+              className="px-3 py-1 rounded-md bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs"
+            >
+              {busy ? "Saving…" : "Save"}
+            </button>
+            {checked.size === 0 && (
+              <span className="text-xs text-slate-400">Select at least one.</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ConnectionRow({
-  conn, actionMsg, onDelete,
+  conn, actionMsg, onDelete, onConnSaved,
 }: {
   conn: Connection;
   actionMsg?: string;
   onDelete: (connId: string, status: Connection["status"]) => void;
+  onConnSaved: () => void;
 }) {
   const navigate = useNavigate();
   const seedId =
@@ -320,6 +407,7 @@ function ConnectionRow({
   }
 
   const isAws = conn.cloud_type === "aws";
+  const isAzure = conn.cloud_type === "azure";
 
   return (
     <li className="py-3 text-sm">
@@ -337,13 +425,13 @@ function ConnectionRow({
         </div>
         <CloudStatusPill status={conn.status} />
         <div className="flex items-center gap-2 shrink-0">
-          {conn.status === "active" && isAws && (
+          {conn.status === "active" && (isAws || isAzure) && (
             <ScanPicker
               onPick={(tier) =>
                 tier === "deep" ? navigate("/contact/deep-scan") : startScan(tier)}
             />
           )}
-          {conn.status === "active" && !isAws && (
+          {conn.status === "active" && !isAws && !isAzure && (
             <button
               type="button"
               onClick={() => startScan("medium")}
@@ -361,6 +449,9 @@ function ConnectionRow({
           </button>
         </div>
       </div>
+      {conn.status === "active" && conn.cloud_type === "azure" && (
+        <SubscriptionPicker conn={conn} onSaved={onConnSaved} />
+      )}
       {scan && <ScanProgress scan={scan} />}
     </li>
   );
