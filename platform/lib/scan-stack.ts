@@ -266,7 +266,7 @@ export class ScanStack extends cdk.Stack {
     });
 
     // gcpScannerRole already has Data API access granted via the
-    // GcpRunner Lambda's grantDataApiAccess call below — the Fargate
+    // GcpRunner Lambda's grantDataApiAccess call above — the Fargate
     // task shares the same role, so no extra grant is needed. The WIF
     // GetCallerIdentity call requires no IAM policy (a principal may
     // always describe itself).

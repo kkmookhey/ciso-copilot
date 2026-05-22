@@ -56,6 +56,11 @@ def parse_gcp_id(resource_id: str | None) -> dict | None:
     for i in range(len(tokens) - 2, -1, -1):
         kind = _KIND_MAP.get(tokens[i])
         if kind is not None:
+            # `services` is ambiguous — it appears in Service Usage,
+            # Service Directory, etc. Only treat it as a Cloud Run
+            # service when the path is a Cloud Run resource.
+            if tokens[i] == "services" and "run.googleapis.com" not in tokens:
+                continue
             name = tokens[i + 1]
             return {
                 "kind":         kind,

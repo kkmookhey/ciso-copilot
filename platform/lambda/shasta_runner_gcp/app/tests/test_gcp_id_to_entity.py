@@ -34,6 +34,20 @@ def test_parses_service_account_full_resource_name():
     assert parsed["display_name"] == "svc@my-proj.iam.gserviceaccount.com"
 
 
+def test_parses_cloud_run_service_full_resource_name():
+    rid = ("//run.googleapis.com/projects/my-proj/locations/us-central1"
+           "/services/api-gateway")
+    parsed = parse_gcp_id(rid)
+    assert parsed["kind"] == "gcp_cloud_run_service"
+    assert parsed["display_name"] == "api-gateway"
+
+
+def test_non_cloud_run_services_path_returns_none():
+    # `services` under Service Usage is NOT a Cloud Run service.
+    rid = "//serviceusage.googleapis.com/projects/my-proj/services/compute.googleapis.com"
+    assert parse_gcp_id(rid) is None
+
+
 def test_unknown_collection_returns_none():
     assert parse_gcp_id(
         "https://www.googleapis.com/compute/v1/projects/p/global/widgets/w"

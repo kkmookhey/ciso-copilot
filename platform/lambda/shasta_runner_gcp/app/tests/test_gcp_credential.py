@@ -46,20 +46,16 @@ def test_static_fields_are_aws_external_account_shape():
     assert "GetCallerIdentity" in info["credential_source"]["regional_cred_verification_url"]
 
 
-def test_export_aws_credentials_sets_env_vars(monkeypatch):
-    for var in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
-        monkeypatch.delenv(var, raising=False)
-    export_aws_credentials_to_env(_FrozenCreds("AKIA123", "secret456", "token789"))
-    import os
-    assert os.environ["AWS_ACCESS_KEY_ID"] == "AKIA123"
-    assert os.environ["AWS_SECRET_ACCESS_KEY"] == "secret456"
-    assert os.environ["AWS_SESSION_TOKEN"] == "token789"
+def test_export_aws_credentials_sets_env_vars():
+    env: dict[str, str] = {}
+    export_aws_credentials_to_env(_FrozenCreds("AKIA123", "secret456", "token789"), env)
+    assert env["AWS_ACCESS_KEY_ID"] == "AKIA123"
+    assert env["AWS_SECRET_ACCESS_KEY"] == "secret456"
+    assert env["AWS_SESSION_TOKEN"] == "token789"
 
 
-def test_export_aws_credentials_omits_session_token_when_absent(monkeypatch):
-    for var in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
-        monkeypatch.delenv(var, raising=False)
-    export_aws_credentials_to_env(_FrozenCreds("AKIA123", "secret456", None))
-    import os
-    assert os.environ["AWS_ACCESS_KEY_ID"] == "AKIA123"
-    assert "AWS_SESSION_TOKEN" not in os.environ
+def test_export_aws_credentials_omits_session_token_when_absent():
+    env: dict[str, str] = {}
+    export_aws_credentials_to_env(_FrozenCreds("AKIA123", "secret456", None), env)
+    assert env["AWS_ACCESS_KEY_ID"] == "AKIA123"
+    assert "AWS_SESSION_TOKEN" not in env

@@ -15,10 +15,10 @@ from __future__ import annotations
 import os
 
 
-def export_aws_credentials_to_env(frozen_credentials) -> None:
-    """Export resolved AWS credentials into os.environ so google-auth's
-    AWS external-account credential source can sign the GetCallerIdentity
-    subject token.
+def export_aws_credentials_to_env(frozen_credentials, env=None) -> None:
+    """Export resolved AWS credentials into an environment mapping so
+    google-auth's AWS external-account credential source can sign the
+    GetCallerIdentity subject token.
 
     google-auth's `aws.Credentials` source reads AWS creds from env vars
     or the EC2 instance metadata server — neither is populated for an ECS
@@ -26,11 +26,18 @@ def export_aws_credentials_to_env(frozen_credentials) -> None:
     endpoint instead. The caller resolves the credentials with boto3
     (which supports the container provider) and passes the frozen
     credentials object here. `frozen_credentials` exposes `.access_key`,
-    `.secret_key`, and `.token`."""
-    os.environ["AWS_ACCESS_KEY_ID"]     = frozen_credentials.access_key
-    os.environ["AWS_SECRET_ACCESS_KEY"] = frozen_credentials.secret_key
+    `.secret_key`, and `.token`.
+
+    `env` defaults to `os.environ`; tests pass a plain dict to stay
+    isolated. The exported credentials are a point-in-time snapshot —
+    google-auth re-signs from these values without refreshing them, so a
+    scan that outlives the credential TTL would fail. Fine for the short
+    Quick/Medium tiers; revisit for long Deep scans."""
+    target = os.environ if env is None else env
+    target["AWS_ACCESS_KEY_ID"]     = frozen_credentials.access_key
+    target["AWS_SECRET_ACCESS_KEY"] = frozen_credentials.secret_key
     if frozen_credentials.token:
-        os.environ["AWS_SESSION_TOKEN"] = frozen_credentials.token
+        target["AWS_SESSION_TOKEN"] = frozen_credentials.token
 
 
 def build_external_account_info(

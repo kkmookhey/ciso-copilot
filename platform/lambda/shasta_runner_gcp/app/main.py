@@ -22,7 +22,6 @@ key on disk anywhere.
 """
 from __future__ import annotations
 
-import os
 import traceback
 from dataclasses import dataclass
 
