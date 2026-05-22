@@ -62,18 +62,25 @@ New/rewritten modules: `scan_pipeline.py`, `scan_policy.py`,
 `assumed_role.py`, `scans_status/`. **101 scanner unit tests pass.**
 
 **Plan tasks V2-1..V2-9 — done + two-stage reviewed.**
-**V2-10 (build / deploy / E2E verify) — IN PROGRESS at session end:**
+**V2-10 (build / deploy / E2E verify) — medium scan VERIFIED, Quick pending:**
 - Image rebuilt + pushed; `CisoCopilotScan` + `CisoCopilotApi` deployed
   (Api re-deployed post-merge for the correct callback URL).
-- A medium-tier discovery scan **`b3091a57-87b9-4eca-83cd-5dd812ec254f`**
-  was RUNNING at session end (`phase=full` confirms the v2 handler live).
-- **▶ NEXT SESSION — finish V2-10:** check that scan
-  (`SELECT status, phase, scope FROM scans WHERE scan_id='b3091a57…'`) —
-  expect `completed`/`partial`, `phase=done`, a per-region coverage map
-  in `scope`; then run a Quick scan and confirm it moves
-  `region_discovery→first_signal→crown_jewel→done` with Phase-1 findings
-  committed before `crown_jewel` ends. (Plan `…scan-execution-v2-backend.md`
-  Task 10, Steps 5-7.)
+- **Medium discovery scan `b3091a57-87b9-4eca-83cd-5dd812ec254f` —
+  VERIFIED.** Completed cleanly: `status=completed`, `phase=done`. The
+  four-state footprint probe classified **17 regions → 9 `active` /
+  8 `default_only`** (0 errored); per-region coverage map written to
+  `scans.scope`; **7,280 findings**. The v2 three-stage parallel
+  pipeline works end-to-end.
+- **Perf note:** that scan took **~49 min** (23:26→00:15) — completes
+  cleanly (the pre-v2 serial scan ran 108 min and died on expired
+  creds) but is over the ~15-25 min Medium target. Likely `ai_pass`
+  running as a single serial unit + conservative per-service caps
+  (flagged in spec §15). Tune later — not a blocker.
+- **▶ NEXT SESSION — finish V2-10:** run a **Quick**-tier scan and
+  confirm it moves `region_discovery→first_signal→crown_jewel→done`
+  with Phase-1 findings committed before `crown_jewel` ends (plan
+  `…scan-execution-v2-backend.md` Task 10, Step 6). Then the final
+  whole-branch review + write the web UX plan.
 
 **Still TODO on the v2 work (not planned/built):**
 - The **web UX** (scan-performance spec §10) — in-progress scan view,
