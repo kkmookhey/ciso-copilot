@@ -49,7 +49,9 @@ export class ScanStack extends cdk.Stack {
   public readonly aiScanner:          lambda.DockerImageFunction;
   public readonly scanCluster:        ecs.Cluster;
   public readonly scanTaskDef:        ecs.FargateTaskDefinition;
+  public readonly azureScanTaskDef:   ecs.FargateTaskDefinition;
   public readonly scanTaskSecurityGroupId: string;
+  public readonly azureScanTaskDefFamily: string;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -151,6 +153,40 @@ export class ScanStack extends cdk.Stack {
       actions:   ['secretsmanager:GetSecretValue'],
       resources: [secretsArn],
     }));
+
+    // ===== Azure scanner — Fargate task =====
+    // Mirrors the AWS ScanTaskDef. Runs `python run.py` in the same Azure ECR
+    // image that the Lambda above uses. Scan parameters arrive as RunTask
+    // container overrides — not baked into the task def. No sts:AssumeRole
+    // needed (Azure uses service-principal creds from Secrets Manager).
+    const azureScanTaskDef = new ecs.FargateTaskDefinition(this, 'AzureScanTaskDef', {
+      family:         'ciso-copilot-azure-scan',
+      cpu:            4096,
+      memoryLimitMiB: 8192,
+    });
+
+    azureScanTaskDef.addContainer('scanner', {
+      image: ecs.ContainerImage.fromEcrRepository(props.shastaRunnerAzureRepo, 'latest'),
+      entryPoint: ['python'],
+      command:    ['run.py'],
+      environment: dbEnv,
+      logging: ecs.LogDriver.awsLogs({
+        streamPrefix: 'azure-scan',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+    });
+
+    props.dbCluster.grantDataApiAccess(azureScanTaskDef.taskRole);
+    azureScanTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [secretsArn],
+    }));
+
+    this.azureScanTaskDef        = azureScanTaskDef;
+    this.azureScanTaskDefFamily  = 'ciso-copilot-azure-scan';
+
+    new cdk.CfnOutput(this, 'AzureScanTaskDefArn',    { value: azureScanTaskDef.taskDefinitionArn });
+    new cdk.CfnOutput(this, 'AzureScanTaskDefFamily', { value: 'ciso-copilot-azure-scan' });
 
     // ===== Entra scanner credentials =====
     // Shared across all customer Entra connections (our app reg's credentials).
