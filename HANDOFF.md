@@ -4,9 +4,45 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-21 (AWS scanner uplift merged to main; Scan
-> Progress & Scan-Type UX — scan-performance spec §10 — built, deployed,
-> and merged to main).
+> Last updated: 2026-05-22 (Azure scanner uplift Slice 0 — shared
+> scanner_core extraction — built, deployed, live-verified on branch
+> feat/azure-scanner-uplift).
+
+## 🚀 Azure Scanner Uplift — Slice 0 shipped (2026-05-22)
+
+Roadmap item #1, Azure leg. Spec
+`docs/superpowers/specs/2026-05-21-azure-scanner-uplift-design.md`; plan
+`docs/superpowers/plans/2026-05-21-azure-scanner-uplift-slice-0.md`.
+Built subagent-driven on branch **`feat/azure-scanner-uplift`** (not yet
+merged).
+
+**Slice 0 — shared scanner core — DONE.** New package
+`platform/lambda/scanner_core/` holds the cloud-agnostic pieces:
+`scan_pipeline.py` (moved from `shasta_runner`) and a new `scan_state.py`
+(`update_scan` + `record_scan_scope` — the `scans`-table writes,
+extracted from AWS `main.py`; `record_scan_scope` takes a pre-shaped
+`scope` dict so a region-keyed or subscription-keyed map both work).
+`shasta_runner/build.sh` copies `scanner_core/` modules into `app/` at
+image build (same mechanism as the `ai_scanner` copies). AWS `main.py`
+now imports from `scan_state`; its inline `_update_scan` + DB-config
+constants are gone. `scan_policy.py` and `unified_writer.py`
+deliberately did NOT move (AWS-region-shaped / multi-consumer — see spec
+§3-§4). **No Azure change yet — that's Slice 1.**
+
+- Tests: AWS scanner suite 98 pass + `scanner_core/tests/` 11 pass
+  (= the prior 102 baseline, `scan_pipeline`'s 4 now under
+  `scanner_core/`).
+- Deployed: `shasta-runner:latest` rebuilt + pushed
+  (`sha256:a74c6af…`); `CisoCopilotScan` deployed.
+- **Live-verified:** Quick scan `4b6d3b61-87dd-4663-bff7-4753ea809022`
+  on conn `26e97477…` ran `completed`/`phase=done`/`tier=quick`, 61
+  findings, 17-region scope object, ~3 min — confirming the refactored
+  scanner runs end-to-end with zero behaviour regression.
+
+**▶ NEXT (Azure uplift):** Slice 1 — Azure v2 pipeline backend (adapter
+modules, `run.py`, Fargate task def, `ecs:RunTask`, subscription-keyed
+coverage map, tiering). Slice 2 — web subscription picker. Each gets its
+own plan via writing-plans.
 
 ## 🚀 AWS Scanner Uplift — state (2026-05-21)
 
