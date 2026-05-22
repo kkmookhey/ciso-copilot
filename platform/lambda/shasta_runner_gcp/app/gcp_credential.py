@@ -12,6 +12,26 @@ on the dict this returns.
 """
 from __future__ import annotations
 
+import os
+
+
+def export_aws_credentials_to_env(frozen_credentials) -> None:
+    """Export resolved AWS credentials into os.environ so google-auth's
+    AWS external-account credential source can sign the GetCallerIdentity
+    subject token.
+
+    google-auth's `aws.Credentials` source reads AWS creds from env vars
+    or the EC2 instance metadata server — neither is populated for an ECS
+    Fargate task role, which is served by the container credentials
+    endpoint instead. The caller resolves the credentials with boto3
+    (which supports the container provider) and passes the frozen
+    credentials object here. `frozen_credentials` exposes `.access_key`,
+    `.secret_key`, and `.token`."""
+    os.environ["AWS_ACCESS_KEY_ID"]     = frozen_credentials.access_key
+    os.environ["AWS_SECRET_ACCESS_KEY"] = frozen_credentials.secret_key
+    if frozen_credentials.token:
+        os.environ["AWS_SESSION_TOKEN"] = frozen_credentials.token
+
 
 def build_external_account_info(
     wif_project_number: str,

@@ -26,6 +26,8 @@ import os
 import traceback
 from dataclasses import dataclass
 
+import boto3
+
 # === Shasta imports ===
 from shasta.gcp.client import GCPClient
 from shasta.gcp import (
@@ -39,7 +41,8 @@ from shasta.gcp import (
 )
 
 # === Adapter modules (this package) ===
-from gcp_credential    import build_external_account_info
+from gcp_credential    import (build_external_account_info,
+                               export_aws_credentials_to_env)
 from gcp_findings      import convert_gcp_findings, project_entity
 from gcp_units         import modules_for_tier
 from project_discovery import discover_projects
@@ -96,6 +99,18 @@ def handler(event: dict, context) -> dict:
 
     try:
         # --- Credentials: one WIF credential, shared by every project ---
+        # google-auth's AWS external-account credential source reads AWS
+        # creds from env vars or EC2 IMDS — neither is populated for an
+        # ECS Fargate task role (Fargate serves them via the container
+        # credentials endpoint). Resolve them with boto3, which supports
+        # the container provider, and export them so google-auth can sign
+        # the GetCallerIdentity subject token.
+        aws_creds = boto3.Session().get_credentials()
+        if aws_creds is None:
+            raise RuntimeError(
+                "no AWS credentials available to sign the WIF subject token")
+        export_aws_credentials_to_env(aws_creds.get_frozen_credentials())
+
         from google.auth import aws as google_aws
         info = build_external_account_info(
             wif_project_number, sa_email, wif_pool, wif_provider)
