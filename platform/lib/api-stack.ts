@@ -20,7 +20,6 @@ interface ApiStackProps extends cdk.StackProps {
   dbCluster:          rds.DatabaseCluster;
   eventBus:           events.EventBus;
   cdnDistribution:    cloudfront.Distribution;
-  shastaRunnerAzure:  lambda.IFunction;
   shastaRunnerEntra:  lambda.IFunction;
   shastaRunnerGcp:    lambda.IFunction;
   scanCluster:                 ecs.Cluster;
@@ -186,7 +185,6 @@ export class ApiStack extends cdk.Stack {
     props.dbCluster.grantDataApiAccess(connectionsListFn);
     // Rescan dispatches into all four scanner Lambdas + reads/deletes the
     // per-connection secret.
-    props.shastaRunnerAzure.grantInvoke(connectionsListFn);
     props.shastaRunnerEntra.grantInvoke(connectionsListFn);
     props.shastaRunnerGcp.grantInvoke(connectionsListFn);
     connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
@@ -587,8 +585,6 @@ export class ApiStack extends cdk.Stack {
         props.azureScanTaskDefExecutionRoleArn,
       ],
     }));
-    props.shastaRunnerAzure.grantInvoke(onboardingAzureCompleteFn);
-
     const onboardingAzure = onboarding.addResource('azure');
     onboardingAzure.addResource('initiate').addMethod(
       'POST', new apigw.LambdaIntegration(onboardingAzureInitiateFn), authedOpts,
