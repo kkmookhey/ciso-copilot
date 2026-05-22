@@ -42,6 +42,14 @@ cp ../ai_scanner/detectors/base.py app/detectors/base.py
 touch                              app/detectors/__init__.py
 cp ../ai_scanner/unified_writer.py app/unified_writer.py
 
+# 1c. Copy shared modules from the sibling scanner_core package
+#     (scan_pipeline.py + scan_state.py). Same rationale as 1b — one
+#     source of truth, .gitignore excludes the runtime copies.
+echo "==> copying shared modules from ../scanner_core"
+rm -f app/scan_pipeline.py app/scan_state.py
+cp ../scanner_core/scan_pipeline.py app/scan_pipeline.py
+cp ../scanner_core/scan_state.py    app/scan_state.py
+
 # 2. Authenticate to ECR.
 echo "==> authenticating to ECR"
 aws ecr get-login-password --region "$REGION" \
