@@ -29,6 +29,7 @@ const staticStack = new StaticStack(app, 'CisoCopilotStatic', { env });
 const eventsStack = new EventsStack(app, 'CisoCopilotEvents', { env, dbCluster: data.cluster });
 const scanStack   = new ScanStack(app, 'CisoCopilotScan', {
   env,
+  vpc:                   network.vpc,
   dbCluster:             data.cluster,
   shastaRunnerRepo:      ecrStack.shastaRunner,
   shastaRunnerAzureRepo: ecrStack.shastaRunnerAzure,
@@ -50,6 +51,19 @@ new ApiStack(app, 'CisoCopilotApi', {
   shastaRunnerAzure:  scanStack.shastaRunnerAzure,
   shastaRunnerEntra:  scanStack.shastaRunnerEntra,
   shastaRunnerGcp:    scanStack.shastaRunnerGcp,
+  scanCluster:                 scanStack.scanCluster,
+  // Use plain strings for the task-def family + role ARNs to avoid a
+  // cross-stack CloudFormation export on the revision ARN (which changes on
+  // every task-def update and can't be updated while the ApiStack imports it).
+  // Family name is hardcoded (matches ScanStack's `family:` field).
+  // Role ARNs are read from the ScanStack properties — IAM role ARNs are
+  // stable (don't change on task-def revision) and their exports already exist
+  // in the deployed stack.
+  scanTaskDefFamily:           'ciso-copilot-aws-scan',
+  scanTaskDefTaskRoleArn:      scanStack.scanTaskDef.taskRole.roleArn,
+  scanTaskDefExecutionRoleArn: scanStack.scanTaskDef.executionRole!.roleArn,
+  vpc:                     network.vpc,
+  scanTaskSecurityGroupId: scanStack.scanTaskSecurityGroupId,
   entraAppId:         config.entraClientId,
   entraScannerSecret: scanStack.entraScannerSecret,
   openaiApiKeySecret: scanStack.openaiApiKeySecret,

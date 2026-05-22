@@ -8,6 +8,8 @@ import * as events from 'aws-cdk-lib/aws-events';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -22,6 +24,16 @@ interface ApiStackProps extends cdk.StackProps {
   shastaRunnerAzure:  lambda.IFunction;
   shastaRunnerEntra:  lambda.IFunction;
   shastaRunnerGcp:    lambda.IFunction;
+  scanCluster:                 ecs.Cluster;
+  // Task def family name (e.g. "ciso-copilot-aws-scan"). Passed as a plain
+  // string to avoid a cross-stack CFN export on an ARN that changes every
+  // revision. ECS RunTask accepts the family name and picks the latest active
+  // revision; the IAM policy uses a wildcard (:*) over all revisions.
+  scanTaskDefFamily:           string;
+  scanTaskDefTaskRoleArn:      string;
+  scanTaskDefExecutionRoleArn: string;
+  vpc:                     ec2.IVpc;
+  scanTaskSecurityGroupId: string;
   entraAppId:         string;
   entraScannerSecret: secretsmanager.ISecret;
   openaiApiKeySecret: secretsmanager.ISecret;
@@ -116,8 +128,13 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
-        CENTRAL_EVENT_BUS_ARN: props.eventBus.eventBusArn,
-        SHASTA_RUNNER_FN:      props.shastaRunner.functionName,
+        CENTRAL_EVENT_BUS_ARN:  props.eventBus.eventBusArn,
+        SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
+        // Pass the family name; ECS RunTask resolves to the latest active
+        // revision. This avoids a cross-stack CFN export on a revision ARN.
+        SCAN_TASK_DEF_ARN:      props.scanTaskDefFamily,
+        SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
+        SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingCompleteFn);
@@ -133,8 +150,20 @@ export class ApiStack extends cdk.Stack {
       actions:   ['events:PutPermission', 'events:DescribeEventBus'],
       resources: [props.eventBus.eventBusArn],
     }));
-    // Allow async-invoke of shasta-runner to kick off the initial scan.
-    props.shastaRunner.grantInvoke(onboardingCompleteFn);
+    // Allow starting the scanner Fargate task to kick off the initial scan.
+    // Wildcard over all revisions (:*) so this policy survives task-def updates
+    // without a cross-stack CFN export dependency.
+    onboardingCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:RunTask'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task-definition/${props.scanTaskDefFamily}:*`],
+    }));
+    onboardingCompleteFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['iam:PassRole'],
+      resources: [
+        props.scanTaskDefTaskRoleArn,
+        props.scanTaskDefExecutionRoleArn,
+      ],
+    }));
 
     const connectionsListFn = new lambda.Function(this, 'ConnectionsListFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -710,6 +739,23 @@ export class ApiStack extends cdk.Stack {
     entityId.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     entityGraph.addMethod( 'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+
+    // ========================================================================
+    // V2-8 — GET /v1/scans/{scan_id} — scan progress (tier/status/phase/scope)
+    // ========================================================================
+    const scansStatusFn = new lambda.Function(this, 'ScansStatusFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'scans_status')),
+      timeout:    cdk.Duration.seconds(10),
+      memorySize: 256,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(scansStatusFn);
+
+    const scansRes   = api.root.addResource('scans');
+    const scanById   = scansRes.addResource('{scan_id}');
+    scanById.addMethod('GET', new apigw.LambdaIntegration(scansStatusFn), authedOpts);
 
     // ========================================================================
     // SP4 Phase 4a — chat_session (conversation CRUD + voice mint) + streaming

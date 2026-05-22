@@ -4,13 +4,175 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-20b (incremental hardening #1–#4 shipped + deployed).
+> Last updated: 2026-05-21 (AWS scanner uplift — Slices 0/1 + region
+> discovery + Scan Execution v2 built; V2-10 E2E verification COMPLETE —
+> Medium + Quick scans both verified).
+
+## 🚀 AWS Scanner Uplift — state (2026-05-21)
+
+Roadmap major item #1 ("Scanner comprehensiveness uplift"). All work is
+on branch **`feat/aws-scanner-uplift`** (PR #4, not yet merged to main —
+~53 commits ahead). `main` — including the `shasta.transilience.cloud`
+domain cutover (`01533cd`) — **has been merged into the branch**.
+
+**Specs (all approved) — `docs/superpowers/specs/`:**
+- `2026-05-20-aws-scanner-uplift-design.md` — the overall uplift: tiered
+  Quick/Medium/Deep scanning, 7-slice phasing.
+- `2026-05-21-region-discovery-design.md` — superseded/extended by ↓.
+- `2026-05-21-scan-performance-design.md` **(rev 3)** — "Scan Execution
+  v2", the three-stage parallel scanner. **THE current design.**
+
+**Plans — `docs/superpowers/plans/`:** `…slice-0.md`, `…slice-1.md`,
+`…region-discovery.md`, `…scan-execution-v2-backend.md`.
+
+### Slice 0 — SHIPPED
+Scanner moved Lambda → **ECS Fargate** (`ciso-copilot-scan` cluster,
+`ciso-copilot-aws-scan` task def). `scans.tier` column (migration 009).
+Coverage scorecard `docs/coverage/aws-scorecard.{md,json}` anchored to
+CIS / FSBP / PCI v4 / NIST 800-53. Onboarding triggers `ecs:RunTask`.
+
+### Slice 1 — SHIPPED
+In-repo posture **coverage engine** (`app/coverage/`): `model.py`,
+`collectors/` + `checks/` for **SQS, Secrets Manager, ECR**, `registry`,
+`engine`; tier-filtered checks; scorecard counts engine checks. Plus a
+boto3 timeout `Config` (`app/aws_config.py`).
+
+### Region discovery — built, then EXTENDED by Scan Execution v2
+Added `region_discovery.py`. Scan Execution v2 **rewrote it** to the
+four-state footprint probe; the region-discovery plan's design is
+subsumed by the v2 spec.
+
+### Credential fix — SHIPPED
+`app/assumed_role.py` — `RefreshableCredentials`: a long multi-region
+scan re-assumes the customer role automatically, never hits
+`RequestExpired`.
+
+### Scan Execution v2 — backend BUILT; E2E verification IN PROGRESS
+The scanner is now a **three-stage parallel pipeline**: (1) region
+eligibility, (2) four-state footprint probe
+(`active`/`default_only`/`empty`/`unknown`), (3) tier-aware scan units
+run through an in-task `ThreadPoolExecutor` (`scan_pipeline.py`) bounded
+by per-service concurrency caps + adaptive retry. **Two-phase Quick**
+(First Signal commits early, then Crown Jewel). Per-scan **coverage map**
+in `scans.scope`. `scans.phase` column (migration 010). `GET
+/v1/scans/{id}` scan-status API (`scans_status` lambda). Fargate task
+4 vCPU / 8 GB. `PYTHONUNBUFFERED=1` so scan logs stream live.
+
+New/rewritten modules: `scan_pipeline.py`, `scan_policy.py`,
+`region_discovery.py` (rewritten), `main.py` handler (rewritten),
+`assumed_role.py`, `scans_status/`. **101 scanner unit tests pass.**
+
+**Plan tasks V2-1..V2-9 — done + two-stage reviewed.**
+**V2-10 (build / deploy / E2E verify) — COMPLETE. Medium + Quick both VERIFIED:**
+- Image rebuilt + pushed; `CisoCopilotScan` + `CisoCopilotApi` deployed
+  (Api re-deployed post-merge for the correct callback URL).
+- **Medium discovery scan `b3091a57-87b9-4eca-83cd-5dd812ec254f` —
+  VERIFIED.** Completed cleanly: `status=completed`, `phase=done`. The
+  four-state footprint probe classified **17 regions → 9 `active` /
+  8 `default_only`** (0 errored); per-region coverage map written to
+  `scans.scope`; **7,280 findings**. The v2 three-stage parallel
+  pipeline works end-to-end.
+- **Perf note:** that scan took **~49 min** (23:26→00:15) — completes
+  cleanly (the pre-v2 serial scan ran 108 min and died on expired
+  creds) but is over the ~15-25 min Medium target. Likely `ai_pass`
+  running as a single serial unit + conservative per-service caps
+  (flagged in spec §15). Tune later — not a blocker.
+- **Quick scan `bb2d4bcb-1e7d-4748-b211-5365548994a6` — VERIFIED
+  (2026-05-21).** Same conn as the Medium scan. Moved through
+  `region_discovery → first_signal → crown_jewel → done`; **Phase-1
+  early commit proven** — 72 findings observable while `phase` was
+  still `crown_jewel`, 116 total at `done`. `status=completed`,
+  17-region coverage map (9 active / 8 default_only, 0 errors).
+  Ran **~4m20s** (00:23:54→00:28:14) — within the ~3-5 min target.
+- **Scan-status API verified** — `GET /v1/scans/{id}` (via direct
+  `ScansStatusFn` invoke with synthetic Cognito claims) returns
+  `tier`/`status`/`phase`/`coverage_map`/`finding_count`, 200 OK.
+- Minor note: `ecs describe-tasks` reported `exitCode: null` for the
+  stopped Quick task (`stopCode: EssentialContainerExited`); DB state
+  (`completed`/`done` + full coverage map + `finished_at`) is the
+  authoritative success signal and confirms a clean run.
+### Whole-branch review + PR #4 merge (2026-05-21)
+Reviewed the full branch (55 commits, 63 files) via 3 parallel reviewers
+(scanner pipeline / coverage engine / infra). All returned "merge with
+fixes" — architecture sound, but real issues. **Fixed before merge:**
+- **A** — `scans_status` selected `started_at`/`finished_at` without
+  `::text`; the Data API dropped them → API returned null timestamps.
+- **B** — onboarding inserted a scan row relying on the `phase` column
+  default `'done'` → a fresh `queued` scan reported `phase=done`. Now
+  inserts `phase='region_discovery'` explicitly.
+- **C** — `main._absorb` dropped `global/*` unit failures from the
+  coverage map → a failed IAM module left the scan `completed` not
+  `partial`. Added a `"global"` bucket to `coverage_map`; `scans.scope`
+  now carries it as a top-level `global` key (regions stays regional).
+- **D** — `coverage/engine.py` didn't wrap `check.evaluate()`; one
+  malformed resource threw and killed the whole region's findings. Now
+  per-check try/except. New test `test_engine_survives_a_throwing_check`.
+- **E (documented, not fixed)** — `run_units` `batch_timeout` does NOT
+  bound wall-clock: the `ThreadPoolExecutor` `with`-block joins
+  stragglers and `future.cancel()` no-ops a running unit. The real hang
+  bound is the boto connect/read timeouts in `SCAN_BOTO_CONFIG`.
+  Docstring rewritten to say so honestly.
+
+102 scanner tests pass. **NOT yet deployed** — the fixes need a scanner
+image rebuild + `CisoCopilotApi` redeploy to go live.
+
+**Deferred from review (track for Slice 2 / follow-up):**
+- Engine collector failures (e.g. missing `sqs:ListQueues`) are logged
+  but not surfaced as `not_assessed` in `scans.scope` — a permission
+  gap looks like a clean result (spec §10.1 accuracy lever).
+- `ecs:RunTask` returns 200 with a `failures[]` array on capacity/subnet
+  problems; `onboarding_aws_complete` doesn't inspect it → a task that
+  failed to launch logs "started".
+- Quick Phase 1 runs global units only — no per-region census, and the
+  coverage map is written to `scans.scope` only after Phase 2. Spec
+  §7.4/§10.1 and the code disagree; reconcile when building the web UX.
+- Spec §8 still claims a wall-clock timeout bound (see E) — reconcile
+  the spec or implement real cancellation.
+- Engine check-matching is O(checks×resources) per service — fine at 3
+  services, regroup before scaling to ~40.
+
+- **▶ NEXT SESSION:** write + execute the web UX plan (scan-performance
+  spec §10 — in-progress scan view, scan-type picker, Deep → Contact
+  Us). Then rebuild/redeploy the scanner image + Api stack to ship the
+  A–D fixes.
+
+**Still TODO on the v2 work (not planned/built):**
+- The **web UX** (scan-performance spec §10) — in-progress scan view,
+  scan-type labels on results, the Quick/Medium/Deep scan-type picker,
+  Deep → Contact Us. Needs its own plan.
+- Final whole-branch review + merge of PR #4.
+
+### Gotchas paid in debugging time
+- **Assumed-role creds expire at 1 h** → multi-region scans used to die
+  with `RequestExpired`. Fixed via `RefreshableCredentials`.
+- **Fargate cross-stack export deadlock** — a task-def ARN includes the
+  revision number; exporting it ScanStack→ApiStack deadlocks CFN. Pass
+  the stable *family name* (`scanTaskDefFamily`), not the ARN.
+- **Scanner block-buffered stdout** → a running scan was invisible.
+  Fixed with `PYTHONUNBUFFERED=1`.
+- **EC2 rejects non-ASCII** in a security-group `description`.
+- Scanner unit tests: `cd platform/lambda/shasta_runner &&
+  ./.venv/bin/python -m pytest app/tests/` (the `.venv` is gitignored;
+  `main.py` imports `shasta.*` so it is NOT importable in that venv —
+  it's verified structurally + via live scans).
+
+### ▶ Next major piece — Azure scanner uplift (brainstorm fresh)
+Apply the same three-stage / parallel / tier-aware architecture
+(`scan_pipeline.py` is deliberately AWS-free, meant to be lifted to a
+shared location). **Open design question to resolve in the Azure
+brainstorm:** Azure's scope unit is the **subscription** (within a
+tenant), not the region. Should the scanner scan **all active
+subscriptions**, or let the user **choose** which to scan (some
+subscriptions are dev/throwaway)? KK's lean: let the user choose. Note
+Azure also has **regions within each subscription** — the three-stage
+probe likely nests (subscriptions × regions).
 
 ## 🚀 Incremental hardening — #1–#4 shipped + deployed (2026-05-20b)
 
 Four scoped fixes, each TDD'd, committed, and deployed.
 
-**▶ NEXT SESSION starts here: incremental #6 — APNs push end-to-end test.**
+**Incremental #6 — APNs push end-to-end test — still pending** (deferred;
+the scanner uplift took priority — see the top section for what's next).
 Fire a synthetic "act now" finding and confirm the push notification
 lands on KK's iPhone (APNs via SNS Mobile Push is wired but never
 verified since the v2 cutover). After #6 the major roadmap begins —
@@ -53,7 +215,8 @@ Incremental list: #1–#4 done, #5 cancelled, **#6 = APNs push test (next)**.
 Major items, each its own brainstorm → spec → plan before build:
 1. **Scanner comprehensiveness uplift** — AWS Security Hub parity, then
    bring Azure / GCP / Entra to the same depth + accuracy. (The first
-   big change after #6.)
+   big change after #6.) **Slice 0 shipped 2026-05-21 — see the top
+   section. Slices 1-6 remain.**
 2. **Dynamic dashboards & reports** generated from chat.
 3. **Tech-stack-aware threat-intel feeds** — beyond KEV: EPSS, NVD,
    vendor advisories, filtered per tenant.

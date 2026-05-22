@@ -1,7 +1,10 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -10,6 +13,7 @@ import { Construct } from 'constructs';
 import { config } from './config';
 
 interface ScanStackProps extends cdk.StackProps {
+  vpc:                   ec2.IVpc;
   dbCluster:             rds.DatabaseCluster;
   shastaRunnerRepo:      ecr.Repository;
   shastaRunnerAzureRepo: ecr.Repository;
@@ -20,10 +24,12 @@ interface ScanStackProps extends cdk.StackProps {
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
 /// platform/lambda/shasta_runner/build.sh). Invoked by:
-///   1. onboarding_aws_complete (for the initial scan when a customer
-///      finishes connecting their AWS account)
-///   2. POST /scans/trigger (manual re-scan)
-///   3. EventBridge cron (nightly scheduled scans — Phase A.5 later)
+///   1. POST /scans/trigger (manual re-scan via connectionsListFn)
+///   2. EventBridge cron (nightly scheduled scans — Phase A.5 later)
+///
+/// NOTE: the initial onboarding scan (triggered by onboarding_aws_complete)
+/// now runs as the `ciso-copilot-aws-scan` ECS Fargate task defined later
+/// in this stack, not this Lambda. (Task B4 cutover.)
 ///
 /// Permissions:
 ///   - sts:AssumeRole on any arn:aws:iam::*:role/CISOCopilotReader (scoped
@@ -41,6 +47,9 @@ export class ScanStack extends cdk.Stack {
   public readonly openaiApiKeySecret: secretsmanager.Secret;
   public readonly aiScanQueue:        sqs.Queue;
   public readonly aiScanner:          lambda.DockerImageFunction;
+  public readonly scanCluster:        ecs.Cluster;
+  public readonly scanTaskDef:        ecs.FargateTaskDefinition;
+  public readonly scanTaskSecurityGroupId: string;
 
   constructor(scope: Construct, id: string, props: ScanStackProps) {
     super(scope, id, props);
@@ -71,6 +80,60 @@ export class ScanStack extends cdk.Stack {
       actions:   ['secretsmanager:GetSecretValue'],
       resources: [secretsArn],
     }));
+
+    // ===== AWS scanner — Fargate task =====
+    // The uplifted scan (Medium/Deep tiers) exceeds Lambda's 15-min ceiling,
+    // so the scanner also runs as a Fargate task. Same image, different
+    // entrypoint: the task overrides entryPoint+command to `python run.py`,
+    // which reads scan params from container env overrides set by RunTask.
+    const scanCluster = new ecs.Cluster(this, 'ScanCluster', {
+      clusterName: 'ciso-copilot-scan',
+      vpc:         props.vpc,
+    });
+
+    const scanTaskDef = new ecs.FargateTaskDefinition(this, 'ScanTaskDef', {
+      family:         'ciso-copilot-aws-scan',
+      cpu:            4096,   // 4 vCPU — I/O-bound but ~16 worker threads each holding boto3 clients want the headroom
+      memoryLimitMiB: 8192,
+    });
+
+    scanTaskDef.addContainer('scanner', {
+      image: ecs.ContainerImage.fromEcrRepository(props.shastaRunnerRepo, 'latest'),
+      // Override the Lambda base-image entrypoint — run the Fargate script.
+      entryPoint: ['python'],
+      command:    ['run.py'],
+      environment: dbEnv,
+      logging: ecs.LogDriver.awsLogs({
+        streamPrefix: 'aws-scan',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+    });
+
+    // Same permissions the scanner Lambda has: assume the customer reader
+    // role, Aurora Data API, read connection secrets.
+    props.dbCluster.grantDataApiAccess(scanTaskDef.taskRole);
+    scanTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions:   ['sts:AssumeRole'],
+      resources: ['arn:aws:iam::*:role/CISOCopilotReader'],
+    }));
+    scanTaskDef.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [secretsArn],
+    }));
+
+    // Security group for the scanner task — egress only (no inbound).
+    const scanTaskSg = new ec2.SecurityGroup(this, 'ScanTaskSg', {
+      vpc:         props.vpc,
+      description: 'AWS scanner Fargate task - egress only',
+    });
+    this.scanTaskSecurityGroupId = scanTaskSg.securityGroupId;
+
+    this.scanCluster = scanCluster;
+    this.scanTaskDef = scanTaskDef;
+
+    new cdk.CfnOutput(this, 'ScanClusterArn',   { value: scanCluster.clusterArn });
+    new cdk.CfnOutput(this, 'ScanTaskDefArn',   { value: scanTaskDef.taskDefinitionArn });
+    new cdk.CfnOutput(this, 'ScanTaskSgId',     { value: scanTaskSg.securityGroupId });
 
     // ===== Azure scanner =====
     // No cross-cloud assume-role needed (Azure SDK uses SP credentials directly
