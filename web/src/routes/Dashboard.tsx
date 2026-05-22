@@ -49,7 +49,7 @@ export function Dashboard() {
     api.listConnections().then((r) => {
       setConns(r.connections);
       setLatestScan(mostRecentCompletedScan(r.connections));
-    }).catch(() => setConns([]));
+    }).catch(() => { setConns([]); setLatestScan(null); });
     api.listEvents({ limit: 5 }).then((r) => setAlerts(r.events)).catch(() => setAlerts([]));
     api.listEvents({ severity: "critical,high", kind: "alert", limit: 1 })
        .then((r) => setCritical(r.total))
