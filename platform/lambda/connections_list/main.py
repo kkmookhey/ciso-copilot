@@ -426,10 +426,15 @@ def _update_scope(event: dict) -> dict:
         return _resp(422, {"error": "selected_must_be_nonempty_list"})
 
     scope = conn.get("scope") or {}
-    discovered = set(scope.get("subscriptions") or [])
+    # The picker may be choosing subscriptions (Azure) or projects (GCP
+    # org mode). Validate against whichever the connection has.
+    discovered_subs = set(scope.get("subscriptions") or [])
+    raw_projects    = scope.get("projects")
+    discovered_proj = set(raw_projects.keys()) if isinstance(raw_projects, dict) else set()
+    discovered      = discovered_subs or discovered_proj
     unknown = [s for s in selected if s not in discovered]
     if unknown:
-        return _resp(422, {"error": "unknown_subscriptions", "subscriptions": unknown})
+        return _resp(422, {"error": "unknown_selection", "items": unknown})
 
     new_scope = {**scope, "selected": list(selected)}
     rds_data.execute_statement(
