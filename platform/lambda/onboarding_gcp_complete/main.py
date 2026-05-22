@@ -123,23 +123,14 @@ def handler(event: dict, context) -> dict:
 
     print(f"gcp connection {conn['conn_id']} active — {mode}={account_identifier}")
 
-    if mode == "org":
-        # Org mode does not auto-scan — the project list is empty until the
-        # scanner enumerates on first scan. The user starts the scan manually
-        # (Connect-page rescan today; the /scan screen after Slice 2b).
-        initial_scan_id = None
-    else:
-        initial_scan_id = _run_initial_scan(
-            tenant_id = conn["tenant_id"],
-            conn_id   = conn["conn_id"],
-            scope     = scope,
-        )
-
+    # Slice 2b: no auto-scan in either mode — the Scan screen is the
+    # trigger. A freshly onboarded GCP connection appears with
+    # latest_scan: null; the user clicks Scan on /scan.
     return _resp(200, {
         "status":          "active",
         "connection_id":   conn["conn_id"],
         "mode":            mode,
-        "initial_scan_id": initial_scan_id,
+        "initial_scan_id": None,
     })
 
 
