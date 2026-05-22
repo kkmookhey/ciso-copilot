@@ -1,1 +1,10 @@
 .build/
+.venv/
+
+# Build-time copies of shared modules (see build.sh).
+# Source of truth lives in ai_scanner/ and scanner_core/; don't commit
+# the runtime copies.
+app/detectors/
+app/unified_writer.py
+app/scan_pipeline.py
+app/scan_state.py

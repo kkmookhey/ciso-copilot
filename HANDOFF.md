@@ -4,9 +4,62 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (Azure scanner uplift COMPLETE — Slice 2 web
-> subscription picker built, deployed, and live-verified on branch
-> feat/azure-subscription-picker).
+> Last updated: 2026-05-22 (GCP scanner uplift Slice 1a built, deployed,
+> and live-verified on branch feat/gcp-scanner-slice-1a).
+
+## 🚀 GCP Scanner Uplift — Slice 1a shipped (2026-05-22)
+
+Roadmap item #1, GCP leg. Spec
+`docs/superpowers/specs/2026-05-22-gcp-scanner-uplift-design.md`; plan
+`docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1a.md`.
+Built subagent-driven on branch **`feat/gcp-scanner-slice-1a`** (not yet
+merged).
+
+**Slice 1a — v2 GCP scanner backend — DONE.** The GCP scanner
+(`platform/lambda/shasta_runner_gcp/`) is now the v2 three-stage
+pipeline, mirroring the Azure scanner:
+- Six pure adapter modules (`gcp_credential`, `gcp_units`,
+  `gcp_id_to_entity`, `gcp_findings`, `project_discovery`, `run.py`) —
+  32 unit tests pass.
+- `main.py` rewritten as the orchestrator: project discovery →
+  tier-aware parallel project×Shasta-module `ScanUnit`s through
+  `scanner_core.run_units` → `unified_writer.commit_scan`. Two-phase
+  Quick. Legacy direct-`findings` writes gone.
+- New `ciso-copilot-gcp-scan` Fargate task def (CDK); `build.sh` copies
+  the shared `scanner_core`/`ai_scanner` modules.
+- **Live-verified:** Quick scan `6977db63-…` on the GCP connection
+  `219f41eb-…` (project `gen-lang-client-0693606939`) ran
+  `completed`/`phase=done`, **102 findings (97 fail / 4 pass /
+  1 partial), 46 entities, 45 edges**; all 5 Quick modules ran, zero
+  errors; project-keyed `scope` coverage map written.
+- **Bug paid in debugging time — WIF on Fargate.** First scan came back
+  `partial` with every module failing "Unable to determine the AWS
+  metadata server security credentials endpoint". google-auth's AWS
+  external-account credential source reads AWS creds from env vars / EC2
+  IMDS — neither is populated for an ECS Fargate task role (Fargate
+  serves them via the container credentials endpoint). The legacy GCP
+  scanner was a Lambda, where the env vars *are* set, so WIF worked
+  there. Fixed (`683c90b`): `main.py` resolves creds via
+  `boto3.Session().get_credentials()` (container-provider aware) and
+  `gcp_credential.export_aws_credentials_to_env` exports them before the
+  WIF credential is built.
+- **Entity-coverage note:** 44 of 46 entities are `gcp_subnetwork` (the
+  networking module's resource IDs parse cleanly); iam/storage/compute/
+  encryption finding `resource_id`s mostly don't match
+  `gcp_id_to_entity._KIND_MAP`, so those findings land with no subject
+  entity (the intended graceful contract). Widening `_KIND_MAP` once the
+  real per-module resource_id formats are sampled is a follow-up.
+- **Not yet wired to production triggers** — invoked manually via
+  `ecs run-task`. The legacy GCP Lambda still exists. Slice 1b wires the
+  Fargate triggers + retires the legacy Lambda; Slice 2a adds org-level
+  onboarding; Slice 2b is the project picker.
+
+**▶ Sequencing decision (2026-05-22):** before the Slice 2b picker, run
+a short cross-cloud brainstorm for a unified **"Scan" screen**
+(post-onboard landing where the user picks scope + tier per cloud,
+replacing the silent auto-scan-on-onboard). It supersedes the
+Connect-page per-row picker Azure shipped, so 2b should build the Scan
+screen, not a GCP-only Connect-page picker. Slices 1a/1b are unaffected.
 
 ## 🚀 Azure Scanner Uplift — Slice 0 shipped (2026-05-22)
 
