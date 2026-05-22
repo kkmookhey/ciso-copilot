@@ -5,6 +5,34 @@ import { validIdToken, signOut } from "./cognito";
 
 const BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
 
+export type ScanTier   = "quick" | "medium" | "deep";
+export type ScanPhase  = "region_discovery" | "first_signal" | "crown_jewel" | "full" | "done";
+export type ScanState  = "queued" | "running" | "partial" | "completed" | "failed";
+
+export interface LatestScan {
+  scan_id:    string;
+  tier:       ScanTier;
+  status:     ScanState;
+  phase:      ScanPhase;
+  started_at: string | null;
+}
+
+export interface ScanCoverageMap {
+  tier?:    string;
+  regions?: Record<string, { state: string; errors?: string[] }>;
+}
+
+export interface ScanStatus {
+  scan_id:       string;
+  tier:          ScanTier;
+  status:        ScanState;
+  phase:         ScanPhase;
+  coverage_map:  ScanCoverageMap | null;
+  started_at:    string | null;
+  finished_at:   string | null;
+  finding_count: number;
+}
+
 export interface MeResponse {
   user:   { email: string | null; role: string | null } | null;
   tenant: { tenant_id: string; display_name: string;
@@ -20,6 +48,7 @@ export interface Connection {
   signals:            { pull_scan?: boolean; alerts?: boolean; drift?: boolean };
   last_scan_at:       string | null;
   created_at:         string;
+  latest_scan:        LatestScan | null;
 }
 
 export interface AlertEvent {
@@ -379,10 +408,11 @@ export const api = {
       { method: "POST", body: JSON.stringify({ decision }) },
     ),
   listConnections: ()                         => call<{ connections: Connection[] }>("/connections"),
-  rescanConnection: (connId: string) =>
+  rescanConnection: (connId: string, tier: "quick" | "medium" = "medium") =>
     call<{ scan_id: string; status: string }>(`/connections/${connId}/rescan`, {
-      method: "POST", body: "{}",
+      method: "POST", body: JSON.stringify({ tier }),
     }),
+  getScanStatus: (scanId: string) => call<ScanStatus>(`/scans/${scanId}`),
   deleteConnection: (connId: string) =>
     call<{ status: string }>(`/connections/${connId}`, { method: "DELETE" }),
   initiateAwsOnboarding: (displayName: string) =>

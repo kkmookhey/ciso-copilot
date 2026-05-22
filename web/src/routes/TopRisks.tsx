@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type Finding } from "../lib/api";
+import { api, type Finding, type LatestScan } from "../lib/api";
+import { ScanTypeBadge } from "../scan/ScanTypeBadge";
+import { mostRecentCompletedScan } from "../scan/scanLabels";
 
 // ---------------------------------------------------------------------------
 // Findings page — every finding (fail / partial / pass), rolled up by check
@@ -147,8 +149,9 @@ export function TopRisks() {
   const dim       = (params.get("group") as GroupDim) || "status";
   const initialQ  = params.get("q") ?? "";
 
-  const [search,   setSearch]   = useState(initialQ);
-  const [findings, setFindings] = useState<Finding[] | null>(null);
+  const [search,     setSearch]     = useState(initialQ);
+  const [findings,   setFindings]   = useState<Finding[] | null>(null);
+  const [latestScan, setLatestScan] = useState<LatestScan | null>(null);
 
   // Debounce search → URL.
   useEffect(() => {
@@ -167,6 +170,9 @@ export function TopRisks() {
     api.listFindings({ status: "fail,partial,pass", limit: 200 })
       .then((r) => setFindings(r.findings))
       .catch(() => setFindings([]));
+    api.listConnections()
+      .then((r) => setLatestScan(mostRecentCompletedScan(r.connections)))
+      .catch(() => setLatestScan(null));
   }, []);
 
   const q = params.get("q")?.toLowerCase() ?? "";
@@ -209,7 +215,10 @@ export function TopRisks() {
 
   return (
     <div className="max-w-6xl">
-      <h1 className="text-3xl font-bold tracking-tight">Findings</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-3xl font-bold tracking-tight">Findings</h1>
+        <ScanTypeBadge tier={latestScan?.tier ?? null} at={latestScan?.started_at ?? null} />
+      </div>
       <p className="text-slate-600 mt-1">
         Every finding across your connected clouds — grouped by status, category, cloud, or framework.
       </p>

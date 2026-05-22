@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, type Risk } from "../lib/api";
+import { api, type Risk, type LatestScan } from "../lib/api";
+import { ScanTypeBadge } from "../scan/ScanTypeBadge";
+import { mostRecentCompletedScan } from "../scan/scanLabels";
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"] as const;
 const STATUS_OPTIONS  = ["open", "mitigated", "accepted", "transferred", "closed"] as const;
@@ -7,10 +9,11 @@ const STATUS_OPTIONS  = ["open", "mitigated", "accepted", "transferred", "closed
 type StatusFilter = (typeof STATUS_OPTIONS)[number] | "all";
 
 export function Risks() {
-  const [risks,  setRisks]  = useState<Risk[] | null>(null);
-  const [filter, setFilter] = useState<StatusFilter>("open");
-  const [showNew, setShowNew] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [risks,      setRisks]      = useState<Risk[] | null>(null);
+  const [filter,     setFilter]     = useState<StatusFilter>("open");
+  const [showNew,    setShowNew]    = useState(false);
+  const [err,        setErr]        = useState<string | null>(null);
+  const [latestScan, setLatestScan] = useState<LatestScan | null>(null);
 
   async function reload() {
     setRisks(null);
@@ -26,6 +29,12 @@ export function Risks() {
 
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [filter]);
 
+  useEffect(() => {
+    api.listConnections()
+      .then((r) => setLatestScan(mostRecentCompletedScan(r.connections)))
+      .catch(() => setLatestScan(null));
+  }, []);
+
   async function updateStatus(riskId: string, status: string) {
     try {
       await api.updateRisk(riskId, { status });
@@ -38,7 +47,10 @@ export function Risks() {
   return (
     <div className="max-w-6xl">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Risk register</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold tracking-tight">Risk register</h1>
+          <ScanTypeBadge tier={latestScan?.tier ?? null} at={latestScan?.started_at ?? null} />
+        </div>
         <button
           onClick={() => setShowNew(true)}
           className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition"

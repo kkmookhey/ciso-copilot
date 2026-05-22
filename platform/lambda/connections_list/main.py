@@ -15,7 +15,9 @@ Response for GET:
         "account_identifier": "<account_id or sub_id>",
         "signals":     {"pull_scan": bool, "alerts": bool, "drift": bool},
         "last_scan_at": "iso8601" | null,
-        "created_at":   "iso8601"
+        "created_at":   "iso8601",
+        "latest_scan":  {"scan_id": "uuid", "tier": str, "status": str,
+                         "phase": str, "started_at": "iso8601" | null} | null
       }, ...
     ]
   }
@@ -31,14 +33,18 @@ import boto3
 DB_CLUSTER_ARN   = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN    = os.environ["DB_SECRET_ARN"]
 DB_NAME          = os.environ["DB_NAME"]
-SHASTA_RUNNER_FN = os.environ.get("SHASTA_RUNNER_FN", "")
 AZURE_RUNNER_FN  = os.environ.get("AZURE_RUNNER_FN", "")
 ENTRA_RUNNER_FN  = os.environ.get("ENTRA_RUNNER_FN", "")
 GCP_RUNNER_FN    = os.environ.get("GCP_RUNNER_FN", "")
+SCAN_CLUSTER_ARN       = os.environ.get("SCAN_CLUSTER_ARN", "")
+SCAN_TASK_DEF_ARN      = os.environ.get("SCAN_TASK_DEF_ARN", "")
+SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
+SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
 
 rds_data      = boto3.client("rds-data")
 sm            = boto3.client("secretsmanager")
 lambda_client = boto3.client("lambda")
+ecs           = boto3.client("ecs")
 
 
 def handler(event: dict, context) -> dict:
@@ -69,17 +75,33 @@ def _list_connections(event: dict) -> dict:
         secretArn=DB_SECRET_ARN,
         database=DB_NAME,
         sql=(
-            "SELECT conn_id::text, cloud_type, display_name, status, "
-            "       account_identifier, signals::text, last_scan_at::text, created_at::text "
-            "FROM cloud_connections "
-            "WHERE tenant_id = CAST(:tid AS UUID) "
-            "ORDER BY created_at DESC"
+            "SELECT c.conn_id::text, c.cloud_type, c.display_name, c.status, "
+            "       c.account_identifier, c.signals::text, "
+            "       c.last_scan_at::text, c.created_at::text, "
+            "       s.scan_id::text, s.tier, s.status, s.phase, s.started_at::text "
+            "FROM cloud_connections c "
+            "LEFT JOIN LATERAL ("
+            "  SELECT scan_id, tier, status, phase, started_at "
+            "  FROM scans WHERE scans.conn_id = c.conn_id "
+            "  ORDER BY started_at DESC LIMIT 1"
+            ") s ON true "
+            "WHERE c.tenant_id = CAST(:tid AS UUID) "
+            "ORDER BY c.created_at DESC"
         ),
         parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
     )
 
     connections = []
     for r in rs.get("records", []):
+        latest_scan = None
+        if not r[8].get("isNull"):
+            latest_scan = {
+                "scan_id":    r[8].get("stringValue"),
+                "tier":       r[9].get("stringValue"),
+                "status":     r[10].get("stringValue"),
+                "phase":      r[11].get("stringValue"),
+                "started_at": r[12].get("stringValue") if not r[12].get("isNull") else None,
+            }
         connections.append({
             "conn_id":            r[0].get("stringValue"),
             "cloud_type":         r[1].get("stringValue"),
@@ -89,6 +111,7 @@ def _list_connections(event: dict) -> dict:
             "signals":            json.loads(r[5].get("stringValue") or "{}"),
             "last_scan_at":       r[6].get("stringValue") if not r[6].get("isNull") else None,
             "created_at":         r[7].get("stringValue"),
+            "latest_scan":        latest_scan,
         })
 
     return _resp(200, {"connections": connections})
@@ -113,10 +136,18 @@ def _rescan(event: dict) -> dict:
     if conn["status"] != "active":
         return _resp(409, {"error": "connection_not_active", "current_status": conn["status"]})
 
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        body = {}
+    tier = (body.get("tier") or "medium").lower()
+    if tier not in ("quick", "medium"):
+        return _resp(422, {"error": "unsupported_tier", "tier": tier})
+
     cloud = conn["cloud_type"]
     try:
         if cloud == "aws":
-            scan_id = _rescan_aws(conn, tenant_id)
+            scan_id = _rescan_aws(conn, tenant_id, tier)
         elif cloud == "azure":
             scan_id = _rescan_azure(conn, tenant_id)
         elif cloud == "entra":
@@ -141,36 +172,61 @@ def _rescan(event: dict) -> dict:
     return _resp(200, {"scan_id": scan_id, "status": "queued"})
 
 
-def _rescan_aws(conn: dict, tenant_id: str) -> str:
-    if not SHASTA_RUNNER_FN:
-        raise _IncompleteConnection("SHASTA_RUNNER_FN not configured")
-    secret_arn = conn.get("credentials_secret_arn")
-    account_id = conn.get("account_identifier")
+def _rescan_aws(conn: dict, tenant_id: str, tier: str) -> str:
+    """Start a v2 Fargate scan at `tier`. Region discovery runs inside the
+    scanner — REGIONS is intentionally omitted."""
+    if not (SCAN_CLUSTER_ARN and SCAN_TASK_DEF_ARN and SCAN_SUBNET_IDS):
+        raise _IncompleteConnection("scan task not configured")
+    secret_arn  = conn.get("credentials_secret_arn")
+    account_id  = conn.get("account_identifier")
     external_id = conn.get("external_id")
     if not secret_arn or not account_id:
         raise _IncompleteConnection("missing credentials_secret_arn or account_identifier")
 
-    secret = _get_secret_json(secret_arn)
+    secret   = _get_secret_json(secret_arn)
     role_arn = secret.get("role_arn")
     if not role_arn:
         raise _IncompleteConnection("missing role_arn in secret")
-    # Prefer the external_id stored on the row; fall back to the secret copy.
     ext_id = external_id or secret.get("external_id")
 
-    scope = conn.get("scope") or {}
-    regions = scope.get("regions") or ["us-east-1"]
-
     scan_id = str(uuid.uuid4())
-    _insert_scan(scan_id, tenant_id, conn["conn_id"], scope or {"regions": regions})
-    _invoke_async(SHASTA_RUNNER_FN, {
-        "scan_id":     scan_id,
-        "tenant_id":   tenant_id,
-        "conn_id":     conn["conn_id"],
-        "role_arn":    role_arn,
-        "external_id": ext_id,
-        "account_id":  account_id,
-        "regions":     regions,
-    })
+    _insert_scan(scan_id, tenant_id, conn["conn_id"], {}, tier=tier)
+    try:
+        ecs.run_task(
+            cluster=SCAN_CLUSTER_ARN,
+            taskDefinition=SCAN_TASK_DEF_ARN,
+            launchType="FARGATE",
+            networkConfiguration={
+                "awsvpcConfiguration": {
+                    "subnets":        [s for s in SCAN_SUBNET_IDS.split(",") if s],
+                    "securityGroups": [SCAN_SECURITY_GROUP_ID] if SCAN_SECURITY_GROUP_ID else [],
+                    "assignPublicIp": "DISABLED",
+                },
+            },
+            overrides={
+                "containerOverrides": [{
+                    "name": "scanner",
+                    "environment": [
+                        {"name": "SCAN_ID",     "value": scan_id},
+                        {"name": "TENANT_ID",   "value": tenant_id},
+                        {"name": "CONN_ID",     "value": conn["conn_id"]},
+                        {"name": "ROLE_ARN",    "value": role_arn},
+                        {"name": "EXTERNAL_ID", "value": ext_id or ""},
+                        {"name": "ACCOUNT_ID",  "value": account_id},
+                        {"name": "SCAN_TIER",   "value": tier},
+                    ],
+                }],
+            },
+        )
+        print(f"rescan {scan_id} ({tier}) started for {conn['conn_id']}")
+    except Exception as e:
+        print(f"WARN: rescan RunTask failed for {conn['conn_id']}: {e}")
+        # Mark the row failed so the UI does not show it stuck at 'queued'.
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql="UPDATE scans SET status='failed' WHERE scan_id = CAST(:sid AS UUID)",
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
     return scan_id
 
 
@@ -361,18 +417,22 @@ def _get_secret_json(secret_arn: str) -> dict:
         return {}
 
 
-def _insert_scan(scan_id: str, tenant_id: str, conn_id: str, scope: dict) -> None:
+def _insert_scan(scan_id: str, tenant_id: str, conn_id: str, scope: dict,
+                 *, tier: str = "quick") -> None:
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
-            "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, scope) "
+            "INSERT INTO scans "
+            "(scan_id, tenant_id, conn_id, trigger, status, tier, phase, scope) "
             "VALUES (CAST(:sid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
-            "        'manual', 'queued', CAST(:scope AS JSONB))"
+            "        'manual', 'queued', :tier, 'region_discovery', "
+            "        CAST(:scope AS JSONB))"
         ),
         parameters=[
             {"name": "sid",   "value": {"stringValue": scan_id}},
             {"name": "tid",   "value": {"stringValue": tenant_id}},
             {"name": "cid",   "value": {"stringValue": conn_id}},
+            {"name": "tier",  "value": {"stringValue": tier}},
             {"name": "scope", "value": {"stringValue": json.dumps(scope)}},
         ],
     )

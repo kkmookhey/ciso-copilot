@@ -4,7 +4,9 @@ import {
   PieChart, Pie, Cell, Tooltip as RTooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
-import { api, type Connection, type AlertEvent, type ComplianceSummary, type FindingsSummary } from "../lib/api";
+import { api, type Connection, type AlertEvent, type ComplianceSummary, type FindingsSummary, type LatestScan } from "../lib/api";
+import { ScanTypeBadge } from "../scan/ScanTypeBadge";
+import { mostRecentCompletedScan } from "../scan/scanLabels";
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: "#dc2626",
@@ -41,9 +43,13 @@ export function Dashboard() {
   const [compliance, setCompliance] = useState<ComplianceSummary | null>(null);
   const [summary,    setSummary]    = useState<FindingsSummary | null>(null);
   const [openAlert,  setOpenAlert]  = useState<AlertEvent | null>(null);
+  const [latestScan, setLatestScan] = useState<LatestScan | null>(null);
 
   useEffect(() => {
-    api.listConnections().then((r) => setConns(r.connections)).catch(() => setConns([]));
+    api.listConnections().then((r) => {
+      setConns(r.connections);
+      setLatestScan(mostRecentCompletedScan(r.connections));
+    }).catch(() => { setConns([]); setLatestScan(null); });
     api.listEvents({ limit: 5 }).then((r) => setAlerts(r.events)).catch(() => setAlerts([]));
     api.listEvents({ severity: "critical,high", kind: "alert", limit: 1 })
        .then((r) => setCritical(r.total))
@@ -70,7 +76,10 @@ export function Dashboard() {
     <div className="max-w-6xl">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Welcome</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight">Welcome</h1>
+            <ScanTypeBadge tier={latestScan?.tier ?? null} at={latestScan?.started_at ?? null} />
+          </div>
           <p className="text-slate-600 mt-1">
             Live posture, real-time signals, and compliance snapshot across your connected clouds.
           </p>

@@ -47,7 +47,6 @@ new ApiStack(app, 'CisoCopilotApi', {
   dbCluster:          data.cluster,
   eventBus:           eventsStack.eventBus,
   cdnDistribution:    staticStack.cdnDistribution,
-  shastaRunner:       scanStack.shastaRunner,
   shastaRunnerAzure:  scanStack.shastaRunnerAzure,
   shastaRunnerEntra:  scanStack.shastaRunnerEntra,
   shastaRunnerGcp:    scanStack.shastaRunnerGcp,
