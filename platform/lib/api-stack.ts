@@ -20,7 +20,6 @@ interface ApiStackProps extends cdk.StackProps {
   dbCluster:          rds.DatabaseCluster;
   eventBus:           events.EventBus;
   cdnDistribution:    cloudfront.Distribution;
-  shastaRunnerAzure:  lambda.IFunction;
   shastaRunnerEntra:  lambda.IFunction;
   shastaRunnerGcp:    lambda.IFunction;
   scanCluster:                 ecs.Cluster;
@@ -172,10 +171,6 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(15),
       environment: {
         ...dbEnv,
-        // AZURE_RUNNER_FN is unused by the Lambda code (Azure rescans now
-        // ecs:RunTask) but kept wired so retiring the legacy Azure Lambda
-        // stays a separate, clean cross-stack change.
-        AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
         AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
         ENTRA_RUNNER_FN:        props.shastaRunnerEntra.functionName,
         GCP_RUNNER_FN:          props.shastaRunnerGcp.functionName,
@@ -186,9 +181,8 @@ export class ApiStack extends cdk.Stack {
       },
     });
     props.dbCluster.grantDataApiAccess(connectionsListFn);
-    // Rescan dispatches into all four scanner Lambdas + reads/deletes the
-    // per-connection secret.
-    props.shastaRunnerAzure.grantInvoke(connectionsListFn);
+    // Rescan dispatches into the Entra + GCP scanner Lambdas (AWS + Azure
+    // rescans use ecs:RunTask) + reads/deletes the per-connection secret.
     props.shastaRunnerEntra.grantInvoke(connectionsListFn);
     props.shastaRunnerGcp.grantInvoke(connectionsListFn);
     connectionsListFn.addToRolePolicy(new iam.PolicyStatement({
@@ -567,8 +561,6 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         ...dbEnv,
-        // AZURE_RUNNER_FN unused by the code — kept wired (see ConnectionsListFn).
-        AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
         AZURE_SCAN_TASK_DEF:    props.azureScanTaskDefFamily,
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
@@ -592,7 +584,6 @@ export class ApiStack extends cdk.Stack {
       actions:   ['iam:PassRole'],
       resources: [`arn:aws:iam::${this.account}:role/CisoCopilotScan-AzureScanTaskDef*`],
     }));
-    props.shastaRunnerAzure.grantInvoke(onboardingAzureCompleteFn);
 
     const onboardingAzure = onboarding.addResource('azure');
     onboardingAzure.addResource('initiate').addMethod(
