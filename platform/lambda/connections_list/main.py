@@ -33,7 +33,6 @@ import boto3
 DB_CLUSTER_ARN   = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN    = os.environ["DB_SECRET_ARN"]
 DB_NAME          = os.environ["DB_NAME"]
-SHASTA_RUNNER_FN = os.environ.get("SHASTA_RUNNER_FN", "")
 AZURE_RUNNER_FN  = os.environ.get("AZURE_RUNNER_FN", "")
 ENTRA_RUNNER_FN  = os.environ.get("ENTRA_RUNNER_FN", "")
 GCP_RUNNER_FN    = os.environ.get("GCP_RUNNER_FN", "")
@@ -222,6 +221,12 @@ def _rescan_aws(conn: dict, tenant_id: str, tier: str) -> str:
         print(f"rescan {scan_id} ({tier}) started for {conn['conn_id']}")
     except Exception as e:
         print(f"WARN: rescan RunTask failed for {conn['conn_id']}: {e}")
+        # Mark the row failed so the UI does not show it stuck at 'queued'.
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql="UPDATE scans SET status='failed' WHERE scan_id = CAST(:sid AS UUID)",
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
     return scan_id
 
 

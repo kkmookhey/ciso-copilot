@@ -172,7 +172,6 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(15),
       environment: {
         ...dbEnv,
-        SHASTA_RUNNER_FN:       props.shastaRunner.functionName,
         AZURE_RUNNER_FN:        props.shastaRunnerAzure.functionName,
         ENTRA_RUNNER_FN:        props.shastaRunnerEntra.functionName,
         GCP_RUNNER_FN:          props.shastaRunnerGcp.functionName,
@@ -185,7 +184,6 @@ export class ApiStack extends cdk.Stack {
     props.dbCluster.grantDataApiAccess(connectionsListFn);
     // Rescan dispatches into all four scanner Lambdas + reads/deletes the
     // per-connection secret.
-    props.shastaRunner.grantInvoke(connectionsListFn);
     props.shastaRunnerAzure.grantInvoke(connectionsListFn);
     props.shastaRunnerEntra.grantInvoke(connectionsListFn);
     props.shastaRunnerGcp.grantInvoke(connectionsListFn);
