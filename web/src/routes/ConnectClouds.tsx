@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, type AIConnection, type Connection } from "../lib/api";
+import { useScanStatus } from "../scan/useScanStatus";
+import { ScanProgress } from "../scan/ScanProgress";
+import { scanTierBlurb, scanTierDuration } from "../scan/scanLabels";
 
 /// Phase A + B onboarding wizard. AWS = one-click CFN; Azure = Cloud-Shell
 /// curl pipe. Entra and GCP land in Phases C and D respectively.
@@ -18,19 +21,6 @@ export function ConnectClouds() {
     api.listAIConnections().then((r) => setAiConnections(r.connections)).catch(() => { /* non-fatal */ });
     api.listConnections().then((r) => setCloudConnections(r.connections)).catch(() => { /* non-fatal */ });
   }, []);
-
-  async function rescanCloud(connId: string) {
-    setCloudActionMsg((m) => ({ ...m, [connId]: "Queuing scan…" }));
-    try {
-      await api.rescanConnection(connId);
-      setCloudActionMsg((m) => ({ ...m, [connId]: "Scan queued ✓" }));
-      window.setTimeout(() => setCloudActionMsg((m) => {
-        const next = { ...m }; delete next[connId]; return next;
-      }), 4000);
-    } catch (e) {
-      setCloudActionMsg((m) => ({ ...m, [connId]: `Failed: ${(e as Error).message}` }));
-    }
-  }
 
   async function deleteCloud(connId: string, status: Connection["status"]) {
     if (status === "active") {
@@ -126,39 +116,12 @@ export function ConnectClouds() {
           <h2 className="font-semibold">Connected clouds</h2>
           <ul className="mt-3 divide-y divide-slate-100">
             {cloudConnections.filter((c) => c.status !== "revoked").map((c) => (
-              <li key={c.conn_id} className="flex items-center justify-between py-3 text-sm gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium flex items-center gap-2">
-                    <span className="uppercase text-xs text-slate-500 font-mono">{c.cloud_type}</span>
-                    <span className="truncate">{c.display_name}</span>
-                  </div>
-                  <div className="text-xs text-slate-500 truncate">
-                    {c.account_identifier ?? "—"}
-                  </div>
-                  {cloudActionMsg[c.conn_id] && (
-                    <div className="text-xs text-blue-600 mt-1">{cloudActionMsg[c.conn_id]}</div>
-                  )}
-                </div>
-                <CloudStatusPill status={c.status} />
-                <div className="flex items-center gap-2 shrink-0">
-                  {c.status === "active" && (
-                    <button
-                      type="button"
-                      onClick={() => rescanCloud(c.conn_id)}
-                      className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs"
-                    >
-                      Rescan
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => deleteCloud(c.conn_id, c.status)}
-                    className="px-3 py-1.5 rounded-md bg-red-50 hover:bg-red-100 text-red-700 text-xs"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
+              <ConnectionRow
+                key={c.conn_id}
+                conn={c}
+                actionMsg={cloudActionMsg[c.conn_id]}
+                onDelete={deleteCloud}
+              />
             ))}
           </ul>
         </div>
@@ -312,5 +275,113 @@ function CloudStatusPill({ status }: { status: Connection["status"] }) {
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cls}`}>
       {status}
     </span>
+  );
+}
+
+function ConnectionRow({
+  conn, actionMsg, onDelete,
+}: {
+  conn: Connection;
+  actionMsg?: string;
+  onDelete: (connId: string, status: Connection["status"]) => void;
+}) {
+  const navigate = useNavigate();
+  const seedId =
+    conn.latest_scan &&
+    !["completed", "partial", "failed"].includes(conn.latest_scan.status)
+      ? conn.latest_scan.scan_id
+      : null;
+  const [scanId, setScanId] = useState<string | null>(seedId);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const { scan } = useScanStatus(scanId);
+
+  async function startScan(tier: "quick" | "medium") {
+    setScanMsg("Queuing scan…");
+    try {
+      const r = await api.rescanConnection(conn.conn_id, tier);
+      setScanId(r.scan_id);
+      setScanMsg(null);
+    } catch (e) {
+      setScanMsg(`Failed: ${(e as Error).message}`);
+    }
+  }
+
+  const isAws = conn.cloud_type === "aws";
+
+  return (
+    <li className="py-3 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium flex items-center gap-2">
+            <span className="uppercase text-xs text-slate-500 font-mono">{conn.cloud_type}</span>
+            <span className="truncate">{conn.display_name}</span>
+          </div>
+          <div className="text-xs text-slate-500 truncate">{conn.account_identifier ?? "—"}</div>
+          {actionMsg && <div className="text-xs text-blue-600 mt-1">{actionMsg}</div>}
+          {scanMsg  && <div className="text-xs text-blue-600 mt-1">{scanMsg}</div>}
+        </div>
+        <CloudStatusPill status={conn.status} />
+        <div className="flex items-center gap-2 shrink-0">
+          {conn.status === "active" && isAws && (
+            <ScanPicker
+              onPick={(tier) =>
+                tier === "deep" ? navigate("/contact/deep-scan") : startScan(tier)}
+            />
+          )}
+          {conn.status === "active" && !isAws && (
+            <button
+              type="button"
+              onClick={() => startScan("medium")}
+              className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs"
+            >
+              Rescan
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onDelete(conn.conn_id, conn.status)}
+            className="px-3 py-1.5 rounded-md bg-red-50 hover:bg-red-100 text-red-700 text-xs"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+      {scan && <ScanProgress scan={scan} />}
+    </li>
+  );
+}
+
+function ScanPicker({ onPick }: { onPick: (tier: "quick" | "medium" | "deep") => void }) {
+  const [open, setOpen] = useState(false);
+  const tiers: Array<"quick" | "medium" | "deep"> = ["quick", "medium", "deep"];
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs"
+      >
+        Scan ▾
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-56 rounded-lg border border-slate-200 bg-white shadow-lg">
+          {tiers.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => { setOpen(false); onPick(t); }}
+              className="block w-full text-left px-3 py-2 hover:bg-slate-50"
+            >
+              <div className="text-sm font-medium capitalize">
+                {t}{t === "deep" ? " — contact us" : ""}
+              </div>
+              <div className="text-xs text-slate-500">
+                {scanTierBlurb(t)} <span className="text-slate-400">({scanTierDuration(t)})</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
