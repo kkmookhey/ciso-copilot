@@ -4,9 +4,80 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (GCP scanner uplift Slice 1b shipped — production
-> Fargate triggers wired, legacy GCP Lambda retired, live-verified on branch
-> feat/gcp-scanner-slice-1b).
+> Last updated: 2026-05-22 (GCP scanner uplift Slice 2a — org-level
+> onboarding code shipped on branch feat/gcp-scanner-slice-2a;
+> live-verification pending org-admin access on a real GCP organisation).
+
+## 🚀 GCP Scanner Uplift — Slice 2a shipped (code only — 2026-05-22)
+
+Roadmap item #1, GCP leg. Plan
+`docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-2a.md`.
+Built subagent-driven on branch **`feat/gcp-scanner-slice-2a`** (not yet
+merged).
+
+**Slice 2a — org-level GCP onboarding — CODE DONE.**
+- `cfn/gcp/onboard.sh` learned a `--org <ORG_ID>` flag. Without it the
+  script runs the unchanged single-project flow; with it, reader roles
+  bind at the **Organization** node (`securityReviewer`,
+  `cloudasset.viewer`, `logging.viewer`, `browser`) and the POST body
+  carries `mode=org`, `org_id`, `host_project_id`, `host_project_number`.
+- `onboarding_gcp_complete` webhook branches on `mode`. Org mode stores
+  the org scope (`mode=org`, `org_id`, `host_*`, `sa_email`, WIF refs,
+  `projects={}`, `selected=[]`) and **does NOT auto-scan**. Project mode
+  unchanged (still auto-scans).
+- Scanner-side enumeration: `project_discovery.enumerate_projects` added
+  (was deferred from Slice 1a, 4 new unit tests). `shasta_runner_gcp/
+  main.py` calls it in Stage 1 for org-mode scans, writes the
+  `{project_id: display_name}` map back to `cloud_connections.scope.
+  projects` via a new `_record_projects` helper, and uses the
+  enumerated list as `project_ids` if the trigger passed an empty
+  subset.
+- `run.py` accepts `MODE` (defaults `project`) and allows empty
+  `PROJECT_IDS`; new optional `HOST_PROJECT_ID` for the org bootstrap.
+  10 unit tests for `build_event` (43 scanner tests pass).
+- `connections_list._rescan_gcp` routes on `scope.mode` — org branch
+  reads `host_project_number`/`selected`; project branch unchanged.
+  New Fargate env vars passed: `MODE`, `HOST_PROJECT_ID`.
+- **Scope cut from spec**: the webhook does NOT pre-enumerate via
+  Resource Manager (Approach C of the spec); enumeration happens
+  lazily on the first scan. Trade-off: the project picker (Slice 2b)
+  will be empty until the first scan completes (~3-5 min). Documented
+  in the plan as an explicit, revisitable simplification — avoided
+  bundling google-auth + an IAM-trust expansion into the webhook for
+  tonight.
+- **Deployed**: scanner image rebuilt + pushed
+  (`sha256:8648e2e7…`); `CisoCopilotApi` + `CisoCopilotStatic` deployed
+  (Static pushes the new `onboard.sh` to the CDN). Deployed webhook
+  smoke-confirmed: a `mode=org` body missing the org fields returns
+  400 `missing_fields`, proving the new branch is live.
+
+**Slice 2a live-verification — pending (human-gated).** Requires
+org-admin on a real GCP Organization. Procedure when ready:
+
+1. In Cloud Shell of the customer's host project (org-admin signed in):
+   ```bash
+   curl -fsSL https://cdn.settlingforless.com/gcp/onboard.sh \
+     | bash -s -- <EXTERNAL_ID> --org <ORG_ID>
+   ```
+   `<EXTERNAL_ID>` comes from the web app's "Add GCP" flow (which
+   writes a pending row — for now, the web UI doesn't yet expose an
+   "org" toggle; a tester can generate an external_id manually or wait
+   for Slice 2b's web changes). `<ORG_ID>` is the numeric organisation
+   id (`gcloud organizations list`).
+2. Verify the connection lands `active`, `scope.mode='org'`,
+   `projects={}`, `selected=[]`:
+   ```sql
+   SELECT scope FROM cloud_connections WHERE external_id='<EXTERNAL_ID>';
+   ```
+3. From the Connect page, click rescan on the new GCP row (or invoke
+   `ConnectionsListFn` with the synthetic event pattern from the
+   Slice 1b verification, swapping the conn_id).
+4. Watch the scan: `region_discovery → first_signal → crown_jewel →
+   done`. First scan performs the enumeration — confirm
+   `scope.projects` is now populated and the scanner used the
+   discovered list as `project_ids`.
+5. Confirm findings landed: `SELECT count(*) FROM findings WHERE
+   scan_id=...`.
 
 ## 🚀 GCP Scanner Uplift — Slice 1b shipped (2026-05-22)
 

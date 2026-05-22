@@ -315,15 +315,38 @@ def _rescan_entra(conn: dict, tenant_id: str) -> str:
 
 
 def _rescan_gcp(conn: dict, tenant_id: str, tier: str) -> str:
-    """Start one v2 GCP Fargate scan at `tier`. Mirrors _rescan_azure."""
+    """Start one v2 GCP Fargate scan at `tier`. Routes on scope.mode —
+    `project` (single-project onboarding, default) or `org` (multi-
+    project onboarding from Slice 2a)."""
     if not (GCP_SCAN_TASK_DEF and SCAN_CLUSTER_ARN and SCAN_SUBNET_IDS):
         raise _IncompleteConnection("gcp scan task not configured")
 
     scope = conn.get("scope") or {}
-    required = ("project_id", "project_number", "sa_email", "wif_pool", "wif_provider")
-    missing = [k for k in required if not scope.get(k)]
-    if missing:
-        raise _IncompleteConnection(f"missing scope fields: {','.join(missing)}")
+    mode  = (scope.get("mode") or "project").lower()
+
+    if mode == "org":
+        required = ("host_project_number", "sa_email", "wif_pool",
+                    "wif_provider")
+        missing = [k for k in required if not scope.get(k)]
+        if missing:
+            raise _IncompleteConnection(f"missing scope fields: {','.join(missing)}")
+        wif_project_number = scope["host_project_number"]
+        host_project_id    = scope.get("host_project_id", "")
+        # On first scan after onboarding, selected may be empty — the
+        # scanner enumerates. On subsequent scans, honour the user's
+        # picked subset.
+        project_ids        = scope.get("selected") or []
+    elif mode == "project":
+        required = ("project_id", "project_number", "sa_email",
+                    "wif_pool", "wif_provider")
+        missing = [k for k in required if not scope.get(k)]
+        if missing:
+            raise _IncompleteConnection(f"missing scope fields: {','.join(missing)}")
+        wif_project_number = scope["project_number"]
+        host_project_id    = scope["project_id"]
+        project_ids        = [scope["project_id"]]
+    else:
+        raise _IncompleteConnection(f"unknown scope.mode: {mode}")
 
     scan_id = str(uuid.uuid4())
     _insert_scan(scan_id, tenant_id, conn["conn_id"], {}, tier=tier)
@@ -346,8 +369,10 @@ def _rescan_gcp(conn: dict, tenant_id: str, tier: str) -> str:
                         {"name": "SCAN_ID",            "value": scan_id},
                         {"name": "TENANT_ID",          "value": tenant_id},
                         {"name": "CONN_ID",            "value": conn["conn_id"]},
-                        {"name": "PROJECT_IDS",        "value": scope["project_id"]},
-                        {"name": "WIF_PROJECT_NUMBER", "value": scope["project_number"]},
+                        {"name": "MODE",               "value": mode},
+                        {"name": "PROJECT_IDS",        "value": ",".join(project_ids)},
+                        {"name": "HOST_PROJECT_ID",    "value": host_project_id},
+                        {"name": "WIF_PROJECT_NUMBER", "value": wif_project_number},
                         {"name": "SA_EMAIL",           "value": scope["sa_email"]},
                         {"name": "WIF_POOL",           "value": scope["wif_pool"]},
                         {"name": "WIF_PROVIDER",       "value": scope["wif_provider"]},
@@ -356,7 +381,7 @@ def _rescan_gcp(conn: dict, tenant_id: str, tier: str) -> str:
                 }],
             },
         )
-        print(f"gcp rescan {scan_id} ({tier}) started for {conn['conn_id']}")
+        print(f"gcp rescan {scan_id} ({tier}, mode={mode}) started for {conn['conn_id']}")
     except Exception as e:
         print(f"WARN: gcp rescan RunTask failed for {conn['conn_id']}: {e}")
         rds_data.execute_statement(

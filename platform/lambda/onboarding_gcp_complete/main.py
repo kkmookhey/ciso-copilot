@@ -3,7 +3,7 @@
 NOT JWT-authed — called by the gcloud onboarding script. Authenticates via
 the external_id matching the pending cloud_connection row.
 
-Body:
+Body (project mode — historical default):
   {
     "external_id":     "<one-time>",
     "project_id":      "<gcp project>",
@@ -12,6 +12,22 @@ Body:
     "wif_pool":        "ciso-copilot-pool",
     "wif_provider":    "ciso-copilot-aws-provider"
   }
+
+Body (org mode — when onboard.sh was run with --org <ORG_ID>):
+  {
+    "external_id":         "<one-time>",
+    "mode":                "org",
+    "org_id":              "<gcp org id>",
+    "host_project_id":     "<host gcp project>",
+    "host_project_number": "<host gcp project number>",
+    "sa_email":            "ciso-copilot-reader@<host>.iam.gserviceaccount.com",
+    "wif_pool":            "ciso-copilot-pool",
+    "wif_provider":        "ciso-copilot-aws-provider"
+  }
+
+Org mode does NOT auto-scan — projects are discovered lazily on the first
+scan (the scanner's Stage 1 enumerates and writes back to scope.projects).
+Project mode keeps the historical auto-scan-on-onboard behaviour.
 """
 from __future__ import annotations
 
@@ -39,32 +55,53 @@ def handler(event: dict, context) -> dict:
     except json.JSONDecodeError:
         return _resp(400, {"error": "invalid_json"})
 
-    external_id    = body.get("external_id")
-    project_id     = body.get("project_id")
-    project_number = body.get("project_number")
-    sa_email       = body.get("sa_email")
-    wif_pool       = body.get("wif_pool")
-    wif_provider   = body.get("wif_provider")
-
-    if not all([external_id, project_id, project_number, sa_email, wif_pool, wif_provider]):
+    external_id  = body.get("external_id")
+    mode         = (body.get("mode") or "project").lower()
+    sa_email     = body.get("sa_email")
+    wif_pool     = body.get("wif_pool")
+    wif_provider = body.get("wif_provider")
+    if not all([external_id, sa_email, wif_pool, wif_provider]):
         return _resp(400, {"error": "missing_fields"})
+
+    if mode == "org":
+        org_id              = body.get("org_id")
+        host_project_id     = body.get("host_project_id")
+        host_project_number = body.get("host_project_number")
+        if not all([org_id, host_project_id, host_project_number]):
+            return _resp(400, {"error": "missing_fields"})
+        scope = {
+            "mode":                "org",
+            "org_id":              org_id,
+            "host_project_id":     host_project_id,
+            "host_project_number": host_project_number,
+            "sa_email":            sa_email,
+            "wif_pool":            wif_pool,
+            "wif_provider":        wif_provider,
+            "projects":            {},
+            "selected":            [],
+        }
+        account_identifier = org_id
+    elif mode == "project":
+        project_id     = body.get("project_id")
+        project_number = body.get("project_number")
+        if not all([project_id, project_number]):
+            return _resp(400, {"error": "missing_fields"})
+        scope = {
+            "project_id":     project_id,
+            "project_number": project_number,
+            "sa_email":       sa_email,
+            "wif_pool":       wif_pool,
+            "wif_provider":   wif_provider,
+        }
+        account_identifier = project_id
+    else:
+        return _resp(400, {"error": "invalid_mode", "mode": mode})
 
     conn = _get_connection_by_external_id(external_id)
     if not conn:
         return _resp(404, {"error": "external_id_unknown"})
     if conn["status"] != "pending":
         return _resp(409, {"error": "already_completed", "current_status": conn["status"]})
-
-    # GCP WIF: no shared secret to store. Configuration (project, pool, provider,
-    # SA email) is stored in `scope` JSON. The Lambda re-constructs the WIF
-    # external_account credentials at invoke time from these values.
-    scope = {
-        "project_id":     project_id,
-        "project_number": project_number,
-        "sa_email":       sa_email,
-        "wif_pool":       wif_pool,
-        "wif_provider":   wif_provider,
-    }
 
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
@@ -79,22 +116,29 @@ def handler(event: dict, context) -> dict:
         ),
         parameters=[
             {"name": "cid",   "value": {"stringValue": conn["conn_id"]}},
-            {"name": "pid",   "value": {"stringValue": project_id}},
+            {"name": "pid",   "value": {"stringValue": account_identifier}},
             {"name": "scope", "value": {"stringValue": json.dumps(scope)}},
         ],
     )
 
-    print(f"gcp connection {conn['conn_id']} active — project {project_id}")
+    print(f"gcp connection {conn['conn_id']} active — {mode}={account_identifier}")
 
-    initial_scan_id = _run_initial_scan(
-        tenant_id = conn["tenant_id"],
-        conn_id   = conn["conn_id"],
-        scope     = scope,
-    )
+    if mode == "org":
+        # Org mode does not auto-scan — the project list is empty until the
+        # scanner enumerates on first scan. The user starts the scan manually
+        # (Connect-page rescan today; the /scan screen after Slice 2b).
+        initial_scan_id = None
+    else:
+        initial_scan_id = _run_initial_scan(
+            tenant_id = conn["tenant_id"],
+            conn_id   = conn["conn_id"],
+            scope     = scope,
+        )
 
     return _resp(200, {
         "status":          "active",
         "connection_id":   conn["conn_id"],
+        "mode":            mode,
         "initial_scan_id": initial_scan_id,
     })
 

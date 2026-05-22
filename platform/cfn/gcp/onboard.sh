@@ -25,11 +25,40 @@ set -euo pipefail
 
 # ---------- args & config ----------
 
-EXTERNAL_ID="${1:-}"
+# Args:
+#   $1                    EXTERNAL_ID (required)
+#   --org <ORG_ID>        switch to org-mode (binds reader roles at the Organization
+#                         node, posts mode=org). Without --org, the script runs in
+#                         single-project mode (the historical behaviour).
+EXTERNAL_ID=""
+ORG_ID=""
+while (( $# > 0 )); do
+  case "$1" in
+    --org)
+      ORG_ID="${2:-}"; shift 2 ;;
+    --org=*)
+      ORG_ID="${1#--org=}"; shift ;;
+    -h|--help)
+      echo "Usage: onboard.sh <EXTERNAL_ID> [--org <ORG_ID>]"; exit 0 ;;
+    *)
+      if [[ -z "$EXTERNAL_ID" ]]; then EXTERNAL_ID="$1"; else
+        echo "ERROR: unexpected arg: $1" >&2; exit 1
+      fi
+      shift ;;
+  esac
+done
+
 if [[ -z "$EXTERNAL_ID" ]]; then
   echo "ERROR: external ID required. Run as:" >&2
   echo "  curl -fsSL https://cdn.settlingforless.com/gcp/onboard.sh | bash -s -- <EXTERNAL_ID>" >&2
+  echo "Add --org <ORG_ID> to scan every project under a GCP organisation:" >&2
+  echo "  curl -fsSL https://.../onboard.sh | bash -s -- <EXTERNAL_ID> --org 123456789012" >&2
   exit 1
+fi
+
+MODE="project"
+if [[ -n "$ORG_ID" ]]; then
+  MODE="org"
 fi
 
 COMPLETE_URL="${CISO_COMPLETE_URL:-https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/onboarding/gcp/complete}"
@@ -50,7 +79,13 @@ PROJECT_ID="$(gcloud config get-value project 2>/dev/null)"
 }
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 
-echo "Project:        $PROJECT_ID ($PROJECT_NUMBER)"
+echo "Mode:            $MODE"
+if [[ "$MODE" == "org" ]]; then
+  echo "Organization:    $ORG_ID"
+  echo "Host project:    $PROJECT_ID ($PROJECT_NUMBER)"
+else
+  echo "Project:         $PROJECT_ID ($PROJECT_NUMBER)"
+fi
 echo "Pool / Provider: $POOL_ID / $PROVIDER_ID"
 echo "Service account: $SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 echo
@@ -107,13 +142,24 @@ else
   echo "==> service account already exists, reusing"
 fi
 
-echo "==> granting read-only roles"
-for ROLE in roles/iam.securityReviewer roles/cloudasset.viewer roles/logging.viewer; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-    --member="serviceAccount:$SA_EMAIL" --role="$ROLE" \
-    --condition=None --quiet >/dev/null 2>&1 || \
-    echo "  warn: failed to bind $ROLE (proceeding)"
-done
+if [[ "$MODE" == "org" ]]; then
+  echo "==> granting read-only roles at the organisation ($ORG_ID)"
+  for ROLE in roles/iam.securityReviewer roles/cloudasset.viewer \
+              roles/logging.viewer roles/browser; do
+    gcloud organizations add-iam-policy-binding "$ORG_ID" \
+      --member="serviceAccount:$SA_EMAIL" --role="$ROLE" \
+      --condition=None --quiet >/dev/null 2>&1 || \
+      echo "  warn: failed to bind $ROLE at org (proceeding)"
+  done
+else
+  echo "==> granting read-only roles at the project"
+  for ROLE in roles/iam.securityReviewer roles/cloudasset.viewer roles/logging.viewer; do
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:$SA_EMAIL" --role="$ROLE" \
+      --condition=None --quiet >/dev/null 2>&1 || \
+      echo "  warn: failed to bind $ROLE (proceeding)"
+  done
+fi
 
 # ---------- allow our AWS role to impersonate the SA via WIF ----------
 
@@ -127,14 +173,27 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
 
 # ---------- post back ----------
 
-POST_BODY="$(jq -nc \
-  --arg eid     "$EXTERNAL_ID" \
-  --arg pid     "$PROJECT_ID" \
-  --arg pnum    "$PROJECT_NUMBER" \
-  --arg sa      "$SA_EMAIL" \
-  --arg pool    "$POOL_ID" \
-  --arg provider "$PROVIDER_ID" \
-  '{external_id:$eid, project_id:$pid, project_number:$pnum, sa_email:$sa, wif_pool:$pool, wif_provider:$provider}')"
+if [[ "$MODE" == "org" ]]; then
+  POST_BODY="$(jq -nc \
+    --arg eid      "$EXTERNAL_ID" \
+    --arg mode     "$MODE" \
+    --arg org      "$ORG_ID" \
+    --arg pid      "$PROJECT_ID" \
+    --arg pnum     "$PROJECT_NUMBER" \
+    --arg sa       "$SA_EMAIL" \
+    --arg pool     "$POOL_ID" \
+    --arg provider "$PROVIDER_ID" \
+    '{external_id:$eid, mode:$mode, org_id:$org, host_project_id:$pid, host_project_number:$pnum, sa_email:$sa, wif_pool:$pool, wif_provider:$provider}')"
+else
+  POST_BODY="$(jq -nc \
+    --arg eid      "$EXTERNAL_ID" \
+    --arg pid      "$PROJECT_ID" \
+    --arg pnum     "$PROJECT_NUMBER" \
+    --arg sa       "$SA_EMAIL" \
+    --arg pool     "$POOL_ID" \
+    --arg provider "$PROVIDER_ID" \
+    '{external_id:$eid, project_id:$pid, project_number:$pnum, sa_email:$sa, wif_pool:$pool, wif_provider:$provider}')"
+fi
 
 echo "==> notifying CISO Copilot platform"
 HTTP="$(curl -s -o /tmp/ciso-gcp-resp.json -w '%{http_code}' \
@@ -144,8 +203,13 @@ HTTP="$(curl -s -o /tmp/ciso-gcp-resp.json -w '%{http_code}' \
 
 if [[ "$HTTP" =~ ^2 ]]; then
   echo
-  echo "✓ GCP project $PROJECT_ID connected to CISO Copilot."
-  echo "  Open the app — your first scan starts now."
+  if [[ "$MODE" == "org" ]]; then
+    echo "✓ GCP organisation $ORG_ID connected to CISO Copilot."
+    echo "  Open the app and run your first scan — projects discover on scan."
+  else
+    echo "✓ GCP project $PROJECT_ID connected to CISO Copilot."
+    echo "  Open the app — your first scan starts now."
+  fi
 else
   echo
   echo "ERROR: complete-webhook returned HTTP $HTTP" >&2

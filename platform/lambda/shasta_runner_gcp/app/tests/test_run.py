@@ -47,3 +47,29 @@ def test_build_event_missing_required_var_raises():
     del env["SCAN_ID"]
     with pytest.raises(KeyError):
         build_event(env)
+
+
+def test_build_event_defaults_mode_to_project():
+    assert build_event(_env())["mode"] == "project"
+
+
+def test_build_event_respects_mode_env():
+    env = _env(MODE="org")
+    assert build_event(env)["mode"] == "org"
+
+
+def test_build_event_allows_empty_project_ids_in_org_mode():
+    env = _env(MODE="org", PROJECT_IDS="", HOST_PROJECT_ID="host-proj")
+    event = build_event(env)
+    assert event["project_ids"] == []
+    assert event["host_project_id"] == "host-proj"
+
+
+def test_build_event_passes_host_project_id_through():
+    env = _env(MODE="org", HOST_PROJECT_ID="my-host")
+    assert build_event(env)["host_project_id"] == "my-host"
+
+
+def test_build_event_omits_host_project_id_when_unset():
+    event = build_event(_env())
+    assert "host_project_id" not in event or event["host_project_id"] is None

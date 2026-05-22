@@ -51,3 +51,25 @@ def discover_projects(
         for project_id, state in ex.map(_probe_one, project_ids):
             states[project_id] = state
     return states
+
+
+def enumerate_projects(client) -> dict[str, str]:
+    """Return {project_id: display_name} for every project accessible to
+    `client.list_projects()`. Used by the scanner in org mode to refresh
+    the connection's `scope.projects` before scanning.
+
+    `client.list_projects()` returns a list of dicts with at least
+    `project_id` and (optional) `display_name`. Rows without a
+    project_id are skipped; a missing/empty display_name falls back to
+    the project_id itself.
+
+    Pure — `client` is duck-typed so the function stays unit-testable
+    without the Google SDK."""
+    out: dict[str, str] = {}
+    for row in client.list_projects():
+        pid = (row.get("project_id") or "").strip()
+        if not pid:
+            continue
+        name = (row.get("display_name") or "").strip() or pid
+        out[pid] = name
+    return out
