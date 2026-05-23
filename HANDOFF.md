@@ -72,26 +72,37 @@ below (PR #6).
   predicate's escape hatch; proper `ai_user_signin` entities can
   land in a follow-on refactor.
 
-**Live-verification (Task 7) — pending (KK-gated):**
+**Live-verification (Task 7) — partial (2026-05-23):**
 
-1. Confirm `AuditLog.Read.All` on AAD app
-   `093442df-dc5a-463e-84a4-9cff0a750bce` (Entra portal → App
-   registrations → API permissions).
-2. Trigger a rescan on an Entra-connected tenant (click "Scan" on
-   the Entra row at `/scan`).
-3. Wait for the scan to complete.
-4. Query findings:
-   ```bash
-   aws rds-data execute-statement \
-     --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-     --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
-     --database ciso_copilot \
-     --sql "SELECT check_id, status, severity, count(*) FROM findings WHERE check_id LIKE 'ai_signin_%' GROUP BY 1,2,3 ORDER BY 1,2"
-   ```
-5. Refresh `https://shasta.transilience.cloud/ai` and confirm:
-   - Entra source tile no longer reads zero.
-   - Top AI Users table populates.
-   - Score row's Fail count increases.
+Scan `b253e078-8db1-47ab-857c-36b6bc47c4ef` ran against KK's
+Entra-connected test tenant. Outcome:
+- **16 Shasta entra findings written** (existing posture checks
+  unchanged — the try/except wrapper protected this path).
+- **0 AI sign-in findings.** Graph returned 403
+  `Authentication_RequestFromNonPremiumTenantOrB2CTenant`:
+  > "Tenant is not a B2C tenant and doesn't have premium license"
+
+  **`auditLogs/signIns` is gated on Entra ID P1 or P2 (Premium)** —
+  Microsoft licensing requirement, not something we can work around
+  in code. The free-tier tenant gets no sign-in data at all (the
+  spec's earlier "7-day window" language was wrong and has been
+  patched).
+- **Infrastructure validated.** The full code path executed exactly
+  as designed: catalog loaded, Graph paginator hit, 403 caught by
+  the wrapper, scan continued and committed. To see real `ai_signin_*`
+  findings, the test tenant needs an Entra ID P1/P2 license OR run
+  against a customer tenant with Premium licensing.
+
+**Follow-on UX work (not blocking S2):**
+- Surface "Entra Free tier — sign-in detection requires P1/P2" banner
+  on `/connect` so customers understand why Entra source tile reads
+  zero AI findings even after a successful scan.
+
+**Bug fix during smoke (`c45977f`):** the post-consent "Run your
+first scan →" link was pointing at `${cdnDistribution}` (the GCP
+onboarding asset CDN) instead of the canonical app domain. Returned
+S3 XML AccessDenied when clicked. Patched to hardcode
+`https://shasta.transilience.cloud`. `CisoCopilotApi` deployed.
 
 **Deferred from S2 (per plan + spec):**
 - Per-tenant sanctioned-app overrides + `ai_signin_unsanctioned_app`

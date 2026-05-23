@@ -393,9 +393,17 @@ the 2026-05-23 brainstorm.
   page fails, the unit reports `partial` and the rest of the scan
   proceeds; we don't fail the whole Entra scan over a rate limit
   in the sign-in pass.
-- **Customer on Entra Free tier** (no sign-in log retention beyond 7
-  days) → pass still works on the 7-day window; small banner can land
-  in a later UX polish slice.
+- **Customer on Entra Free tier** → `auditLogs/signIns` returns 403
+  `Authentication_RequestFromNonPremiumTenantOrB2CTenant`. **Microsoft
+  gates this endpoint on Entra ID P1 or P2 (Premium) license** — not
+  the 7-day-retention behaviour of the Entra portal UI. The try/except
+  wrapper in `main.py` swallows the error so Shasta's existing entra
+  checks still complete. **Confirmed live on 2026-05-23 against KK's
+  free-tier test tenant**: scan `b253e078…` wrote 16 Shasta findings
+  and 0 AI sign-in findings, exactly as designed. UX follow-on: surface
+  a "Entra Free tier — sign-in detection requires P1/P2" banner on
+  `/connect` so customers know why the Entra tile shows zero AI
+  findings.
 - **App ID changes upstream** → catalog falls back to `appDisplayName`;
   unmatched events drop silently (logged for telemetry).
 
