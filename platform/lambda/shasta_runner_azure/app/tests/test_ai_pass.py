@@ -102,7 +102,7 @@ def test_ai_findings_to_emissions_drops_not_assessed():
         status = "not_assessed"
         details = {}
         soc2_controls = []
-        cis_aws_controls = []
+        cis_azure_controls = []
         iso27001_controls = []
         hipaa_controls = []
         mcsb_controls = []
@@ -128,7 +128,7 @@ def test_ai_findings_to_emissions_carries_ai_frameworks_from_details():
             "eu_ai_act":         ["Article 15"],
         }
         soc2_controls = []
-        cis_aws_controls = []
+        cis_azure_controls = []
         iso27001_controls = []
         hipaa_controls = []
         mcsb_controls = []

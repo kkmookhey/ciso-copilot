@@ -22,11 +22,11 @@ _DETECTOR_VERSION = "0.1.0"
 
 # Standard (non-AI) framework attributes on a Shasta Finding.
 _STD_FRAMEWORK_ATTRS = {
-    "soc2_controls":     "soc2",
-    "cis_aws_controls":  "cis_aws",
-    "iso27001_controls": "iso27001",
-    "hipaa_controls":    "hipaa",
-    "mcsb_controls":     "mcsb",
+    "soc2_controls":      "soc2",
+    "cis_azure_controls": "cis_azure",
+    "iso27001_controls":  "iso27001",
+    "hipaa_controls":     "hipaa",
+    "mcsb_controls":      "mcsb",
 }
 
 # AI-framework control lists, written into Finding.details by Shasta's
