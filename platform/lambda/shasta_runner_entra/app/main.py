@@ -23,6 +23,7 @@ import uuid
 
 import boto3
 
+from ai_signin_pass import run_ai_signin_pass
 from framework_map import merge_framework_map
 
 DB_CLUSTER_ARN              = os.environ["DB_CLUSTER_ARN"]
@@ -66,6 +67,27 @@ def handler(event: dict, context) -> dict:
             findings = []
 
         written = _insert_findings(findings, scan_id, tenant_id, conn_id, entra_tenant_id)
+
+        # AI sign-in pass: pages Entra sign-in audit logs, matches against the
+        # curated AI-SaaS catalog, emits finding-param dicts directly (no
+        # Shasta Finding intermediate). Constructs its own Graph client from
+        # the AZURE_* env vars set above. Wrapped so a Graph failure here
+        # never fails the Shasta entra scan.
+        try:
+            ai_signin_params = run_ai_signin_pass(
+                graph_client=None,
+                tenant_id=tenant_id,
+                conn_id=conn_id,
+                scan_id=scan_id,
+                entra_tenant_id=entra_tenant_id,
+            )
+        except Exception as e:
+            print(f"ai_signin_pass FAILED: {e}\n{traceback.format_exc()}")
+            ai_signin_params = []
+
+        if ai_signin_params:
+            written += _insert_finding_param_lists(ai_signin_params)
+
         _update_scan(scan_id, status="completed", stats={
             "findings":        written,
             "entra_tenant_id": entra_tenant_id,
@@ -112,6 +134,25 @@ def _insert_findings(findings, scan_id, tenant_id, conn_id, entra_tenant_id):
         rds_data.batch_execute_statement(
             resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
             sql=_FINDING_INSERT_SQL, parameterSets=param_sets,
+        )
+        written += len(batch)
+    return written
+
+
+def _insert_finding_param_lists(param_lists: list[list[dict]]) -> int:
+    """Insert findings whose params are already built (AI sign-in pass).
+
+    Mirrors _insert_findings' batching pattern but skips the
+    Finding-object-to-params conversion since the caller did it.
+    """
+    if not param_lists:
+        return 0
+    written = 0
+    for i in range(0, len(param_lists), _BATCH_SIZE):
+        batch = param_lists[i : i + _BATCH_SIZE]
+        rds_data.batch_execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=_FINDING_INSERT_SQL, parameterSets=batch,
         )
         written += len(batch)
     return written
