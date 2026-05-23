@@ -120,14 +120,18 @@ def _query_score(tenant_id: str) -> dict:
 
 def _query_by_source(tenant_id: str) -> dict:
     """Source = cloud_connections.cloud_type for cloud findings; 'code'
-    for findings with no cloud connection (the AI-code scanner)."""
+    for findings with no cloud connection (the AI-code scanner).
+
+    Counts all AI-touching findings regardless of status. The /ai view's
+    by-source row is an inventory indicator, not a work queue — a tenant
+    with clean AI posture should still see "where is AI in my estate?"
+    """
     sql = f"""
         SELECT COALESCE(c.cloud_type, 'code') AS source, COUNT(*)
         FROM findings f
         LEFT JOIN entities e ON e.id = f.subject_entity_id
         LEFT JOIN cloud_connections c ON c.conn_id = f.conn_id
         WHERE f.tenant_id = CAST(:tid AS UUID)
-          AND f.status IN ('fail', 'partial')
           AND { _IS_AI_TOUCHING }
         GROUP BY 1
     """
