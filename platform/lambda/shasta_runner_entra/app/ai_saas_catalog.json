@@ -1,0 +1,272 @@
+{
+  "OpenAI": {
+    "match": {
+      "app_display_names": ["OpenAI", "ChatGPT", "OpenAI ChatGPT", "ChatGPT Enterprise"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": {
+      "enterprise": "corp",
+      "teams":      "corp",
+      "team":       "corp",
+      "edu":        "corp"
+    }
+  },
+  "Anthropic": {
+    "match": {
+      "app_display_names": ["Anthropic", "Claude", "Anthropic Claude", "Claude.ai"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": {
+      "team":       "corp",
+      "enterprise": "corp"
+    }
+  },
+  "GitHub Copilot": {
+    "match": {
+      "app_display_names": ["GitHub Copilot", "Copilot for Business"],
+      "app_ids": []
+    },
+    "default_severity": "low",
+    "tier_inference": null
+  },
+  "Microsoft Copilot": {
+    "match": {
+      "app_display_names": ["Microsoft Copilot", "Microsoft 365 Copilot", "Copilot Studio"],
+      "app_ids": []
+    },
+    "default_severity": "low",
+    "tier_inference": null
+  },
+  "Cursor": {
+    "match": {
+      "app_display_names": ["Cursor", "Cursor IDE", "Cursor AI"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "business":   "corp",
+      "enterprise": "corp"
+    }
+  },
+  "Google Gemini": {
+    "match": {
+      "app_display_names": ["Google Gemini", "Gemini", "Bard", "Gemini Advanced", "Gemini for Workspace"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "workspace":  "corp",
+      "enterprise": "corp"
+    }
+  },
+  "Perplexity": {
+    "match": {
+      "app_display_names": ["Perplexity", "Perplexity AI", "Perplexity Pro"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": {
+      "enterprise": "corp"
+    }
+  },
+  "Mistral": {
+    "match": {
+      "app_display_names": ["Mistral", "Mistral AI", "Le Chat"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": {
+      "enterprise": "corp"
+    }
+  },
+  "Cohere": {
+    "match": {
+      "app_display_names": ["Cohere"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "HuggingFace": {
+    "match": {
+      "app_display_names": ["Hugging Face", "HuggingFace"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "enterprise": "corp"
+    }
+  },
+  "Replicate": {
+    "match": {
+      "app_display_names": ["Replicate"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "Stability AI": {
+    "match": {
+      "app_display_names": ["Stability AI", "DreamStudio"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "Midjourney": {
+    "match": {
+      "app_display_names": ["Midjourney"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": null
+  },
+  "Runway": {
+    "match": {
+      "app_display_names": ["Runway", "Runway ML"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "ElevenLabs": {
+    "match": {
+      "app_display_names": ["ElevenLabs"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "enterprise": "corp"
+    }
+  },
+  "Notion AI": {
+    "match": {
+      "app_display_names": ["Notion AI", "Notion"],
+      "app_ids": []
+    },
+    "default_severity": "low",
+    "tier_inference": null
+  },
+  "Jasper": {
+    "match": {
+      "app_display_names": ["Jasper", "Jasper AI"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "Writer": {
+    "match": {
+      "app_display_names": ["Writer", "Writer.com"],
+      "app_ids": []
+    },
+    "default_severity": "low",
+    "tier_inference": null
+  },
+  "Otter.ai": {
+    "match": {
+      "app_display_names": ["Otter.ai", "Otter"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "business":   "corp",
+      "enterprise": "corp"
+    }
+  },
+  "Fireflies": {
+    "match": {
+      "app_display_names": ["Fireflies", "Fireflies.ai"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "DeepL": {
+    "match": {
+      "app_display_names": ["DeepL", "DeepL Pro"],
+      "app_ids": []
+    },
+    "default_severity": "low",
+    "tier_inference": null
+  },
+  "Synthesia": {
+    "match": {
+      "app_display_names": ["Synthesia"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "Tabnine": {
+    "match": {
+      "app_display_names": ["Tabnine"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "enterprise": "corp"
+    }
+  },
+  "Codeium": {
+    "match": {
+      "app_display_names": ["Codeium", "Windsurf"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": {
+      "teams":      "corp",
+      "enterprise": "corp"
+    }
+  },
+  "Sourcegraph Cody": {
+    "match": {
+      "app_display_names": ["Sourcegraph", "Cody"],
+      "app_ids": []
+    },
+    "default_severity": "low",
+    "tier_inference": null
+  },
+  "DeepSeek": {
+    "match": {
+      "app_display_names": ["DeepSeek"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": null
+  },
+  "Grok / xAI": {
+    "match": {
+      "app_display_names": ["xAI", "Grok"],
+      "app_ids": []
+    },
+    "default_severity": "high",
+    "tier_inference": null
+  },
+  "Together.ai": {
+    "match": {
+      "app_display_names": ["Together", "Together AI", "Together.ai"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "Groq": {
+    "match": {
+      "app_display_names": ["Groq"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  },
+  "AI21": {
+    "match": {
+      "app_display_names": ["AI21", "AI21 Labs", "Jurassic"],
+      "app_ids": []
+    },
+    "default_severity": "medium",
+    "tier_inference": null
+  }
+}
