@@ -13,8 +13,8 @@
 Cross-cloud `/scan` surface. Spec
 `docs/superpowers/specs/2026-05-22-scan-screen-design.md`; plan
 `docs/superpowers/plans/2026-05-22-scan-screen-slice-2b.md`. Built
-subagent-driven on branch **`feat/scan-screen-slice-2b`** (not yet
-merged).
+subagent-driven on branch **`feat/scan-screen-slice-2b`** (merged to
+main 2026-05-22, commit `a57f528`).
 
 - **New `/scan` route** (`web/src/routes/Scan.tsx`) — stacked cards,
   one per active connection. The `ScanCard` shell handles the header
@@ -74,8 +74,8 @@ merged).
 
 Roadmap item #1, GCP leg. Plan
 `docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-2a.md`.
-Built subagent-driven on branch **`feat/gcp-scanner-slice-2a`** (not yet
-merged).
+Built subagent-driven on branch **`feat/gcp-scanner-slice-2a`** (merged
+to main 2026-05-22, commit `5c7125d`).
 
 **Slice 2a — org-level GCP onboarding — CODE DONE.**
 - `cfn/gcp/onboard.sh` learned a `--org <ORG_ID>` flag. Without it the
@@ -145,8 +145,8 @@ org-admin on a real GCP Organization. Procedure when ready:
 
 Roadmap item #1, GCP leg. Plan
 `docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1b.md`.
-Built subagent-driven on branch **`feat/gcp-scanner-slice-1b`** (not yet
-merged).
+Built subagent-driven on branch **`feat/gcp-scanner-slice-1b`** (merged
+to main 2026-05-22, commit `e36e2e1`).
 
 **Slice 1b — production Fargate triggers + legacy Lambda retired — DONE.**
 - `onboarding_gcp_complete` and `connections_list._rescan_gcp` now start
@@ -188,8 +188,8 @@ after the Scan-screen brainstorm.
 Roadmap item #1, GCP leg. Spec
 `docs/superpowers/specs/2026-05-22-gcp-scanner-uplift-design.md`; plan
 `docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1a.md`.
-Built subagent-driven on branch **`feat/gcp-scanner-slice-1a`** (not yet
-merged).
+Built subagent-driven on branch **`feat/gcp-scanner-slice-1a`** (merged
+to main 2026-05-22, commit `d87a839`).
 
 **Slice 1a — v2 GCP scanner backend — DONE.** The GCP scanner
 (`platform/lambda/shasta_runner_gcp/`) is now the v2 three-stage
@@ -242,8 +242,8 @@ screen, not a GCP-only Connect-page picker. Slices 1a/1b are unaffected.
 Roadmap item #1, Azure leg. Spec
 `docs/superpowers/specs/2026-05-21-azure-scanner-uplift-design.md`; plan
 `docs/superpowers/plans/2026-05-21-azure-scanner-uplift-slice-0.md`.
-Built subagent-driven on branch **`feat/azure-scanner-uplift`** (not yet
-merged).
+Built subagent-driven on branch **`feat/azure-scanner-uplift`** (landed
+on main 2026-05-21, commit `1f52337`).
 
 **Slice 0 — shared scanner core — DONE.** New package
 `platform/lambda/scanner_core/` holds the cloud-agnostic pieces:
@@ -270,8 +270,9 @@ deliberately did NOT move (AWS-region-shaped / multi-consumer — see spec
 
 **Slice 1a — v2 Azure scanner backend — DONE (2026-05-22).** Plan
 `docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1a.md`;
-built subagent-driven on branch **`feat/azure-scanner-slice-1a`** (not
-yet merged). The Azure scanner (`platform/lambda/shasta_runner_azure/`)
+built subagent-driven on branch **`feat/azure-scanner-slice-1a`** (landed
+on main 2026-05-22, commit `aad5548`). The Azure scanner
+(`platform/lambda/shasta_runner_azure/`)
 is now the v2 three-stage pipeline:
 - Five pure adapter modules (`azure_id_to_entity`, `azure_findings`,
   `subscription_discovery`, `azure_units`, `azure_credential`) + `run.py`
@@ -801,9 +802,9 @@ The chat can now propose actions and the user approves them:
   register" → editable approval card → Approve → risk created. Same for a
   policy draft. Double-click Approve = no duplicate.
 - **SP4 status:** all 4 phases (4a shell+text · 4b tools+artifacts · 4c
-  voice · 4d approvals) built + deployed on `feat/sp4-chat-first`. Branch
-  not yet PR'd to main. Deferred polish (see items above): compliance
-  donut visual, TOOL_RULES general-knowledge tuning. iOS = SP4.5.
+  voice · 4d approvals) built + deployed on `feat/sp4-chat-first` and
+  merged via PR #3 (commit `06cb4f6`). Deferred polish (see items above):
+  compliance donut visual, TOOL_RULES general-knowledge tuning. iOS = SP4.5.
 
 **SP4 Phase 4c deployed (2026-05-20) — voice.** The chat surface now has
 voice via OpenAI Realtime over WebRTC:
