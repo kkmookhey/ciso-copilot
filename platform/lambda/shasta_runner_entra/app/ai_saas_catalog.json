@@ -52,7 +52,7 @@
   },
   "Google Gemini": {
     "match": {
-      "app_display_names": ["Google Gemini", "Gemini", "Bard", "Gemini Advanced", "Gemini for Workspace"],
+      "app_display_names": ["Google Gemini", "Gemini Advanced", "Gemini for Workspace"],
       "app_ids": []
     },
     "default_severity": "medium",
@@ -125,7 +125,7 @@
   },
   "Runway": {
     "match": {
-      "app_display_names": ["Runway", "Runway ML"],
+      "app_display_names": ["Runway ML", "RunwayML"],
       "app_ids": []
     },
     "default_severity": "medium",
@@ -143,7 +143,7 @@
   },
   "Notion AI": {
     "match": {
-      "app_display_names": ["Notion AI", "Notion"],
+      "app_display_names": ["Notion AI"],
       "app_ids": []
     },
     "default_severity": "low",
@@ -159,7 +159,7 @@
   },
   "Writer": {
     "match": {
-      "app_display_names": ["Writer", "Writer.com"],
+      "app_display_names": ["Writer.com", "Writer AI"],
       "app_ids": []
     },
     "default_severity": "low",
@@ -167,7 +167,7 @@
   },
   "Otter.ai": {
     "match": {
-      "app_display_names": ["Otter.ai", "Otter"],
+      "app_display_names": ["Otter.ai"],
       "app_ids": []
     },
     "default_severity": "medium",
@@ -223,7 +223,7 @@
   },
   "Sourcegraph Cody": {
     "match": {
-      "app_display_names": ["Sourcegraph", "Cody"],
+      "app_display_names": ["Sourcegraph", "Sourcegraph Cody"],
       "app_ids": []
     },
     "default_severity": "low",
@@ -239,7 +239,7 @@
   },
   "Grok / xAI": {
     "match": {
-      "app_display_names": ["xAI", "Grok"],
+      "app_display_names": ["xAI Grok", "Grok by xAI", "x.ai Grok"],
       "app_ids": []
     },
     "default_severity": "high",
@@ -247,7 +247,7 @@
   },
   "Together.ai": {
     "match": {
-      "app_display_names": ["Together", "Together AI", "Together.ai"],
+      "app_display_names": ["Together AI", "Together.ai"],
       "app_ids": []
     },
     "default_severity": "medium",
