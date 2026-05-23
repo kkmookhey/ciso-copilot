@@ -13,7 +13,7 @@ from __future__ import annotations
 
 _QUICK_PHASE_1 = ["iam", "governance"]
 _QUICK_PHASE_2 = ["storage", "networking", "compute", "encryption"]
-_MEDIUM_EXTRA  = ["databases", "appservice", "monitoring"]
+_MEDIUM_EXTRA  = ["databases", "appservice", "monitoring", "ai"]
 _DEEP_EXTRA    = ["backup", "diagnostic_settings", "private_endpoints"]
 
 ALL_MODULES = _QUICK_PHASE_1 + _QUICK_PHASE_2 + _MEDIUM_EXTRA + _DEEP_EXTRA

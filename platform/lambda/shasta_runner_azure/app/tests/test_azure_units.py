@@ -11,19 +11,19 @@ def test_quick_is_two_phase():
     assert p2 == ["storage", "networking", "compute", "encryption"]
 
 
-def test_medium_is_single_phase_nine_modules():
+def test_medium_is_single_phase_ten_modules():
     p1, p2 = modules_for_tier("medium")
     assert p2 == []
-    assert len(p1) == 9
+    assert len(p1) == 10
     assert set(p1) == {"iam", "governance", "storage", "networking",
                        "compute", "encryption", "databases",
-                       "appservice", "monitoring"}
+                       "appservice", "monitoring", "ai"}
 
 
-def test_deep_is_single_phase_all_twelve():
+def test_deep_is_single_phase_all_thirteen():
     p1, p2 = modules_for_tier("deep")
     assert p2 == []
-    assert len(p1) == 12
+    assert len(p1) == 13
     assert set(p1) == set(ALL_MODULES)
 
 
@@ -34,3 +34,14 @@ def test_tier_is_case_insensitive():
 def test_unknown_tier_raises():
     with pytest.raises(ValueError):
         modules_for_tier("turbo")
+
+
+def test_ai_module_appears_in_medium_plus_only():
+    quick_p1, quick_p2 = modules_for_tier("quick")
+    assert "ai" not in (quick_p1 + quick_p2)
+
+    medium_p1, medium_p2 = modules_for_tier("medium")
+    assert "ai" in (medium_p1 + medium_p2)
+
+    deep_p1, deep_p2 = modules_for_tier("deep")
+    assert "ai" in (deep_p1 + deep_p2)
