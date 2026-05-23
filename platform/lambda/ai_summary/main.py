@@ -1,8 +1,8 @@
 """GET /ai/summary — AI-touching findings aggregated for the /ai view.
 
 A finding is AI-touching iff:
-  - Any key in findings.frameworks starts with one of the AI-framework
-    prefixes (nist_ai_rmf, iso_42001, soc2_ai, eu_ai_act), OR
+  - Any key in findings.frameworks equals one of the AI-framework
+    keys (nist_ai_rmf, iso_42001, soc2_ai, eu_ai_act), OR
   - The associated entity carries an AI domain/kind (joined via
     findings.subject_entity_id -> entities.id), OR
   - The finding's evidence_packet JSONB has is_ai=true.
@@ -51,6 +51,11 @@ _AI_RESOURCE_KINDS = (
     "ai_saas_app", "ai_code_finding",
     "ai_user_signin", "ai_api_key", "ai_org_member", "ai_project",
     "ai_provider_org",
+    # Code-scanner entity kinds (platform/lambda/ai_scanner/detectors/).
+    # These are caught today by the e.domain = 'ai' disjunct, but listing
+    # them explicitly keeps the allowlist honest.
+    "ai_agent", "ai_embedding", "ai_framework", "ai_mcp_server",
+    "ai_model", "ai_prompt", "ai_tool", "ai_vector_db",
 )
 
 # Shared SQL fragment: a finding is AI-touching.
@@ -196,7 +201,10 @@ def _query_top_people(tenant_id: str) -> list:
           ) AS person,
           COUNT(*) FILTER (WHERE f.status = 'fail')    AS fail_n,
           COUNT(*) FILTER (WHERE f.status = 'partial') AS partial_n,
-          STRING_AGG(DISTINCT COALESCE(c.cloud_type, 'code'), ',') AS sources
+          STRING_AGG(
+            DISTINCT COALESCE(c.cloud_type, 'code'),
+            ',' ORDER BY COALESCE(c.cloud_type, 'code')
+          ) AS sources
         FROM findings f
         LEFT JOIN entities e ON e.id = f.subject_entity_id
         LEFT JOIN cloud_connections c ON c.conn_id = f.conn_id
