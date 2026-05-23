@@ -637,7 +637,10 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         ENTRA_RUNNER_FN: props.shastaRunnerEntra.functionName,
-        APP_DOMAIN:      `https://${props.cdnDistribution.distributionDomainName}`,
+        // Canonical web app domain — the success-page link sends the user
+        // here, NOT to the cdn.* asset CloudFront. Hardcoded to avoid
+        // wiring another prop through the stack just for the lookup.
+        APP_DOMAIN:      'https://shasta.transilience.cloud',
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingEntraCallbackFn);
