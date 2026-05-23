@@ -4,9 +4,105 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-22 (Scan-screen Slice 2b shipped — cross-cloud
-> /scan landing, silent auto-scan dropped across all onboarding webhooks,
-> Connect-page pickers retired. Live on shasta.transilience.cloud).
+> Last updated: 2026-05-23 (AI Visibility v2 Slice 2 code shipped — AI
+> sign-in pass piggybacked on the existing Entra connection; image
+> deployed to ciso-copilot-shasta-runner-entra. Live-verification awaiting
+> next Entra rescan).
+
+## 🚀 AI Visibility v2 — Slice 2 shipped (2026-05-23)
+
+Sub-project **AI Visibility v2**, Slice 2 (S2). Spec
+`docs/superpowers/specs/2026-05-22-ai-visibility-v2-design.md` (§9
+amended 2026-05-23 with decision D-1); plan
+`docs/superpowers/plans/2026-05-23-ai-visibility-v2-slice-2.md`. Built
+subagent-driven on branch **`feat/ai-visibility-v2-slice-2`** (6
+commits ahead of `main`). S1 also shipped same day — see its block
+below (PR #6).
+
+**S2 — AI sign-in pass inside the existing Entra runner — DONE.**
+
+- **Piggyback architecture (decision D-1):** no new connector type, no
+  new admin-consent flow, no new secret. AI sign-in scanning lands as
+  an additional pass inside `shasta_runner_entra` alongside Shasta's
+  existing Entra compliance checks. Customers who already have a
+  `cloud_type='entra'` connection get S2 instantly on the next scan.
+- **Pre-flight (Task 1 — KK-gated, pending):** `AuditLog.Read.All` on
+  AAD app `093442df-dc5a-463e-84a4-9cff0a750bce`. The plan path
+  assumes scope is present (Shasta already reads
+  `user.signInActivity`); the try/except wrapper in the handler
+  ensures a Graph 403 is non-fatal regardless. KK to confirm via
+  Entra portal at convenience.
+- **`ai_signin_pass.py`** (244 lines + 9 unit tests). Pure helpers
+  (`load_catalog`, `match_app`, `signin_to_params`) + lazy-imported
+  Graph paginator. Reads Graph `/auditLogs/signIns` (incremental by
+  `createdDateTime`), matches against catalog, emits per-tier
+  findings (`ai_signin_personal_tier` fail/high,
+  `ai_signin_corp_tier` pass/low, `ai_signin_unknown_tier`
+  fail/catalog-severity). Each carries `evidence_packet.is_ai='true'`
+  + `evidence_packet.entra_upn=<user>` so the existing
+  `/ai/summary` predicate + per-person query pick them up with zero
+  read-side change.
+- **`ai_saas_catalog.json`** — 30 curated AI SaaS apps (OpenAI,
+  Anthropic, Cursor, GitHub Copilot, Perplexity, Google Gemini,
+  Mistral, Cohere, HuggingFace, Midjourney, Notion AI, Otter, DeepL,
+  Synthesia, Tabnine, Codeium, Sourcegraph Cody, DeepSeek, xAI Grok,
+  Together.ai, Groq, AI21, etc.). Tightened post-implementation
+  (`1a55533`) to drop substring-overreaching aliases
+  (`Notion`/`Writer`/`Together`/`Bard`/`Cody`/`Runway`).
+- **`_FINDING_INSERT_SQL` extended** in `shasta_runner_entra/main.py`
+  to carry `evidence_packet`. Existing Shasta findings pass `{}` (no
+  behavior change). New `_insert_finding_param_lists` helper handles
+  the AI sign-in path.
+- **Handler wiring:** `run_ai_signin_pass` runs after Shasta's
+  `run_all_azure_entra_checks` and merges into the same batch path.
+  A try/except around the AI pass ensures a Graph failure NEVER
+  fails the underlying Shasta scan.
+- **Deployed:** scanner image rebuilt + pushed (`sha256:9a75aca8…`);
+  Lambda `ciso-copilot-shasta-runner-entra` updated via
+  `update-function-code` to re-resolve `:latest` to the new digest.
+  No CDK deploy needed. No web changes.
+
+**Execution-time decisions:**
+- `match_app` uses **case-insensitive substring matching**, not
+  exact. Forgiving for Microsoft's renaming patterns
+  ("ChatGPT Enterprise", "ChatGPT for Teams") but at false-positive
+  risk for generic aliases — addressed via catalog tightening.
+- **Entity emission deferred** — entra runner has no `unified_writer`
+  today. Findings carry `evidence_packet.is_ai` for the AI-touching
+  predicate's escape hatch; proper `ai_user_signin` entities can
+  land in a follow-on refactor.
+
+**Live-verification (Task 7) — pending (KK-gated):**
+
+1. Confirm `AuditLog.Read.All` on AAD app
+   `093442df-dc5a-463e-84a4-9cff0a750bce` (Entra portal → App
+   registrations → API permissions).
+2. Trigger a rescan on an Entra-connected tenant (click "Scan" on
+   the Entra row at `/scan`).
+3. Wait for the scan to complete.
+4. Query findings:
+   ```bash
+   aws rds-data execute-statement \
+     --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
+     --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+     --database ciso_copilot \
+     --sql "SELECT check_id, status, severity, count(*) FROM findings WHERE check_id LIKE 'ai_signin_%' GROUP BY 1,2,3 ORDER BY 1,2"
+   ```
+5. Refresh `https://shasta.transilience.cloud/ai` and confirm:
+   - Entra source tile no longer reads zero.
+   - Top AI Users table populates.
+   - Score row's Fail count increases.
+
+**Deferred from S2 (per plan + spec):**
+- Per-tenant sanctioned-app overrides + `ai_signin_unsanctioned_app`
+  finding kind.
+- Entity emission for `ai_user_signin` (entra runner needs
+  `unified_writer` refactor).
+- Framework tagging (NIST AI RMF / ISO 42001 / SOC 2 AI on
+  `ai_signin_*` check IDs) — S3 work.
+
+**▶ NEXT** — Slice 3 (compliance mapping sweep + EU AI Act + SOC 2 AI
+framework registry adds). Brainstorm + plan separately.
 
 ## 🚀 Scan Screen — Slice 2b shipped (2026-05-22)
 
