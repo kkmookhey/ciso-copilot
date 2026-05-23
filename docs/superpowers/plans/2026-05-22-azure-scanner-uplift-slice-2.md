@@ -736,7 +736,7 @@ Then trigger a rescan (synthetic `POST .../rescan` event, body `{"tier":"quick"}
 
 - [ ] **Step 4: Web verification (note the limit)**
 
-`pnpm build` (Step 2) is the code-level gate — `tsc` proves the types line up. The pickers' **visual + interaction behaviour cannot be agent-verified** (Google OAuth blocks automated sign-in). Flag for the user: on `https://dil1ztnjosz43.cloudfront.net/` → Connect → the Azure connection, confirm the "Subscriptions (N of M)" toggle expands, checkboxes reflect `selected`, Save persists; the Quick/Medium/Deep `ScanPicker` shows on the Azure row (not the flat Rescan button); and a subsequent scan's progress card shows "N subscriptions scanned".
+`pnpm build` (Step 2) is the code-level gate — `tsc` proves the types line up. The pickers' **visual + interaction behaviour cannot be agent-verified** (Google OAuth blocks automated sign-in). Flag for the user: on `https://shasta.transilience.cloud/` → Connect → the Azure connection, confirm the "Subscriptions (N of M)" toggle expands, checkboxes reflect `selected`, Save persists; the Quick/Medium/Deep `ScanPicker` shows on the Azure row (not the flat Rescan button); and a subsequent scan's progress card shows "N subscriptions scanned".
 
 - [ ] **Step 5: Update HANDOFF.md and commit**
 

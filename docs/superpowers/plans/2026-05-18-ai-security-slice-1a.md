@@ -21,9 +21,9 @@ These steps are not coded; they are clicked through on `github.com` and `console
 1. Go to `https://github.com/settings/apps/new` (you, KK, while signed in as `kkmookhey`).
 2. Fill in:
    - **GitHub App name:** `CISO Copilot`
-   - **Homepage URL:** `https://app.settlingforless.com`
+   - **Homepage URL:** `https://shasta.transilience.cloud`
    - **Callback URL:** *(leave blank — we use a Setup URL instead)*
-   - **Setup URL (optional):** `https://app.settlingforless.com/ai/install/callback`
+   - **Setup URL (optional):** `https://shasta.transilience.cloud/ai/install/callback`
    - **Redirect on update:** checked
    - **Webhook → Active:** unchecked (no webhooks in 1a)
 3. **Repository permissions:**
@@ -923,7 +923,7 @@ def env(monkeypatch):
     monkeypatch.setenv("STATE_JWT_SECRET_ARN", "arn:state")
     monkeypatch.setenv("GITHUB_APP_SECRET_ARN", "arn:gh")
     monkeypatch.setenv("GITHUB_APP_SLUG", "ciso-copilot")
-    monkeypatch.setenv("WEB_CALLBACK_URL", "https://app.settlingforless.com/ai/install/callback")
+    monkeypatch.setenv("WEB_CALLBACK_URL", "https://shasta.transilience.cloud/ai/install/callback")
 
 
 def _event_authed(tenant_id: str, sub: str = "user-sub-1",
@@ -1641,7 +1641,7 @@ Insert in `api-stack.ts` near the other Lambda definitions (e.g. just before the
         GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
         STATE_JWT_SECRET_ARN:  `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key`,
         GITHUB_APP_SLUG:       'ciso-copilot',
-        WEB_CALLBACK_URL:      'https://app.settlingforless.com/ai/install/callback',
+        WEB_CALLBACK_URL:      'https://shasta.transilience.cloud/ai/install/callback',
       },
     });
     props.dbCluster.grantDataApiAccess(aiGithubFn);
@@ -2159,7 +2159,7 @@ Expected: sync succeeds, invalidation in progress.
 
 In a browser, on a clean profile:
 
-1. Go to `https://app.settlingforless.com/`.
+1. Go to `https://shasta.transilience.cloud/`.
 2. Sign in with your Google identity (`kkmookhey@gmail.com` should land tenant-approved).
 3. Click **Connect clouds** in the nav.
 4. Click the new **GitHub** card.
@@ -2167,7 +2167,7 @@ In a browser, on a clean profile:
 6. On the GitHub install page, choose your `kkmookhey` user.
 7. Pick **Only select repositories** and select 3 repos with real AI code (e.g. anything that imports `openai`, `anthropic`, `langchain`).
 8. Click **Install**.
-9. GitHub redirects to `https://app.settlingforless.com/ai/install/callback?installation_id=…&state=…&setup_action=install`.
+9. GitHub redirects to `https://shasta.transilience.cloud/ai/install/callback?installation_id=…&state=…&setup_action=install`.
 10. After a brief "Finishing GitHub install…" screen, the URL changes to `/ai/connections/<uuid>/repos`.
 11. The selected 3 repos appear in the table with their last-push dates and language.
 12. The **Scan** buttons are visible but greyed out — that's expected (1b enables them).

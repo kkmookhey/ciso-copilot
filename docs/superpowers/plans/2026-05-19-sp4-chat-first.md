@@ -1376,7 +1376,7 @@ aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
 aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
 ```
 
-- [ ] **Step 2: Manual demo in a browser** — sign in at `https://app.settlingforless.com/`:
+- [ ] **Step 2: Manual demo in a browser** — sign in at `https://shasta.transilience.cloud/`:
   - Lands on `/` showing the four-column chat shell (module rail, conversation rail, empty chat center).
   - Type "what's my IAM posture?" → an assistant bubble appears and text streams in token-by-token.
   - Refresh → the conversation reloads with both messages intact.

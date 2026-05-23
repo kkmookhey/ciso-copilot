@@ -2486,7 +2486,7 @@ xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
 
 - [ ] **Step 8: E2E verification**
 
-1. Hard-reload `https://app.settlingforless.com/`.
+1. Hard-reload `https://shasta.transilience.cloud/`.
 2. Trigger an AWS scan from /connect (rescan AWS connection). Verify:
    ```bash
    aws rds-data execute-statement --resource-arn ... --sql \

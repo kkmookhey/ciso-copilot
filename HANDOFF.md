@@ -6,7 +6,7 @@
 >
 > Last updated: 2026-05-22 (Scan-screen Slice 2b shipped — cross-cloud
 > /scan landing, silent auto-scan dropped across all onboarding webhooks,
-> Connect-page pickers retired. Live on app.settlingforless.com).
+> Connect-page pickers retired. Live on shasta.transilience.cloud).
 
 ## 🚀 Scan Screen — Slice 2b shipped (2026-05-22)
 
@@ -55,7 +55,7 @@ merged).
 - **Deployed:** `CisoCopilotApi` deployed (`UPDATE_COMPLETE`); web built
   (`tsc -b && vite build` clean), synced to S3, CloudFront invalidation
   `IB4TNKV8P0SR5A1FH4ZK2OYS17` queued. Live at
-  `app.settlingforless.com`.
+  `shasta.transilience.cloud`.
 - **Browser-smoke pending** — an agent can't pass Google OAuth.
   Verification checklist:
   1. Open `https://shasta.transilience.cloud` in an incognito window.
@@ -503,7 +503,7 @@ final whole-branch review). Merged to `main` (`dad4c16`).
   while running).
 
 **Web UX browser-smoke (2026-05-21) — DONE.** KK smoke-tested the new
-web UX on https://dil1ztnjosz43.cloudfront.net/. Scan picker works; live
+web UX on https://shasta.transilience.cloud/. Scan picker works; live
 scan updates render correctly under the cloud being scanned. **One bug
 found + fixed + deployed:** the `ScanPicker` dropdown
 (`web/src/routes/ConnectClouds.tsx`) did not dismiss on outside-click —
@@ -732,7 +732,7 @@ Spec: `docs/superpowers/specs/2026-05-19-sp4-chat-first-design.md`. Plan:
 - **Web** — `/` is now the chat surface (`ChatShell`: ModuleRail +
   ConversationRail + ChatCenter); the old Welcome page moved to `/dashboard`.
   Conversation CRUD + landing flow (load most-recent <24h or create fresh) +
-  token-streamed assistant replies. Deployed to `app.settlingforless.com`.
+  token-streamed assistant replies. Deployed to `shasta.transilience.cloud`.
 
 **Gotcha paid in debugging time (load-bearing):**
 
@@ -1184,7 +1184,7 @@ his admin.
 |---|---|
 | AWS account | `470226123496` (us-east-1) |
 | API base | `https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/` |
-| Web SPA | `https://app.settlingforless.com/` (custom domain live 2026-05-18; backed by CloudFront `dil1ztnjosz43.cloudfront.net` which still works) |
+| Web SPA | `https://shasta.transilience.cloud/` (custom domain live 2026-05-18; backed by CloudFront `shasta.transilience.cloud` which still works) |
 | Asset CDN | `https://d2pvi2ahuyphb0.cloudfront.net/` |
 | Cognito User Pool | `us-east-1_jOC1znCSS` (recreated 2026-05-18; old `us-east-1_ePRQ2iwZT` retained, awaiting cleanup) |
 | Cognito iOS client | `2r71e13kahf79bvb9stuehm3il` |
@@ -1388,7 +1388,7 @@ shasta-runner (Lambda container image, ECR ciso-copilot-shasta-runner:latest)
 - **SES from-domain fix**: switched `Source=` to `no-reply@settlingforless.com` (DKIM + SPF verified via Google Cloud DNS). Previously sent from `kkmookhey@gmail.com` which Gmail silently spam-foldered (Gmail-from-AWS-IP looks like spoofing).
 - **SES production access granted**: form submitted by KK; AWS approved. Sending TO unverified recipients now works → user-side approval notifications deliver.
 - **admin_decision Lambda error handling**: wraps `_send_user_email` in try/except so SES sandbox failure no longer 500s the approve link (was misleading "Internal Server Error" while the tenant flip had already succeeded).
-- **`app.settlingforless.com` custom domain**: ACM cert issued, Cloud DNS records (CNAME + DKIM validation) added, CloudFront alternate domain attached, Cognito callback URLs include the new domain. SPA reachable at `https://app.settlingforless.com/` end-to-end.
+- **`shasta.transilience.cloud` custom domain**: ACM cert issued, Cloud DNS records (CNAME + DKIM validation) added, CloudFront alternate domain attached, Cognito callback URLs include the new domain. SPA reachable at `https://shasta.transilience.cloud/` end-to-end.
 - **Dashboards on web home**: PieChart (severity), BarChart (by-cloud) using Recharts; clickable → drill down to `/findings?severity=X` / `/findings?cloud=Y`. TopRisks reads URL params + shows clearable filter chips. Compliance posture cards now clickable too (filter by framework).
 - **`/findings/summary` endpoint**: aggregates by severity + cloud for dashboard tiles without paging through findings.
 - **`/events` endpoint + UI surfacing**: real-time alerts now reachable. iOS Overview shows live "Recent activity" + Alerts count; web Welcome same.

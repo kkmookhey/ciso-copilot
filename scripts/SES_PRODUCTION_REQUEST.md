@@ -9,7 +9,7 @@ Paste the relevant fields into AWS Console → **SES** → **Account dashboard**
 **Transactional**
 
 ## Website URL
-`https://dil1ztnjosz43.cloudfront.net/` (will move to `https://app.settlingforless.com/` once DNS for the SPA is configured)
+`https://shasta.transilience.cloud/` (will move to `https://shasta.transilience.cloud/` once DNS for the SPA is configured)
 
 ## Use case description
 

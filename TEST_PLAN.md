@@ -6,7 +6,7 @@
 > Target: a stranger could land on the web app, sign in, connect a cloud,
 > see findings, all on their own.
 
-**Web app**: https://dil1ztnjosz43.cloudfront.net/
+**Web app**: https://shasta.transilience.cloud/
 **Test account**: KK's `kkmookhey@gmail.com` (Google sign-in; Microsoft on web is a known-broken path — see test 2).
 
 Each test below: do the action, write **PASS / FAIL / observation**. If FAIL, paste what you saw — we'll fix in line.
@@ -123,11 +123,11 @@ Your tenant `gmail.com` is already approved in DB; this section is a smoke check
 3. Expectation: no surprise sign-in screen; the refresh-token flow in `lib/cognito.ts` should silently re-mint.
 
 ### T5.2 — Direct deep-link
-1. From signed-in state, paste `https://dil1ztnjosz43.cloudfront.net/findings` into a new tab.
+1. From signed-in state, paste `https://shasta.transilience.cloud/findings` into a new tab.
 2. Expectation: lands directly on Findings, not signed back out.
 
 ### T5.3 — Direct deep-link while signed out
-1. Open in incognito, paste `https://dil1ztnjosz43.cloudfront.net/findings`.
+1. Open in incognito, paste `https://shasta.transilience.cloud/findings`.
 2. Expectation: redirected to `/signin`. After sign-in, you should land on Findings (or Welcome — depends on what the app remembers).
 
 ### T5.4 — Sign-out clears state

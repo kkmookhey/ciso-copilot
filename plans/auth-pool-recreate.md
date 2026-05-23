@@ -87,7 +87,7 @@ Note the new `UserPoolId`, `UserPoolClientId` (iOS), `WebClientId`.
   ```
 
 ### 8. Verify
-- **Web**: incognito → `https://dil1ztnjosz43.cloudfront.net/` → Google sign-in → land at `/`.
+- **Web**: incognito → `https://shasta.transilience.cloud/` → Google sign-in → land at `/`.
 - Sign out, sign in again (this was the failing case) → must succeed.
 - **iOS**: open app → sign out (forced by 401) → email-first sign-in → land at Overview tab.
 - **DB**: confirm `users` rows for both emails still present (they should be — we keyed on Google/MS sub, not Cognito).
