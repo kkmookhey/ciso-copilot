@@ -89,12 +89,13 @@ _FINDING_INSERT_SQL = """
 INSERT INTO findings (
     finding_id, tenant_id, conn_id, scan_id, check_id, title, description,
     severity, status, resource_arn, resource_type, region, domain,
-    frameworks, remediation, first_seen, last_seen
+    frameworks, remediation, evidence_packet, first_seen, last_seen
 ) VALUES (
     CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), CAST(:sid AS UUID),
     :check_id, :title, :description, :severity, :status, :resource_arn,
     :resource_type, :region, :domain,
-    CAST(:frameworks AS JSONB), :remediation, now(), now()
+    CAST(:frameworks AS JSONB), :remediation, CAST(:evidence_packet AS JSONB),
+    now(), now()
 )
 """
 
@@ -144,6 +145,7 @@ def _finding_to_params(f, scan_id, tenant_id, conn_id, entra_tenant_id):
         {"name": "domain",        "value": {"stringValue": f.domain.value.lower()}},
         {"name": "frameworks",    "value": {"stringValue": json.dumps(frameworks)}},
         {"name": "remediation",   "value": {"stringValue": (f.remediation or "")[:2000]}},
+        {"name": "evidence_packet", "value": {"stringValue": "{}"}},
     ]
 
 
