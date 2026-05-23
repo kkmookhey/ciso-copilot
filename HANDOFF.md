@@ -176,12 +176,17 @@ to main 2026-05-22, commit `e36e2e1`).
   1b deploy used the same `--exclusively` flag — the plan should always
   spell it out explicitly for two-phase deploys.
 
-**▶ NEXT** (no slice in flight): per the prior sequencing decision,
-before Slice 2b run a short cross-cloud **Scan-screen brainstorm**
-(post-onboard scope + tier picker, replacing the silent auto-scan-on-
-onboard). It supersedes the Connect-page per-row picker Azure shipped.
-Slice 2a (org-level onboarding) is independent and can proceed before or
-after the Scan-screen brainstorm.
+**▶ NEXT** (no slice in flight, 2026-05-22): the Scan-screen Slice 2b
+and GCP Slice 2a (code) both shipped today. Open verification + dev work
+in rough priority order:
+
+1. **Browser-smoke verify Slice 2b** on `shasta.transilience.cloud` —
+   checklist at the top of the 2b section above; KK-gated (Google OAuth).
+2. **Expose the GCP "org" toggle** in the web onboarding flow so the
+   `--org <ORG_ID>` path in `cfn/gcp/onboard.sh` is reachable from the
+   UI. Unblocks Slice 2a's human verification (requires GCP org-admin).
+3. **AI-discovery plan 2** — OpenAI / Anthropic provider connectors
+   (per `project_ciso_copilot` memory). Bigger lift; brainstorm first.
 
 ## 🚀 GCP Scanner Uplift — Slice 1a shipped (2026-05-22)
 
@@ -230,12 +235,13 @@ pipeline, mirroring the Azure scanner:
   Fargate triggers + retires the legacy Lambda; Slice 2a adds org-level
   onboarding; Slice 2b is the project picker.
 
-**▶ Sequencing decision (2026-05-22):** before the Slice 2b picker, run
-a short cross-cloud brainstorm for a unified **"Scan" screen**
-(post-onboard landing where the user picks scope + tier per cloud,
-replacing the silent auto-scan-on-onboard). It supersedes the
-Connect-page per-row picker Azure shipped, so 2b should build the Scan
-screen, not a GCP-only Connect-page picker. Slices 1a/1b are unaffected.
+**▶ Sequencing decision (2026-05-22) — resolved:** before the Slice 2b
+picker, we ran a short cross-cloud brainstorm for a unified **"Scan"
+screen** (post-onboard landing where the user picks scope + tier per
+cloud, replacing the silent auto-scan-on-onboard). It superseded the
+Connect-page per-row picker Azure shipped, so 2b built the Scan screen
+rather than a GCP-only Connect-page picker (now live — see top section).
+Slices 1a/1b were unaffected.
 
 ## 🚀 Azure Scanner Uplift — Slice 0 shipped (2026-05-22)
 
