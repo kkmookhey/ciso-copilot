@@ -81,7 +81,7 @@ State of the data before S3 starts. Drives the scope choices below.
 
 | # | Decision | Reason |
 |---|---|---|
-| D-1 | **SOC 2 AI mappings sourced from AICPA's published criteria** for AI Systems (Description Criteria 2024) | KK ask — customer-audit-defensible |
+| D-1 | **SOC 2 AI mappings sourced from AICPA's published criteria verbatim** — control IDs in the registry must match AICPA's actual Description Criteria for AI Systems (2024) string-for-string. No "AI-flavoured" suffixes invented by us. Implementer must obtain AICPA's published document before authoring. If AICPA's structure doesn't include AI-suffixed IDs (it uses AI points-of-focus under existing CC controls), the registry uses the existing CC control ID + a `controls_focus: "ai"` annotation in the per-rule metadata rather than fabricating new IDs | Customer-audit-defensible. The original draft used `CC6.1-AI` style IDs as "sensible projections"; that's the worst position to ship in — customers treat product output as authoritative and an auditor will not find `CC6.1-AI` in any AICPA document |
 | D-2 | **All eight AI frameworks** get tiles on `/ai`: NIST AI RMF, ISO 42001, SOC 2 AI, EU AI Act, NIST AI 600-1, OWASP LLM Top 10, OWASP Agentic, MITRE ATLAS | Shasta already emits the last four — free signal currently dropped |
 | D-3 | **All three S2 Entra sign-in finding kinds** (`personal_tier`, `corp_tier`, `unknown_tier`) get tagged with applicable AI-framework controls | Includes the `corp_tier` (pass) one — keeps the compliance view honest about *all* AI-using employees, not just risky ones |
 | D-4 | **Bidirectional crosswalk** — registry adds AI-framework tags to AI-touching cloud findings, AND adds standard-framework tags (PCI / HIPAA / etc.) to AI findings whose underlying gap is relevant. Scope is **AI-touching findings only** (option A1 from the brainstorm); the broader "tag every cloud finding with AI controls" option (A2) is deferred | Stays true to "AI is a lens, not a silo"; prevents `/ai` tile counts from ballooning into the thousands |
@@ -143,9 +143,7 @@ State of the data before S3 starts. Drives the scope choices below.
       "name": "SOC 2 + AI",
       "source": "AICPA Description Criteria for AI Systems (2024)",
       "control_descriptions": {
-        "CC6.1-AI": "Logical access to AI systems and training data is restricted.",
-        "CC6.7-AI": "AI data is encrypted at rest and in transit.",
-        "CC9.1-AI": "Risks from AI use are identified, assessed, and mitigated."
+        "<TBD>": "Implementer pulls from AICPA published criteria. Do NOT fabricate -AI suffixed IDs; use AICPA's actual control identifiers (likely existing CC controls with AI points-of-focus). See D-1 for binding."
       }
     },
     "nist_ai_rmf":      { "name": "NIST AI RMF",      "source": "NIST AI 100-1 (2023)",     "control_descriptions": { ... } },
@@ -178,22 +176,21 @@ State of the data before S3 starts. Drives the scope choices below.
         "check_id_eq": "ai_signin_personal_tier"
       },
       "add_frameworks": {
-        "soc2_ai":       ["CC6.1-AI", "CC9.1-AI"],
-        "nist_ai_rmf":   ["GOVERN-3.2", "MEASURE-2.6"],
-        "iso_42001":     ["A.5.3", "A.9.2"],
-        "eu_ai_act":     ["Article 4"],
-        "owasp_agentic": ["AML.T0028"]
+        "soc2_ai":     ["<TBD-AICPA-actual-control-id>"],
+        "nist_ai_rmf": ["<TBD-verify-against-NIST-AI-100-1>"],
+        "iso_42001":   ["<TBD-verify-against-ISO-42001-2023>"],
+        "eu_ai_act":   ["Article 9", "Article 26"]
       }
     },
     {
-      "id": "ai_resource_pci_relevance",
+      "id": "ai_finding_inherits_general_compliance",
       "when": {
-        "domain":              "ai",
-        "resource_type_glob":  "aws_bedrock_*",
-        "evidence_packet_eq":  { "handles_cardholder_data": "true" }
+        "domain":             "ai",
+        "evidence_packet_eq": { "is_ai": "true" }
       },
       "add_frameworks": {
-        "pci_dss": ["3.4", "3.5", "4.1"]
+        "iso_42001":     ["<TBD-verify>"],
+        "nist_ai_rmf":   ["<TBD-verify>"]
       }
     }
   ]
@@ -214,6 +211,20 @@ State of the data before S3 starts. Drives the scope choices below.
 
 **`add_frameworks` semantics:** set-union per framework key. Resulting
 control list is deduped and sorted for stable serialisation.
+
+**`findings.frameworks` JSONB shape contract** (now load-bearing):
+- Keys are stable framework slugs (matches the keys in §5's
+  `frameworks` block exactly — no synonyms, no aliases).
+- Values are `list[str]` of control identifiers, sorted lexically for
+  stable diffing across re-scans.
+- Duplicates within a list are removed during the post-merge dedup
+  step.
+- An empty value list (`{"soc2": []}`) is invalid — drop the key
+  entirely instead.
+- The shape is the contract for both the writer (registry produces
+  it) and every reader (`/ai/summary`, `compliance_summary`,
+  `TopRisks.tsx`). A reader-side schema validator at module load is
+  out of scope but worth a follow-on.
 
 ## 6. Data flow
 
@@ -294,8 +305,21 @@ scan commit, so failures must not fail scans.
 
 **Soft assertion**: trades "perfect tagging on every finding" for
 "scans never fail because of tagging". Failure-mode visibility is via
-CloudWatch (`registry_apply_failed` + `registry_ai_touching_unknown`
-counters), not scan failures.
+CloudWatch counters, not scan failures.
+
+**Observability counters** (emitted once per `commit_scan` invocation,
+not per finding):
+- `registry_apply_failed{rule_id, check_id}` — count of per-finding
+  exceptions caught by the wrapper. Should always be ≤ 1% of
+  findings; alert if higher.
+- `registry_ai_touching_unknown{}` — count of findings whose
+  `subject_entity_id` couldn't be resolved against either the in-commit
+  entities or the backfill DB query. Indicates data-quality drift.
+- `registry_rule_fire_count{rule_id}` — per-rule fire count. Detects
+  silent regressions ("rule fired 100x/day for 6 months, now zero")
+  and doubles as a product-analytics signal ("70% of tenants have at
+  least one personal-tier AI sign-in"). Cheap: a `defaultdict(int)`
+  next to the try/except, emitted once at end of commit.
 
 ## 8. Testing
 
@@ -337,36 +361,58 @@ a regression in mappings fails CI.
 - Click ISO 42001 tile from Dashboard → `/findings?framework=iso_42001`
   → switch group to "Category" → **AI row populates** with both
   AI-specific findings and any AI-touching cloud findings.
-- Click PCI DSS tile → switch to category → **AI row populates** with
-  any Bedrock/SageMaker/Entra finding that has PCI-relevant gaps.
+- **PCI DSS journey, scoped honestly**: clicking PCI DSS tile →
+  switch to category surfaces an AI row only if a rule has been
+  authored that adds `pci_dss` controls to AI-touching findings. The
+  S3 ship target is *the mechanism* (the registry can do this) and at
+  least one example rule; populating it requires authorship-time
+  decisions about which AI resources hold cardholder data — that
+  classification work is its own scope, deferred (see §13).
 - Existing Shasta-emitted framework tags preserved 1:1 (spot-check 5
   random findings before/after).
 - Scan-completion latency unchanged within ±5%.
 - All scanner test suites green; new
   `scanner_core/tests/test_framework_registry.py` ≥ 12 cases.
+- **Post-ship deliverable in HANDOFF**: screenshot of
+  `/findings?framework=iso_42001` grouped by Category showing the AI
+  row populated, captured at ship time. Same shape as S2.1's
+  verification artifact.
 
 ## 10. Open questions
 
 To be resolved during implementation, not blockers:
 
-1. **AICPA SOC 2 + AI control IDs** — the `CC6.1-AI` / `CC6.7-AI` /
-   `CC9.1-AI` IDs in this spec are sensible projections of AICPA's
-   structure, not quotations. Implementer pulls canonical IDs from
-   AICPA's published Description Criteria during authorship. The
-   registry file is the only thing that changes if IDs land
-   differently.
+1. **AICPA SOC 2 + AI control IDs** — implementer pulls verbatim from
+   AICPA's published Description Criteria. Per D-1, the registry uses
+   AICPA's actual identifiers (no fabricated `-AI` suffixes). If
+   AICPA's structure uses AI points-of-focus under existing CC
+   controls rather than dedicated IDs, the rule references the
+   existing CC ID and the AI-specific framing lives in the registry's
+   `control_descriptions` block.
 
-2. **EU AI Act article references** — initial authorship covers the
-   high-value clusters (data governance Art. 10, technical robustness
-   Art. 15, transparency Art. 13, human oversight Art. 14, AI
-   literacy Art. 4). Broader coverage comes via iterative PRs as
-   customers ask.
+2. **EU AI Act article selection per finding kind** — initial
+   authorship matches each AI-finding kind against the *strongest*
+   applicable article, not the loosest. For unsanctioned-AI sign-ins
+   the strong fit is **Art. 9 (risk management)** with a soft **Art.
+   26 (deployer obligations)** reference; Art. 4 (AI literacy) is the
+   wrong primary hook for this case. Broader coverage (Art. 10 data
+   governance, Art. 13 transparency, Art. 14 human oversight, Art. 15
+   technical robustness) comes via iterative PRs.
 
 3. **Which existing cloud check IDs are AI-touching enough to inherit
    AI frameworks?** Start with `ai_touching: true` selectors that lean
    on `findings.domain='ai'` or the entity allowlist — high precision,
    low coverage. Broaden only when a customer asks why a specific
    cloud finding isn't on `/ai`.
+
+4. **MITRE ATLAS / OWASP Agentic ID confusion is a known
+   foot-gun** — the example rules deliberately do NOT pre-fill these
+   identifier sets. ATLAS uses `AML.T*` technique IDs; OWASP Agentic
+   AI Top 10 uses its own taxonomy (the 2025 list uses names like
+   "Excessive Agency", "Memory Poisoning", numbering settling
+   toward `AAI*`). Mixing them is the kind of error that costs an
+   auditor's confidence in the whole catalog. Per §12.1, every ID in
+   a PR must be validated against its source taxonomy before merge.
 
 ## 11. Implementation notes
 
@@ -384,16 +430,61 @@ To be resolved during implementation, not blockers:
   image (Slice 0 pattern). `shasta_runner/build.sh` (AWS) also copies
   it. `shasta_runner_entra/build.sh` does NOT today — small addition
   required.
-- **Per-scanner commit-path verification** is the first task of the
-  implementation plan. The principle is "apply the registry inside the
-  scanner's commit path, additively". For scanners that use
-  `unified_writer.commit_scan()` (Azure, GCP, Entra, ai_scanner) the
-  hook is a one-line addition. The AWS scanner (`shasta_runner`) may
-  use a different path via `scan_pipeline`; the plan-writer should
-  verify the AWS commit path and wire the registry accordingly —
-  same principle, possibly different call site.
+- **Per-scanner commit-path empirical map** (verified 2026-05-24 by
+  grep across the five scanners):
+  - `shasta_runner` (AWS), `shasta_runner_azure`, `shasta_runner_gcp`,
+    `ai_scanner` — **all use `unified_writer.commit_scan()`**, but
+    each carries its own COPY of `unified_writer.py` (Slice 0
+    deliberately did not consolidate this — see Azure uplift design
+    §3-§4). Adding the registry hook inside `commit_scan` therefore
+    touches **4 files**.
+  - `shasta_runner_entra` — does NOT use `commit_scan`. Writes
+    findings via `_insert_findings` / `_insert_finding_param_lists`
+    in `app/main.py` calling `rds_data.batch_execute_statement`
+    directly. Needs a **parallel hook in its own write path** — same
+    semantic, different call site.
+  - **Total integration surface**: 5 hook sites. The plan should
+    weigh whether to consolidate `unified_writer.py` into
+    `scanner_core/` first (collapses the four `commit_scan` sites
+    into one). The 1b-style two-phase deploy gotcha applies if doing
+    so — see the "Deploy gotcha paid in debugging time" section in
+    HANDOFF for the pattern.
+- **Backfill recipe (in lieu of dormant code)** — when a customer
+  audit needs immediate re-tagging without waiting for the next scan,
+  the recipe is: (1) `SELECT finding_id, check_id, domain,
+  resource_type, frameworks, evidence_packet, subject_entity_id FROM
+  findings WHERE tenant_id = :tid;` (2) build entity_index in one
+  query: `SELECT id, domain, kind FROM entities WHERE tenant_id =
+  :tid;` (3) for each finding, call `apply_framework_registry(f,
+  entity_index)`; (4) `UPDATE findings SET frameworks = :new WHERE
+  finding_id = :fid` only for rows whose frameworks actually changed.
+  ~50 lines of Python. Run as an ad-hoc Lambda invoke or local
+  script. Not shipped as code in S3 — documented as a recipe instead
+  to avoid dormant code rot.
 
-## 12. Dependencies
+## 12. Authoritative sources for framework IDs
+
+Every control ID in every rule must be validated against its source
+document before the PR merges. No "sensible projections", no
+"reasonable extrapolations". PR template should include a checkbox:
+"I have verified every control ID in this PR against the source
+document below."
+
+| Framework key | Source document | Version | URL |
+|---|---|---|---|
+| `soc2_ai` | AICPA Description Criteria for AI Systems | 2024 | aicpa.org (paywalled; implementer obtains) |
+| `nist_ai_rmf` | NIST AI 100-1 (AI Risk Management Framework) | 1.0 (2023) | nist.gov/itl/ai-risk-management-framework |
+| `nist_ai_600_1` | NIST AI 600-1 (Generative AI Profile) | 2024 | nist.gov/publications |
+| `iso_42001` | ISO/IEC 42001:2023 | 2023 | iso.org/standard/81230.html (paywalled) |
+| `eu_ai_act` | Regulation (EU) 2024/1689 | OJ L 2024/1689 | eur-lex.europa.eu |
+| `owasp_llm_top10` | OWASP Top 10 for LLM Applications | 2025 | genai.owasp.org |
+| `owasp_agentic` | OWASP Agentic AI Top 10 (or current name) | 2025 draft | genai.owasp.org |
+| `mitre_atlas` | MITRE ATLAS matrix | v4 | atlas.mitre.org |
+
+The implementer's first PR (engine-only, `rules: []`) does NOT need
+this validation. Every subsequent PR adding rules does.
+
+## 13. Dependencies
 
 - **S1 shipped** (Azure AI cloud pass + `/ai` view): registry extends
   the AI-framework keys S1 introduced.
@@ -403,7 +494,52 @@ To be resolved during implementation, not blockers:
   lives here and rides the existing image-copy mechanism.
 - No external dependencies (no SDK updates, no third-party services).
 
-## 13. Out of scope (explicit)
+## 14. Compliance-defensibility commitments
+
+Two non-functional commitments that govern how S3's output is
+positioned and how it survives auditor scrutiny.
+
+### 14.1 Positioning: mappings, not attestations
+
+The framework tags this slice ships are **mappings**, not
+attestations. The product must never imply "you are ISO 42001
+compliant" — only "these findings relate to ISO 42001 controls;
+have your auditor verify". UI copy on the `/ai` tiles and the
+`/findings` framework filter must read in this register. Tile
+hover-text, tile click-through landing copy, and any export
+artifacts must explicitly state the mapping disclaimer.
+
+**Concretely**: every framework tile gets a small "i" tooltip
+reading: "Mapping only — not a compliance attestation. Verify with
+your auditor."
+
+This is a product-positioning rule with legal implications. The
+implementer should not ship UI copy that contradicts this without
+explicit sign-off.
+
+### 14.2 Provenance: per-finding rule traceability
+
+When an auditor asks "where did `iso_42001:A.8.2` come from for this
+finding?", the answer must be reproducible. The registry tracks
+which rule(s) fired for each finding by writing an additional
+`_registry_rule_ids: ["rule_id_1", "rule_id_2"]` entry into
+`evidence_packet`.
+
+This:
+- Costs one extra JSONB key per finding (cheap).
+- Makes "show me the rule that added this tag" a single SQL query
+  away.
+- Survives the framework registry being edited later — historical
+  findings retain the rule_ids that were applied at scan time, so
+  the auditor's question is answerable even after the registry has
+  been updated.
+- Is set-merged on re-scan the same way `frameworks` is, so
+  repeated apply() doesn't bloat the list.
+
+Per-rule fire counters (§7) are the aggregate; per-finding rule_ids
+are the per-row trace. Together they give complete provenance.
+
+## 15. Out of scope (explicit)
 
 - **A2 / A3 framework crosswalk** — tagging *every* cloud finding with
   AI controls regardless of AI-touching status. Deferred until
