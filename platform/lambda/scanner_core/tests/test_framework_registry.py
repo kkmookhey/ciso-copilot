@@ -536,3 +536,35 @@ def test_eu_ai_act_euai_52_resolves_to_canonical_article():
     fr._normalize_stage(f, registry=fr.load_registry())
     assert "Article 50" in f["frameworks"]["eu_ai_act"]
     assert "EUAI-52" not in f["frameworks"]["eu_ai_act"]
+
+
+# --- CME-v2 S2: nist_ai_rmf rewrite table ---
+
+
+def test_nist_ai_rmf_function_level_expands_to_subcategories():
+    """GOVERN-6 (Shasta's function-level) expands to all its subcategories."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN-6"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    # GOVERN 6 contains 6.1 and 6.2 per NIST AI 100-1 §5
+    expanded = f["frameworks"]["nist_ai_rmf"]
+    assert "GOVERN 6.1" in expanded
+    assert "GOVERN 6.2" in expanded
+    # No Shasta hyphen-format should remain
+    assert "GOVERN-6" not in expanded
+
+
+def test_nist_ai_rmf_measure_expansion():
+    """MEASURE-2 expands to its subcategories (MEASURE 2.x)."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["MEASURE-2"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    expanded = f["frameworks"]["nist_ai_rmf"]
+    # MEASURE 2 has 13 subcategories (2.1–2.13) per NIST AI 100-1 §5
+    assert any(c.startswith("MEASURE 2.") for c in expanded)
+    assert "MEASURE-2" not in expanded
+
+
+def test_nist_ai_rmf_slice_e_subcategories_pass_through():
+    """Slice E's already-canonical subcategory IDs (e.g., GOVERN 3.2) pass through unchanged."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN 3.2"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "GOVERN 3.2" in f["frameworks"]["nist_ai_rmf"]
