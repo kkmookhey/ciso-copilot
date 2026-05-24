@@ -40,6 +40,7 @@ from shasta.azure.private_endpoints  import run_all_azure_private_endpoint_check
 from shasta.azure.storage            import run_all_azure_storage_checks
 
 # === Adapter modules (this package) ===
+from ai_pass                import run_ai_pass
 from azure_credential       import apply_sp_credentials
 from azure_findings         import convert_azure_findings, subscription_entity
 from azure_units            import modules_for_tier
@@ -62,6 +63,9 @@ rds = boto3.client("rds-data")
 
 # Module name -> Shasta entry point. Each takes an AzureClient, returns
 # list[Finding]. The names match azure_units' tier lists.
+# "ai" is wired via _ai_unit in _build_units — not Shasta's standard
+# signature (run_ai_pass returns a unified {entities, edges, findings}
+# dict, not a list[Finding]) so it does not appear here.
 AZURE_MODULES = {
     "iam":                 run_all_azure_iam_checks,
     "governance":          run_all_azure_governance_checks,
@@ -205,12 +209,33 @@ def _build_units(subscriptions: list[str], module_names: list[str],
     units: list[ScanUnit] = []
     for sub_id in subscriptions:
         for name in module_names:
+            if name == "ai":
+                units.append(ScanUnit(
+                    name=f"{sub_id}/ai", service="ai",
+                    run=_ai_unit(base_client, sub_id, tenant_id)))
+                continue
             run_fn = AZURE_MODULES[name]
             units.append(ScanUnit(
                 name=f"{sub_id}/{name}", service=name,
                 run=_module_unit(run_fn, base_client, sub_id,
                                  tenant_id)))
     return units
+
+
+def _ai_unit(base_client, sub_id: str, tenant_id: str):
+    """Build the run callable for one (subscription, ai_pass) unit.
+
+    Mirrors _module_unit's per-unit-fresh-client pattern but returns the
+    unified emissions dict from run_ai_pass directly rather than going
+    through convert_azure_findings — ai_pass already produces
+    EntityEmission / EdgeEmission / FindingEmission instances."""
+    def _run() -> dict:
+        client = base_client.for_subscription(sub_id)
+        client.validate_credentials()
+        out = run_ai_pass(client, subscription_id=sub_id, tenant_id=tenant_id)
+        return {"entities": out["entities"], "edges": out["edges"],
+                "findings": out["findings"]}
+    return _run
 
 
 def _module_unit(run_fn, base_client, sub_id: str, tenant_id: str):
