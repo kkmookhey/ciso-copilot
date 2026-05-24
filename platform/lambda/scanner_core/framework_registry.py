@@ -88,3 +88,91 @@ def validate_registry(registry: dict) -> None:
 
 # Loaded once at module import. Failures fail the Lambda cold-start.
 _REGISTRY: dict = load_registry()
+
+# ----- Selector matching + apply() -----
+
+
+def _matches(finding: dict, entity_index: dict, when: dict) -> bool:
+    """All selectors AND-ed together. False on any miss."""
+    for selector, expected in when.items():
+        if selector == "check_id_eq":
+            if finding.get("check_id") != expected:
+                return False
+        elif selector == "check_id_glob":
+            if not fnmatch.fnmatchcase(finding.get("check_id") or "", expected):
+                return False
+        elif selector == "domain":
+            if finding.get("domain") != expected:
+                return False
+        elif selector == "resource_type_glob":
+            if not fnmatch.fnmatchcase(finding.get("resource_type") or "", expected):
+                return False
+        elif selector == "ai_touching":
+            actual = _is_ai_touching(finding, entity_index)
+            if actual != expected:
+                return False
+        elif selector == "evidence_packet_eq":
+            ep = finding.get("evidence_packet") or {}
+            for k, v in expected.items():
+                if str(ep.get(k)) != str(v):
+                    return False
+        else:
+            # Should be caught by validation; defensive.
+            raise RegistryApplyError(f"unknown selector at apply time: {selector}")
+    return True
+
+
+def _is_ai_touching(finding: dict, entity_index: dict) -> bool:
+    """Mirrors ai_summary._IS_AI_TOUCHING predicate.
+
+    A finding is AI-touching if:
+      - subject entity has domain='ai', OR
+      - subject entity has an AI-resource kind, OR
+      - evidence_packet ->> 'is_ai' = 'true'.
+
+    Framework-key match is NOT used here (that would be circular with apply()).
+    """
+    ep = finding.get("evidence_packet") or {}
+    if str(ep.get("is_ai")) == "true":
+        return True
+    eid = finding.get("subject_entity_id")
+    if not eid:
+        return False
+    entity = entity_index.get(eid)
+    if not entity:
+        return False
+    if entity.get("domain") == "ai":
+        return True
+    if entity.get("kind") in _AI_RESOURCE_KINDS:
+        return True
+    return False
+
+
+def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
+    """Apply registry rules to a finding. Returns the SAME finding object
+    (mutated in place — the caller already owns it). Additive, idempotent.
+
+    Side-effects:
+      - finding['frameworks'] updated (set-union per framework key, sorted)
+      - finding['evidence_packet']['_registry_rule_ids'] appended (set-union, sorted)
+    """
+    reg = registry if registry is not None else _REGISTRY
+    rules_fired: list[str] = []
+
+    for rule in reg["rules"]:
+        try:
+            if _matches(finding, entity_index, rule["when"]):
+                rules_fired.append(rule["id"])
+                for fw, ctrls in rule["add_frameworks"].items():
+                    existing = set(finding["frameworks"].get(fw) or [])
+                    finding["frameworks"][fw] = sorted(existing | set(ctrls))
+        except RegistryApplyError:
+            # Re-raise so the writer's try/except catches it and logs.
+            raise
+
+    if rules_fired:
+        ep = finding.setdefault("evidence_packet", {})
+        prior = set(ep.get("_registry_rule_ids") or [])
+        ep["_registry_rule_ids"] = sorted(prior | set(rules_fired))
+
+    return finding
