@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CATALOG_PATH = os.path.join(os.path.dirname(__file__), "ai_saas_catalog.json")
 
+# The Microsoft Graph error code returned from /auditLogs/signIns when the
+# tenant is on Entra Free tier. Triggers the S2.1 banner via
+# cloud_connections.scope.signin_premium_required.
+_LICENSING_ERROR_CODE = "Authentication_RequestFromNonPremiumTenantOrB2CTenant"
+
 _CHECK_BY_TIER = {
     "personal": "ai_signin_personal_tier",
     "corp":     "ai_signin_corp_tier",
@@ -153,32 +158,31 @@ def run_ai_signin_pass(
     tenant_id: str, conn_id: str, scan_id: str, entra_tenant_id: str,
     last_scan_at: str | None = None,
     catalog_path: str | None = None,
-) -> list[list[dict]]:
+) -> tuple[list[list[dict]], bool]:
     """Page through Graph audit logs, match against catalog, return a
-    list of param-lists ready for _insert_findings.
+    tuple of (param_lists, premium_required) ready for the caller.
+
+    premium_required is True iff Microsoft returned 403
+    Authentication_RequestFromNonPremiumTenantOrB2CTenant — the S2.1
+    banner trigger. Other failures leave premium_required=False so the
+    banner doesn't fire for unrelated problems.
 
     Graph SDK is imported lazily so this module stays importable in test
     environments without the SDK installed.
     """
-    from azure.identity import DefaultAzureCredential        # type: ignore
-    from msgraph import GraphServiceClient                   # type: ignore
+    if graph_client is None:
+        from azure.identity import DefaultAzureCredential       # type: ignore
+        from msgraph import GraphServiceClient                  # type: ignore
+        credential = DefaultAzureCredential()
+        graph_client = GraphServiceClient(
+            credentials=credential,
+            scopes=["https://graph.microsoft.com/.default"],
+        )
 
     catalog = load_catalog(catalog_path or _DEFAULT_CATALOG_PATH)
-
-    # Reuse the same DefaultAzureCredential the existing Shasta scan
-    # already authenticated. graph_client is a GraphServiceClient OR a
-    # placeholder; if None, we construct one fresh.
-    if graph_client is None:
-        credential = DefaultAzureCredential()
-        graph_client = GraphServiceClient(credentials=credential, scopes=["https://graph.microsoft.com/.default"])
+    events, premium_required = _fetch_signins(graph_client, last_scan_at=last_scan_at)
 
     out: list[list[dict]] = []
-    try:
-        events = _fetch_signins(graph_client, last_scan_at=last_scan_at)
-    except Exception as e:
-        logger.warning("ai_signin_pass: Graph fetch failed: %s", e)
-        return out
-
     for event in events:
         name, tier, sev = match_app(event, catalog)
         if name is None:
@@ -190,33 +194,55 @@ def run_ai_signin_pass(
         )
         out.append(params)
 
-    return out
+    return out, premium_required
 
 
-def _fetch_signins(graph_client: Any, *, last_scan_at: str | None) -> Iterable[dict]:
-    """Page through `/auditLogs/signIns`, yielding plain dict events.
+def _fetch_signins(graph_client: Any, *, last_scan_at: str | None) -> tuple[list[dict], bool]:
+    """Page through `/auditLogs/signIns`. Returns (events, premium_required).
+
+    premium_required is True only when Microsoft returns 403 with error code
+    Authentication_RequestFromNonPremiumTenantOrB2CTenant. All other failure
+    modes (auth, scope, network, server) leave premium_required=False so the
+    S2.1 banner stays off for non-licensing problems.
 
     Incremental by `createdDateTime ge last_scan_at` when provided.
-    Drops gracefully on auth/scope errors — caller logs.
     """
-    from kiota_abstractions.base_request_configuration import RequestConfiguration  # type: ignore
-    from msgraph.generated.audit_logs.sign_ins.sign_ins_request_builder import SignInsRequestBuilder  # type: ignore
+    # Build the request configuration if the SDK is importable. In test
+    # environments without msgraph/kiota installed we fall back to
+    # request_configuration=None so the unit test can still exercise the
+    # error-handling path with a fake graph_client.
+    cfg: Any = None
+    try:
+        from kiota_abstractions.base_request_configuration import RequestConfiguration  # type: ignore
+        from msgraph.generated.audit_logs.sign_ins.sign_ins_request_builder import SignInsRequestBuilder  # type: ignore
 
-    query_params = SignInsRequestBuilder.SignInsRequestBuilderGetQueryParameters(
-        top=1000,
-    )
-    if last_scan_at:
-        query_params.filter = f"createdDateTime ge {last_scan_at}"
-    cfg = RequestConfiguration(query_parameters=query_params)
+        query_params = SignInsRequestBuilder.SignInsRequestBuilderGetQueryParameters(
+            top=1000,
+        )
+        if last_scan_at:
+            query_params.filter = f"createdDateTime ge {last_scan_at}"
+        cfg = RequestConfiguration(query_parameters=query_params)
+    except ImportError:
+        cfg = None
 
     # The SDK's pagination iterator is async; for v1 we collect a single
     # page synchronously via the underlying request. Production-quality
     # paging across many pages is a follow-on.
-    page = graph_client.audit_logs.sign_ins.get(request_configuration=cfg)
-    page = _maybe_await(page)
-    if page is None or not getattr(page, "value", None):
-        return []
-    return [_event_to_dict(e) for e in page.value]
+    try:
+        page = graph_client.audit_logs.sign_ins.get(request_configuration=cfg)
+        page = _maybe_await(page)
+        if page is None or not getattr(page, "value", None):
+            return [], False
+        return [_event_to_dict(e) for e in page.value], False
+    except Exception as e:
+        err_obj = getattr(e, "error", None)
+        err_code = getattr(err_obj, "code", None) if err_obj is not None else None
+        premium_required = (err_code == _LICENSING_ERROR_CODE)
+        if premium_required:
+            logger.warning("ai_signin_pass: Graph returned licensing-403 (Entra Free tier)")
+        else:
+            logger.warning("ai_signin_pass: Graph fetch failed: %s", e)
+        return [], premium_required
 
 
 def _maybe_await(coro: Any) -> Any:
