@@ -39,9 +39,11 @@ touch                              app/detectors/__init__.py
 cp ../ai_scanner/unified_writer.py app/unified_writer.py
 
 echo "==> copying shared modules from ../scanner_core"
-rm -f app/scan_pipeline.py app/scan_state.py
-cp ../scanner_core/scan_pipeline.py app/scan_pipeline.py
-cp ../scanner_core/scan_state.py    app/scan_state.py
+rm -f app/scan_pipeline.py app/scan_state.py app/framework_registry.py app/ai_framework_registry.json
+cp ../scanner_core/scan_pipeline.py           app/scan_pipeline.py
+cp ../scanner_core/scan_state.py              app/scan_state.py
+cp ../scanner_core/framework_registry.py      app/framework_registry.py
+cp ../scanner_core/ai_framework_registry.json app/ai_framework_registry.json
 
 echo "==> ECR auth"
 aws ecr get-login-password --region "$REGION" \
