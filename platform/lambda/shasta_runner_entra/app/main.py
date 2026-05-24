@@ -131,6 +131,19 @@ INSERT INTO findings (
     CAST(:frameworks AS JSONB), :remediation, CAST(:evidence_packet AS JSONB),
     now(), now()
 )
+ON CONFLICT (tenant_id, conn_id, check_id, COALESCE(resource_arn, ''::text), COALESCE(region, ''::text))
+DO UPDATE SET
+    scan_id         = EXCLUDED.scan_id,
+    title           = EXCLUDED.title,
+    description     = EXCLUDED.description,
+    severity        = EXCLUDED.severity,
+    status          = EXCLUDED.status,
+    resource_type   = EXCLUDED.resource_type,
+    domain          = EXCLUDED.domain,
+    frameworks      = EXCLUDED.frameworks,
+    remediation     = EXCLUDED.remediation,
+    evidence_packet = EXCLUDED.evidence_packet,
+    last_seen       = now()
 """
 
 _BATCH_SIZE = 25
