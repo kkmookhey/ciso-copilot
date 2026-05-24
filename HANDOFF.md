@@ -4,10 +4,10 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-23 (AI Visibility v2 Slice 2 code shipped — AI
-> sign-in pass piggybacked on the existing Entra connection; image
-> deployed to ciso-copilot-shasta-runner-entra. Live-verification awaiting
-> next Entra rescan).
+> Last updated: 2026-05-24 (AI Visibility v2 Slice 2 merged to main —
+> AI sign-in pass piggybacked on the existing Entra connection; image
+> deployed; smoke confirmed Entra Free tier hits Microsoft's P1/P2
+> licensing gate on /auditLogs/signIns. S1 + S2 both live).
 
 ## 🚀 AI Visibility v2 — Slice 2 shipped (2026-05-23)
 
@@ -113,7 +113,111 @@ S3 XML AccessDenied when clicked. Patched to hardcode
   `ai_signin_*` check IDs) — S3 work.
 
 **▶ NEXT** — Slice 3 (compliance mapping sweep + EU AI Act + SOC 2 AI
-framework registry adds). Brainstorm + plan separately.
+framework registry adds). Brainstorm + plan separately. Also queued:
+a `/connect` banner that surfaces the Entra Free tier P1/P2 licensing
+constraint when a scan hits the 403 — small UX polish slice ("S2.1").
+
+## 🚀 AI Visibility v2 — Slice 1 shipped (2026-05-22)
+
+Sub-project **AI Visibility v2**, Slice 1 (S1). Strategy
+`docs/superpowers/specs/2026-05-22-ai-security-strategy.md`; spec
+`docs/superpowers/specs/2026-05-22-ai-visibility-v2-design.md`; plan
+`docs/superpowers/plans/2026-05-22-ai-visibility-v2-slice-1.md`. Built
+subagent-driven on branch **`feat/ai-visibility-v2-slice-1`** (7
+commits ahead of `main`).
+
+**S1 — Azure-AI cloud pass + Unified /ai view — DONE.**
+
+- **Azure-AI pass** (`platform/lambda/shasta_runner_azure/app/ai_pass.py`,
+  198 lines + 6 unit tests). Wraps Shasta's
+  `discover_azure_ai_services` + `run_full_azure_ai_scan` +
+  `enrich_findings_with_ai_controls` into the unified
+  entity/edge/finding model. Entities emitted with `domain='cloud'`:
+  `azure_openai_deployment`, `azure_ml_workspace`, `cognitive_service`
+  (OpenAI-kind cognitive services skipped to avoid dup with the OpenAI
+  branch). Findings carry NIST AI RMF + ISO 42001 + EU AI Act framework
+  tags + Azure standard frameworks (`soc2`, `iso27001`, `mcsb`,
+  `cis_azure`).
+- **Tier gating**: `"ai"` added to `azure_units._MEDIUM_EXTRA`; Quick
+  scans skip it, Medium + Deep run it. Per-(subscription, ai) ScanUnit
+  via `_ai_unit` factory in `main.py` (mirrors `_module_unit`'s
+  per-unit-fresh-client pattern). Scanner image rebuilt + pushed
+  (`sha256:951ae7ba…`); `:latest` tag so no `CisoCopilotScan` redeploy
+  was needed.
+- **`/ai/summary` Lambda** (`platform/lambda/ai_summary/`) — new
+  Cognito-authed endpoint at `GET /v1/ai/summary`. Returns `{ score,
+  by_source, by_framework, top_people }`. `is_ai_touching` evaluated
+  inline in SQL via JSONB `?|` over four AI framework keys + entity
+  domain/kind allowlist + `evidence_packet ->> 'is_ai'` escape hatch.
+  `_query_top_people` SQL groups by `LOWER(COALESCE(commit_author_email,
+  iam_owner_email, entra_upn))`. **Schema delta from the spec:** the
+  plan assumed `findings.attributes` JSONB and `entities.entity_id` —
+  actual schema is `findings.evidence_packet` and `entities.id`.
+  Fixed in `ai_summary/main.py` via the plan's Step 5 pre-flight check.
+- **API stack** — `AiSummaryFn` Lambda + `/ai/summary` GET route in
+  `api-stack.ts`; `CisoCopilotApi` deployed (`UPDATE_COMPLETE` —
+  82s deploy, 13/13 resources). Note: `--hotswap` won't create new
+  Lambdas, so this deploy used a full CFN update.
+- **Web `/ai` route** (`web/src/routes/AISummary.tsx`, 207 lines + 2
+  vitest cases). Tile layout: 3 score tiles (Fail/Partial/Pass), 4
+  source tiles (AWS/Azure/Code/Entra — Entra labelled "coming in S2"),
+  4 framework tiles (NIST AI RMF / ISO 42001 / SOC 2 AI / EU AI Act
+  each with F/P/Pass mini-rollup), top-people table with empty-state
+  copy "No identifiable AI users yet — connect Entra (S2) to populate."
+  Added `api.aiSummary()` method to `web/src/lib/api.ts` matching the
+  project's existing `call<T>` pattern (the plan's `apiGet` assumption
+  was wrong — no such export existed). Built, synced to S3, CloudFront
+  invalidation `IC7ZCIJ34431QOW27SRV34X0WR`.
+- **Data state at ship:** 7790 findings in Aurora, 102 AI-touching
+  (`is_ai_touching=true`). The score + by-source + by-framework all
+  populate. **Top-people view is empty** — zero findings carry
+  `commit_author_email` / `iam_owner_email` / `entra_upn` in
+  `evidence_packet`. Documented limit; populates in S2 (Entra
+  sign-ins) or future emitter patches (AI scanner + AWS owner-tag
+  enrichment).
+- **Reviewer-caught issues fixed during execution:**
+  - `cis_aws_controls` was an AWS leftover copy-pasted into the Azure
+    `ai_pass._STD_FRAMEWORK_ATTRS` dict — replaced with
+    `cis_azure_controls → cis_azure` after the code reviewer caught
+    it.
+  - `_query_top_people` had non-deterministic `STRING_AGG` order —
+    fixed with `ORDER BY` inside the aggregate.
+  - `_AI_RESOURCE_KINDS` allowlist was missing the actual AI-scanner
+    entity kinds (`ai_agent`, `ai_embedding`, `ai_framework`,
+    `ai_mcp_server`, `ai_model`, `ai_prompt`, `ai_tool`,
+    `ai_vector_db`) — added.
+  - Module docstring claim that the predicate matches keys "starting
+    with" the AI framework prefixes was wrong — the SQL uses exact
+    equality via `?|`; docstring corrected.
+
+**Deferred (out of S1 scope, per spec):**
+- **S2** — Entra sign-in connector + per-person grouping.
+- **S3** — Compliance mapping sweep + SOC 2 AI + EU AI Act registry
+  (the four framework tiles render; SOC 2 AI and EU AI Act tiles will
+  read zero until S3 maps the actual checks).
+- **S4** — iOS push notifications + polish.
+- **GCP-AI** — its own sub-project (Shasta has no `gcp/ai_*` today).
+- **Provider connectors** — OpenAI/Anthropic admin-API blocked.
+
+**Slice 1 live-verification — pending (KK-gated, Google OAuth):**
+1. Open `https://shasta.transilience.cloud/ai` in an incognito window;
+   sign in with Google.
+2. Confirm the page renders "AI Exposure" title + three F/P/P tiles
+   with non-zero numbers (today's data: 102 AI-touching findings;
+   real F/P/Pass split visible in the tiles).
+3. Confirm the by-source row shows AWS + Azure with counts; Code
+   per-tenant; Entra zero with "coming in S2" label.
+4. Confirm the by-framework row shows NIST AI RMF + ISO 42001 with
+   counts; SOC 2 AI + EU AI Act both zero (S3 work).
+5. Confirm Top AI Users shows the empty-state copy "No identifiable
+   AI users yet — connect Entra (S2) to populate."
+6. Open browser devtools → Network. Confirm `GET
+   /v1/ai/summary` returned 200 with the documented JSON contract.
+7. (Optional) Re-run a Medium Azure scan; refresh `/ai`; counts
+   should hold steady or grow (never go negative).
+
+**▶ NEXT (post-S1 view, superseded by S2 above)** — Slice 2 has now
+shipped; see its block at the top of this file.
 
 ## 🚀 Scan Screen — Slice 2b shipped (2026-05-22)
 

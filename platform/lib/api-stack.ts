@@ -268,6 +268,16 @@ export class ApiStack extends cdk.Stack {
     });
     props.dbCluster.grantDataApiAccess(findingsSummaryFn);
 
+    const aiSummaryFn = new lambda.Function(this, 'AiSummaryFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_summary')),
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(aiSummaryFn);
+
     const findingsRollupFn = new lambda.Function(this, 'FindingsRollupFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
@@ -792,6 +802,11 @@ export class ApiStack extends cdk.Stack {
     aiScans.addMethod( 'POST', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     aiScans.addMethod( 'GET',  new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     aiScanId.addMethod('GET',  new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+
+    // /v1/ai/summary — AI Visibility v2 Slice 1 rollup (counts + top sources/people)
+    aiRes.addResource('summary').addMethod(
+      'GET', new apigw.LambdaIntegration(aiSummaryFn), authedOpts,
+    );
 
     const entities     = api.root.addResource('entities');
     const entityId     = entities.addResource('{id}');

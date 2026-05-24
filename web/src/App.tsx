@@ -16,6 +16,7 @@ import { InstallCallback } from "./routes/InstallCallback";
 import { RepoPicker } from "./routes/RepoPicker";
 import { AIInventory } from "./routes/AIInventory";
 import { AssetDetail } from "./routes/AssetDetail";
+import AISummary from "./routes/AISummary";
 import { ChatShell } from "./chat/Shell";
 import { ContactDeepScan } from "./routes/ContactDeepScan";
 import Scan from "./routes/Scan";
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/questionnaires" element={<Questionnaires />} />
           <Route path="/trust"          element={<TrustAdmin />} />
           <Route path="/admin"     element={<Admin />} />
+          <Route path="/ai"                  element={<AISummary />} />
           <Route path="/ai/install/callback" element={<InstallCallback />} />
           <Route path="/ai/connections/:id/repos" element={<RepoPicker />} />
           <Route path="/ai/inventory"             element={<AIInventory />} />

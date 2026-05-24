@@ -329,10 +329,30 @@ export interface FindingsSummary {
   total: number;
 }
 
+export interface AIStatusCounts { fail: number; partial: number; pass: number }
+
+export interface AISummaryResponse {
+  score:        AIStatusCounts;
+  by_source:    { aws: number; azure: number; code: number; entra: number };
+  by_framework: {
+    nist_ai_rmf: AIStatusCounts;
+    iso_42001:   AIStatusCounts;
+    soc2_ai:     AIStatusCounts;
+    eu_ai_act:   AIStatusCounts;
+  };
+  top_people: Array<{
+    email:    string;
+    fail:     number;
+    partial:  number;
+    sources:  string[];
+  }>;
+}
+
 export const api = {
   me: ()                                      => call<MeResponse>("/me"),
   complianceSummary: ()                       => call<ComplianceSummary>("/compliance/summary"),
   findingsSummary: ()                         => call<FindingsSummary>("/findings/summary"),
+  aiSummary: ()                               => call<AISummaryResponse>("/ai/summary"),
   listRisks: (params?: { status?: string; severity?: string }) => {
     const q = new URLSearchParams();
     if (params?.status)   q.set("status", params.status);
