@@ -189,22 +189,21 @@ def _is_ai_touching(finding: dict, entity_index: dict) -> bool:
     return False
 
 
-def _normalize_stage(finding: dict, registry: dict | None = None) -> dict:
+def _normalize_stage(finding: dict, registry: dict | None = None,
+                      counters: dict | None = None) -> dict:
     """Stage 1 of the CME-v2 pipeline: rewrite scanner-emitted control IDs
     to canonical published format using each framework's rewrite_rules.
 
-    Mutates finding['frameworks'] in place. Idempotent: re-running on an
-    already-normalized finding produces identical output.
+    Mutates finding['frameworks'] in place. Idempotent.
 
-    For each (framework_key, control_ids) pair on the finding:
-      - Look up the framework's rewrite_rules (default empty list).
-      - For each control_id:
-        - If a rewrite rule has from == control_id, replace with rule.to entries.
-        - Else, passthrough (the ID stays).
-      - Result is the set-union of all rewritten + passthrough IDs, sorted.
+    If `counters` is provided, populates two sub-dicts in place:
+      counters['normalize_rewrote'][f'{framework}:{from_id}']  += 1
+      counters['normalize_passthrough'][f'{framework}:{id}']   += 1
     """
     reg = registry if registry is not None else _REGISTRY
     frameworks_block = reg.get("frameworks", {})
+    rewrote = counters.get("normalize_rewrote") if counters is not None else None
+    passthrough = counters.get("normalize_passthrough") if counters is not None else None
 
     for fw_key, ctrls in list(finding.get("frameworks", {}).items()):
         fw_def = frameworks_block.get(fw_key, {})
@@ -212,7 +211,6 @@ def _normalize_stage(finding: dict, registry: dict | None = None) -> dict:
         if not rules:
             continue  # No rewrite rules for this framework — passthrough
 
-        # Build a {from: to-list} dict for O(1) lookup
         rewrite_map: dict[str, list[str]] = {}
         for rr in rules:
             rewrite_map.setdefault(rr["from"], []).extend(rr["to"])
@@ -221,8 +219,14 @@ def _normalize_stage(finding: dict, registry: dict | None = None) -> dict:
         for cid in (ctrls or []):
             if cid in rewrite_map:
                 normalized.update(rewrite_map[cid])
+                if rewrote is not None:
+                    key = f"{fw_key}:{cid}"
+                    rewrote[key] = rewrote.get(key, 0) + 1
             else:
                 normalized.add(cid)
+                if passthrough is not None:
+                    key = f"{fw_key}:{cid}"
+                    passthrough[key] = passthrough.get(key, 0) + 1
 
         finding["frameworks"][fw_key] = sorted(normalized)
 
@@ -257,7 +261,8 @@ def _augment_stage(finding: dict, entity_index: dict, registry: dict | None = No
     return finding
 
 
-def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
+def apply(finding: dict, entity_index: dict, registry: dict | None = None,
+          counters: dict | None = None) -> dict:
     """CME-v2 two-stage compliance crosswalk.
 
     Stage 1 (normalize): rewrite scanner-emitted control IDs to canonical
@@ -265,8 +270,12 @@ def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> di
     Stage 2 (augment):   walk registry rules, additively merge matching
                           add_frameworks into finding's frameworks.
 
+    If `counters` is provided (a dict with optional sub-dicts
+    'normalize_rewrote', 'normalize_passthrough'), populates per-key counts.
+    Existing rules_fired counting stays in the caller (writer aggregates).
+
     Mutates finding in place. Additive across runs. Idempotent.
     """
-    _normalize_stage(finding, registry=registry)
+    _normalize_stage(finding, registry=registry, counters=counters)
     _augment_stage(finding, entity_index, registry=registry)
     return finding
