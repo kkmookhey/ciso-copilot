@@ -469,3 +469,20 @@ def test_apply_runs_normalize_before_augment():
     assert f["frameworks"]["eu_ai_act"] == ["Article 9"]
     # Provenance recorded
     assert "add_eu_ai_act_to_governance_check" in f["evidence_packet"]["_registry_rule_ids"]
+
+
+# --- CME-v2 S2: mitre_atlas rewrite table ---
+
+
+def test_mitre_atlas_shasta_ids_passthrough_via_rewrite():
+    """All 15 Shasta-emitted MITRE ATLAS IDs round-trip identically through normalize."""
+    SHASTA_IDS = [
+        "AML.T0000", "AML.T0001", "AML.T0003", "AML.T0004",
+        "AML.T0010", "AML.T0011", "AML.T0012", "AML.T0015",
+        "AML.T0024", "AML.T0025", "AML.T0029", "AML.T0031",
+        "AML.T0035", "AML.T0051", "AML.T0052",
+    ]
+    f = _finding(check_id="x", frameworks={"mitre_atlas": list(SHASTA_IDS)})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    # All inputs preserved (sorted, deduped — same set)
+    assert set(f["frameworks"]["mitre_atlas"]) == set(SHASTA_IDS)
