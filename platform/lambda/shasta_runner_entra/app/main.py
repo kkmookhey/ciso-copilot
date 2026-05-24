@@ -21,10 +21,15 @@ import os
 import traceback
 import uuid
 
+import logging
+
 import boto3
 
 from ai_signin_pass import run_ai_signin_pass
 from framework_map import merge_framework_map
+from framework_registry import apply as apply_registry, RegistryApplyError
+
+log = logging.getLogger(__name__)
 
 DB_CLUSTER_ARN              = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN               = os.environ["DB_SECRET_ARN"]
@@ -149,18 +154,74 @@ DO UPDATE SET
 _BATCH_SIZE = 25
 
 
+def _enrich_param_lists_with_registry(param_lists: list[list[dict]]) -> dict:
+    """Apply the framework registry to a list of finding param-lists (the
+    JSON-encoded INSERT param shape). Mutates each param_list in place:
+    rewrites the 'frameworks' and 'evidence_packet' value dicts to reflect
+    additional controls + provenance.
+
+    Returns per-scan counters (rules_fired_count + apply_failed_count) for
+    the caller to log.
+
+    Entra findings have no subject_entity_id, so the 'ai_touching' selector
+    can only fire via evidence_packet.is_ai='true'. Entity_index is empty
+    (no entity lookup needed).
+    """
+    counters = {"rules_fired_count": {}, "apply_failed_count": 0}
+    for ps in param_lists:
+        param_by_name = {p["name"]: p for p in ps}
+        try:
+            fw_str = param_by_name.get("frameworks", {}).get("value", {}).get("stringValue", "{}")
+            ep_str = param_by_name.get("evidence_packet", {}).get("value", {}).get("stringValue", "{}")
+            finding_view = {
+                "check_id":          param_by_name.get("check_id", {}).get("value", {}).get("stringValue"),
+                "domain":            param_by_name.get("domain", {}).get("value", {}).get("stringValue"),
+                "resource_type":     param_by_name.get("resource_type", {}).get("value", {}).get("stringValue"),
+                "evidence_packet":   json.loads(ep_str) if ep_str else {},
+                "subject_entity_id": None,  # Entra has no subject_entity_id column
+                "frameworks":        json.loads(fw_str) if fw_str else {},
+            }
+            apply_registry(finding_view, entity_index={})
+            for rid in finding_view.get("evidence_packet", {}).get("_registry_rule_ids", []):
+                counters["rules_fired_count"][rid] = counters["rules_fired_count"].get(rid, 0) + 1
+            # Write back the mutated frameworks + evidence_packet.
+            param_by_name["frameworks"]["value"]["stringValue"] = json.dumps(finding_view["frameworks"])
+            param_by_name["evidence_packet"]["value"]["stringValue"] = json.dumps(finding_view["evidence_packet"])
+        except RegistryApplyError as exc:
+            counters["apply_failed_count"] += 1
+            log.warning("registry_apply_failed", extra={
+                "check_id": param_by_name.get("check_id", {}).get("value", {}).get("stringValue"),
+                "err": str(exc),
+            })
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            # Defensive: if param dict shape is unexpected, log and skip enrichment
+            # rather than break the scan. Should never happen — _finding_to_params
+            # always produces the expected shape.
+            counters["apply_failed_count"] += 1
+            log.warning("registry_param_shape_unexpected", extra={"err": str(exc)})
+    return counters
+
+
 def _insert_findings(findings, scan_id, tenant_id, conn_id, entra_tenant_id):
     if not findings:
         return 0
     written = 0
+    total_counters = {"rules_fired_count": {}, "apply_failed_count": 0}
     for i in range(0, len(findings), _BATCH_SIZE):
         batch = findings[i : i + _BATCH_SIZE]
         param_sets = [_finding_to_params(f, scan_id, tenant_id, conn_id, entra_tenant_id) for f in batch]
+        # --- framework registry pass (S3) ---
+        batch_counters = _enrich_param_lists_with_registry(param_sets)
+        for rid, n in batch_counters["rules_fired_count"].items():
+            total_counters["rules_fired_count"][rid] = total_counters["rules_fired_count"].get(rid, 0) + n
+        total_counters["apply_failed_count"] += batch_counters["apply_failed_count"]
+        # --- end registry pass ---
         rds_data.batch_execute_statement(
             resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
             sql=_FINDING_INSERT_SQL, parameterSets=param_sets,
         )
         written += len(batch)
+    log.info("registry_apply_summary", extra={**total_counters, "scan_id": scan_id, "path": "shasta_findings"})
     return written
 
 
@@ -173,13 +234,21 @@ def _insert_finding_param_lists(param_lists: list[list[dict]]) -> int:
     if not param_lists:
         return 0
     written = 0
+    total_counters = {"rules_fired_count": {}, "apply_failed_count": 0}
     for i in range(0, len(param_lists), _BATCH_SIZE):
         batch = param_lists[i : i + _BATCH_SIZE]
+        # --- framework registry pass (S3) ---
+        batch_counters = _enrich_param_lists_with_registry(batch)
+        for rid, n in batch_counters["rules_fired_count"].items():
+            total_counters["rules_fired_count"][rid] = total_counters["rules_fired_count"].get(rid, 0) + n
+        total_counters["apply_failed_count"] += batch_counters["apply_failed_count"]
+        # --- end registry pass ---
         rds_data.batch_execute_statement(
             resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
             sql=_FINDING_INSERT_SQL, parameterSets=batch,
         )
         written += len(batch)
+    log.info("registry_apply_summary", extra={**total_counters, "path": "ai_signin_pass"})
     return written
 
 
