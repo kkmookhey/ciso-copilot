@@ -132,3 +132,73 @@ def test_signin_to_params_includes_entra_upn_in_evidence():
     assert ev["entra_upn"] == "carol@acme.com"
     assert ev["is_ai"] == "true"
     assert ev["app"] == "OpenAI"
+
+
+def test_fetch_signins_returns_premium_required_on_specific_403():
+    """When Graph returns the licensing-403, _fetch_signins signals it."""
+    from ai_signin_pass import _fetch_signins
+
+    class FakeError(Exception):
+        def __init__(self):
+            self.error = type("E", (), {"code": "Authentication_RequestFromNonPremiumTenantOrB2CTenant"})()
+            self.response_status_code = 403
+
+    class FakeGraph:
+        class _Audit:
+            class _SignIns:
+                def get(self, request_configuration=None):
+                    raise FakeError()
+            sign_ins = _SignIns()
+        audit_logs = _Audit()
+
+    events, premium_required = _fetch_signins(FakeGraph(), last_scan_at=None)
+    assert events == []
+    assert premium_required is True
+
+
+def test_fetch_signins_does_not_flag_other_403s():
+    """Other 403s (revoked consent, missing scope) do NOT set premium_required."""
+    from ai_signin_pass import _fetch_signins
+
+    class FakeError(Exception):
+        def __init__(self):
+            self.error = type("E", (), {"code": "Authorization_RequestDenied"})()
+            self.response_status_code = 403
+
+    class FakeGraph:
+        class _Audit:
+            class _SignIns:
+                def get(self, request_configuration=None):
+                    raise FakeError()
+            sign_ins = _SignIns()
+        audit_logs = _Audit()
+
+    events, premium_required = _fetch_signins(FakeGraph(), last_scan_at=None)
+    assert events == []
+    assert premium_required is False
+
+
+def test_run_ai_signin_pass_returns_tuple():
+    """Top-level orchestrator returns (param_lists, premium_required)."""
+    from ai_signin_pass import run_ai_signin_pass
+
+    class FakeError(Exception):
+        def __init__(self):
+            self.error = type("E", (), {"code": "Authentication_RequestFromNonPremiumTenantOrB2CTenant"})()
+            self.response_status_code = 403
+
+    class FakeGraph:
+        class _Audit:
+            class _SignIns:
+                def get(self, request_configuration=None):
+                    raise FakeError()
+            sign_ins = _SignIns()
+        audit_logs = _Audit()
+
+    params, premium_required = run_ai_signin_pass(
+        graph_client=FakeGraph(),
+        tenant_id="TEN", conn_id="CONN", scan_id="SCAN",
+        entra_tenant_id="ETEN",
+    )
+    assert params == []
+    assert premium_required is True

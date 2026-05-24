@@ -4,10 +4,85 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-24 (AI Visibility v2 Slice 2 merged to main —
-> AI sign-in pass piggybacked on the existing Entra connection; image
-> deployed; smoke confirmed Entra Free tier hits Microsoft's P1/P2
-> licensing gate on /auditLogs/signIns. S1 + S2 both live).
+> Last updated: 2026-05-24 (AI Visibility v2 Slice 2.1 code shipped —
+> Entra Free-tier licensing banner. Backend writes
+> cloud_connections.scope.signin_premium_required on the specific
+> Microsoft 403; /connect renders an amber banner under flagged Entra
+> rows. Image + web both deployed).
+
+## 🚀 AI Visibility v2 — Slice 2.1 shipped (2026-05-24)
+
+Follow-on polish to S2. Spec
+`docs/superpowers/specs/2026-05-24-entra-licensing-banner-design.md`;
+plan `docs/superpowers/plans/2026-05-24-entra-licensing-banner-plan.md`.
+Built subagent-driven on branch **`feat/ai-visibility-v2-slice-2.1`**
+(6 commits ahead of `main`).
+
+**S2.1 — Entra Free-tier licensing banner — DONE.**
+
+- **`ai_signin_pass.run_ai_signin_pass`** now returns a tuple
+  `(param_lists, premium_required)`. The bool fires only on Microsoft's
+  specific 403 error code
+  `Authentication_RequestFromNonPremiumTenantOrB2CTenant`. Other 403s
+  (revoked consent, missing scope) leave it `False`. Module-top
+  constant `_LICENSING_ERROR_CODE` is the matched string. 3 new unit
+  tests (12/12 total).
+- **`shasta_runner_entra/main.py`** unpacks the tuple; calls new
+  `_update_connection_premium_flag(conn_id, *, premium_required,
+  signin_count)` helper:
+  - On 403 (premium_required): `scope = jsonb_set(COALESCE(scope, '{}'::jsonb),
+    '{signin_premium_required}', 'true'::jsonb)`.
+  - On positive signal (signin_count > 0): `scope = scope #-
+    '{signin_premium_required}'` (clear).
+  - Else: no-op (ambiguous case — could be Premium tenant with no AI
+    users).
+  Both writes also bump `updated_at`. A second try/except around the
+  helper means a write failure never fails the scan.
+- **`web/src/lib/api.ts`** — added `signin_premium_required?: boolean`
+  to `Connection.scope` (one-key extension; existing JSONB shape
+  preserved).
+- **`web/src/routes/ConnectClouds.tsx`** — exported `ConnectionRow`;
+  added `LicensingBanner` component (amber-bordered card) with copy
+  "Sign-in detection requires Microsoft Entra ID P1 or P2" + Microsoft
+  docs link. Rendered inside the `<li>` when `cloud_type === 'entra'
+  && scope?.signin_premium_required === true` (strict `=== true`
+  check). 3 new vitest cases (122/122 total).
+- **Connections endpoint reuse**: zero changes needed to
+  `connections_list/main.py` — it already returned `scope` JSONB. Zero
+  CDK changes, zero new Lambdas.
+- **Deployed:** scanner image `sha256:9eb38f0c…` pushed; Lambda
+  re-resolved `:latest`. Web bundle synced to S3; CloudFront
+  invalidation `I4H208LEK1MQDTTFZ91YEARAD1` queued. Live at
+  `shasta.transilience.cloud`.
+
+**Live-verification (Task 5) — pending (KK-gated):**
+1. Trigger an Entra rescan via `/scan` on the existing Free-tier
+   tenant.
+2. Verify the flag landed:
+   ```bash
+   aws rds-data execute-statement \
+     --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
+     --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+     --database ciso_copilot \
+     --sql "SELECT conn_id::text, scope FROM cloud_connections WHERE cloud_type='entra' AND status='active'"
+   ```
+   Expect `scope.signin_premium_required = true`.
+3. Refresh `https://shasta.transilience.cloud/connect` in incognito;
+   confirm amber banner appears beneath the Entra row with the
+   expected copy + working Microsoft docs link.
+
+**Execution notes:**
+- Task 3 implementer dropped a socket mid-write — re-dispatched cleanly
+  on retry. No partial state landed.
+- Reviewer caught an unused `Iterable` import after the signature
+  change; one-line fix committed (`0a8f721`).
+- Plan's `_fetch_signins` body needed an `try/except ImportError`
+  wrapper around the kiota SDK imports so the bare test venv could
+  run the new tests without msgraph installed; production behavior
+  unchanged.
+
+**▶ NEXT** — S3 brainstorm (compliance mapping sweep + EU AI Act +
+SOC 2 AI framework registry adds).
 
 ## 🚀 AI Visibility v2 — Slice 2 shipped (2026-05-23)
 
