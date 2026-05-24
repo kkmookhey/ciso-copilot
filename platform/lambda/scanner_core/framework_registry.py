@@ -229,13 +229,12 @@ def _normalize_stage(finding: dict, registry: dict | None = None) -> dict:
     return finding
 
 
-def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
-    """Apply registry rules to a finding. Returns the SAME finding object
-    (mutated in place — the caller already owns it). Additive, idempotent.
+def _augment_stage(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
+    """Stage 2 of the CME-v2 pipeline: walk registry rules, set-union merge
+    matching add_frameworks into finding's frameworks, record provenance.
 
-    Side-effects:
-      - finding['frameworks'] updated (set-union per framework key, sorted)
-      - finding['evidence_packet']['_registry_rule_ids'] appended (set-union, sorted)
+    This is the Slice 3 apply() logic, unchanged. Renamed so apply() can
+    orchestrate it after _normalize_stage.
     """
     reg = registry if registry is not None else _REGISTRY
     rules_fired: list[str] = []
@@ -248,7 +247,6 @@ def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> di
                     existing = set(finding["frameworks"].get(fw) or [])
                     finding["frameworks"][fw] = sorted(existing | set(ctrls))
         except RegistryApplyError:
-            # Re-raise so the writer's try/except catches it and logs.
             raise
 
     if rules_fired:
@@ -256,4 +254,19 @@ def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> di
         prior = set(ep.get("_registry_rule_ids") or [])
         ep["_registry_rule_ids"] = sorted(prior | set(rules_fired))
 
+    return finding
+
+
+def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
+    """CME-v2 two-stage compliance crosswalk.
+
+    Stage 1 (normalize): rewrite scanner-emitted control IDs to canonical
+                          published format using each framework's rewrite_rules.
+    Stage 2 (augment):   walk registry rules, additively merge matching
+                          add_frameworks into finding's frameworks.
+
+    Mutates finding in place. Additive across runs. Idempotent.
+    """
+    _normalize_stage(finding, registry=registry)
+    _augment_stage(finding, entity_index, registry=registry)
     return finding

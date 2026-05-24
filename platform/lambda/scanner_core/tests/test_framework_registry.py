@@ -428,3 +428,44 @@ def test_normalize_handles_multiple_rewrites_in_same_framework(normalize_test_re
         "GOVERN 6.1", "GOVERN 6.2", "GOVERN 6.3",
         "MANAGE 3.1", "MANAGE 3.2",
     ]
+
+
+# --- CME-v2 S1: end-to-end apply with both stages ---
+
+
+def test_apply_runs_normalize_before_augment():
+    """End-to-end: a finding with Shasta-format tags + a matching rule lands
+    with canonical tags (from normalize) AND added rule tags (from augment)."""
+    registry = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [
+                    {"from": "GOVERN-6", "to": ["GOVERN 6.1", "GOVERN 6.2"]},
+                ],
+            },
+            "eu_ai_act": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [],
+            },
+        },
+        "rules": [
+            {
+                "id": "add_eu_ai_act_to_governance_check",
+                "when": {"check_id_eq": "scanner-governance-check"},
+                "add_frameworks": {"eu_ai_act": ["Article 9"]},
+            },
+        ],
+    }
+    # Scanner emitted Shasta-format GOVERN-6
+    f = _finding(check_id="scanner-governance-check",
+                 frameworks={"nist_ai_rmf": ["GOVERN-6"]})
+    fr.apply(f, entity_index={}, registry=registry)
+    # Normalize ran first → GOVERN-6 expanded to canonical subcategories
+    assert f["frameworks"]["nist_ai_rmf"] == ["GOVERN 6.1", "GOVERN 6.2"]
+    # Augment ran second → rule added Article 9 to eu_ai_act
+    assert f["frameworks"]["eu_ai_act"] == ["Article 9"]
+    # Provenance recorded
+    assert "add_eu_ai_act_to_governance_check" in f["evidence_packet"]["_registry_rule_ids"]
