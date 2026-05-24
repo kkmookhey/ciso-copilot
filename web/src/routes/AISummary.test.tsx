@@ -10,10 +10,14 @@ vi.mock("../lib/api", () => ({
       score:        { fail: 12, partial: 5, pass: 21 },
       by_source:    { aws: 7, azure: 4, code: 6, entra: 0 },
       by_framework: {
-        nist_ai_rmf: { fail: 4, partial: 1, pass: 8 },
-        iso_42001:   { fail: 3, partial: 2, pass: 6 },
-        soc2_ai:     { fail: 0, partial: 0, pass: 0 },
-        eu_ai_act:   { fail: 0, partial: 0, pass: 0 },
+        nist_ai_rmf:     { fail: 4, partial: 1, pass: 8 },
+        iso_42001:       { fail: 3, partial: 2, pass: 6 },
+        soc2_ai:         { fail: 0, partial: 0, pass: 0 },
+        eu_ai_act:       { fail: 0, partial: 0, pass: 0 },
+        nist_ai_600_1:   { fail: 2, partial: 1, pass: 5 },
+        owasp_llm_top10: { fail: 3, partial: 0, pass: 7 },
+        owasp_agentic:   { fail: 1, partial: 2, pass: 4 },
+        mitre_atlas:     { fail: 5, partial: 1, pass: 3 },
       },
       top_people: [
         { email: "alice@acme.com", fail: 3, partial: 1, sources: ["aws", "code"] },
@@ -34,6 +38,8 @@ describe("AISummary", () => {
     expect(screen.getAllByText(/pass/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/azure/i)).toBeTruthy();
     expect(screen.getByText(/nist ai rmf/i)).toBeTruthy();
+    expect(screen.getByText(/nist ai 600-1/i)).toBeTruthy();
+    expect(screen.getByText(/owasp llm top 10/i)).toBeTruthy();
     expect(screen.getByText("alice@acme.com")).toBeTruthy();
   });
 
@@ -43,10 +49,14 @@ describe("AISummary", () => {
       score:        { fail: 0, partial: 0, pass: 0 },
       by_source:    { aws: 0, azure: 0, code: 0, entra: 0 },
       by_framework: {
-        nist_ai_rmf: { fail: 0, partial: 0, pass: 0 },
-        iso_42001:   { fail: 0, partial: 0, pass: 0 },
-        soc2_ai:     { fail: 0, partial: 0, pass: 0 },
-        eu_ai_act:   { fail: 0, partial: 0, pass: 0 },
+        nist_ai_rmf:     { fail: 0, partial: 0, pass: 0 },
+        iso_42001:       { fail: 0, partial: 0, pass: 0 },
+        soc2_ai:         { fail: 0, partial: 0, pass: 0 },
+        eu_ai_act:       { fail: 0, partial: 0, pass: 0 },
+        nist_ai_600_1:   { fail: 0, partial: 0, pass: 0 },
+        owasp_llm_top10: { fail: 0, partial: 0, pass: 0 },
+        owasp_agentic:   { fail: 0, partial: 0, pass: 0 },
+        mitre_atlas:     { fail: 0, partial: 0, pass: 0 },
       },
       top_people:   [],
     });

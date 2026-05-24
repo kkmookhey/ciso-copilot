@@ -2,7 +2,8 @@
 
 A finding is AI-touching iff:
   - Any key in findings.frameworks equals one of the AI-framework
-    keys (nist_ai_rmf, iso_42001, soc2_ai, eu_ai_act), OR
+    keys (nist_ai_rmf, iso_42001, soc2_ai, eu_ai_act, nist_ai_600_1,
+    owasp_llm_top10, owasp_agentic, mitre_atlas), OR
   - The associated entity carries an AI domain/kind (joined via
     findings.subject_entity_id -> entities.id), OR
   - The finding's evidence_packet JSONB has is_ai=true.
@@ -38,7 +39,10 @@ DB_NAME        = os.environ["DB_NAME"]
 
 rds_data = boto3.client("rds-data")
 
-_AI_FRAMEWORKS = ("nist_ai_rmf", "iso_42001", "soc2_ai", "eu_ai_act")
+_AI_FRAMEWORKS = (
+    "nist_ai_rmf", "iso_42001", "soc2_ai", "eu_ai_act",
+    "nist_ai_600_1", "owasp_llm_top10", "owasp_agentic", "mitre_atlas",
+)
 
 # Kinds the per-person view treats as AI-touching when joining entities.
 # Keeping this list in code (not the DB) so deploys carry the truth.

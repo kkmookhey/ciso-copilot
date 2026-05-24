@@ -336,10 +336,14 @@ export interface AISummaryResponse {
   score:        AIStatusCounts;
   by_source:    { aws: number; azure: number; code: number; entra: number };
   by_framework: {
-    nist_ai_rmf: AIStatusCounts;
-    iso_42001:   AIStatusCounts;
-    soc2_ai:     AIStatusCounts;
-    eu_ai_act:   AIStatusCounts;
+    nist_ai_rmf:     AIStatusCounts;
+    iso_42001:       AIStatusCounts;
+    soc2_ai:         AIStatusCounts;
+    eu_ai_act:       AIStatusCounts;
+    nist_ai_600_1:   AIStatusCounts;
+    owasp_llm_top10: AIStatusCounts;
+    owasp_agentic:   AIStatusCounts;
+    mitre_atlas:     AIStatusCounts;
   };
   top_people: Array<{
     email:    string;
