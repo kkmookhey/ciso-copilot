@@ -102,6 +102,7 @@ Settled in the 2026-05-22 brainstorm:
 
 | # | Decision | Rationale |
 |---|---|---|
+| D-1 | **S2 piggybacks on the existing `cloud_type='entra'` connection** — no new connector type, no new admin-consent URL, no separate secret. AI sign-in scanning lands as an additional pass inside `shasta_runner_entra` (mirroring how S1 added `ai_pass.py` inside `shasta_runner_azure`). | The existing Microsoft AAD app already needs `AuditLog.Read.All` for Shasta's Entra checks (which read `user.signInActivity`). Adding `auditLogs/signIns` to the same admin-consent grant is zero customer-side friction. Decided 2026-05-23 brainstorm. |
 | D0 | S1 ships Azure-only; GCP-AI is promoted to its own sub-project | Shasta has no `gcp/ai_*` module; building it is a slice's worth of work — should be brainstormed separately rather than absorbed into S1 |
 | D1 | Visibility + Compliance is the wedge | Existing product shape; entrenched competitors elsewhere |
 | D2 | Per-person view = SQL `GROUP BY email`, not a graph resolver | "Email is good enough for now"; saves a schema migration |
@@ -287,47 +288,61 @@ lens" — introducing a second score concept just for AI fights the
 unified model. The four AI frameworks already provide maturity
 signal through the existing compliance view's per-framework tiles.
 
-## 9. Entra sign-in connector (S2 detailed)
+## 9. AI sign-in pass — S2 detailed
 
-### 9.1 Connection flow
+**Decision D-1 (2026-05-23):** S2 ships as an **additional scan pass
+inside the existing `shasta_runner_entra` runner**, NOT as a new
+connector type. No new "Connect Entra Sign-ins" card, no new
+admin-consent flow, no new secret. Same `cloud_type='entra'`
+connection row. Pattern mirrors S1's Azure `ai_pass.py` shape.
 
-1. New "Connect Entra Sign-ins" card on `/connect` (distinct from the
-   existing Entra IdP routing card — different consent, different
-   purpose).
-2. Click → Microsoft admin-consent URL with `AuditLog.Read.All` +
-   `Directory.Read.All` application-permission scopes.
-3. Admin grants; redirect to webhook
-   `POST /v1/connections/entra-signin/complete`.
-4. Webhook stores a client secret in Secrets Manager, inserts the
-   `connections` row (`provider='entra_signin'`, `secret_arn=…`,
-   `status='active'`), enqueues a first scan. (Client-certificate
-   auth is the Microsoft-recommended best practice; pin v2 on client
-   secret for simplicity, revisit cert rotation as a hardening
-   follow-on.)
-5. Connector is re-runnable via the existing
-   `POST /v1/connections/{id}/rescan` route.
+### 9.1 No separate connection flow
 
-### 9.2 Scanner Lambda
+Customers who have already connected Entra get S2 instantly on the
+next Entra scan. The existing Microsoft AAD app registration's scope
+set already includes whatever Graph permissions Shasta's Entra checks
+needed (`user.signInActivity` reads imply `AuditLog.Read.All`); the
+new `/auditLogs/signIns` query uses the same scope.
 
-`platform/lambda/entra_signin_scanner/` — plain Python (HTTPS +
-`psycopg2`), no container image (mirrors the deferred `provider_scanner`
-shape). Triggered by `entra-signin-scan-queue` SQS + DLQ
-(`maxReceiveCount=3`).
+**Pre-flight gate (Plan Task 1):** confirm `AuditLog.Read.All` is
+present on the deployed Microsoft AAD app's required-permissions
+manifest. If missing, plan branches: either add the scope to the
+app registration + surface a one-time "re-grant permissions" banner,
+or fall back to the original "separate connector" path. Most likely
+outcome based on Shasta's existing usage: scope is already there.
+
+### 9.2 Scanner pass
+
+The AI sign-in pass lives as a new module file in the existing runner:
+`platform/lambda/shasta_runner_entra/app/ai_signin_pass.py`. It is wired
+into the existing scan flow alongside the Shasta Entra compliance
+checks — runs every Entra scan, no tier gating (the existing Entra
+runner is single-pass; matching that shape).
 
 **Scan logic:**
 
-1. Auth to Graph via client credentials (client secret in Secrets
-   Manager — see §9.1 on cert hardening as a follow-on).
+1. The existing `shasta_runner_entra` already authenticates to Graph
+   via the customer's stored credentials. The AI sign-in pass receives
+   the authenticated client and reuses it.
 2. Page through
    `https://graph.microsoft.com/v1.0/auditLogs/signIns?$filter=createdDateTime ge {last_scan_at}`.
+   Incremental by `createdDateTime` so re-scans are cheap.
 3. For each event, match `appDisplayName` (and fallback `appId`)
    against the curated AI-SaaS catalog (see §9.3).
 4. On match: emit one `entities` row
    (`domain='identity'`, `kind='ai_user_signin'`,
    `natural_key={tenant_id}:{user_principal_name}:{app_id}`) and one
    `findings` row with severity from the catalog's per-app risk
-   policy.
+   policy. The finding's `evidence_packet` carries
+   `entra_upn: <user_principal_name>` so the `/ai` per-person view's
+   `_query_top_people` SQL — which already reads
+   `evidence_packet ->> 'entra_upn'` — populates without any read-side
+   change.
 5. `commit_scan(...)` writes the batch; idempotent on natural key.
+
+`kind='ai_user_signin'` is already in `ai_summary._AI_RESOURCE_KINDS`
+(added during S1 review), so findings linked to these entities are
+picked up as AI-touching automatically — no S1 changes required.
 
 ### 9.3 AI-SaaS catalog
 
@@ -359,21 +374,36 @@ service is a follow-on if entries churn faster).
 | `ai_signin_personal_tier` | Sign-in to a personal-tier AI SaaS app (ChatGPT free/plus) | High |
 | `ai_signin_corp_tier` | Sign-in to a corporate-tier AI SaaS app (ChatGPT Teams, Enterprise) | Low |
 | `ai_signin_unknown_tier` | Sign-in matched the app but tier couldn't be inferred | Medium |
-| `ai_signin_unsanctioned_app` | Sign-in to an AI app not in the customer's sanctioned-app list | High (if list exists; downgraded to Medium otherwise) |
+| ~~`ai_signin_unsanctioned_app`~~ | **Deferred** to a follow-on slice — requires per-tenant sanctioned-app config not in S2 scope | n/a |
 
-Sanctioned-app list is a per-tenant config (no UI in v2 — set via DB
-seed or admin-only API).
+Decision D-1 follow-on: per-tenant sanctioned-app overrides are
+**out of scope for S2**. KK chose the curated-default-only path in
+the 2026-05-23 brainstorm.
 
 ### 9.5 Failure modes
 
-- **Permissions revoked at Microsoft** → Graph returns 403; connector
-  status flips to `degraded`; `/connect` shows a re-consent prompt.
-- **Rate limited** → exponential backoff per Graph headers; DLQ on
-  `maxReceiveCount`; surface DLQ depth in the existing scan-health
-  dashboard.
-- **Customer on Entra Free tier** (no sign-in log retention beyond 7
-  days) → connector still works on the 7-day window; surface a "limited
-  retention" banner in `/connect`.
+- **`AuditLog.Read.All` scope missing from the app registration** →
+  caught at Plan Task 1 pre-flight; resolution path documented in
+  the plan.
+- **Permissions revoked at Microsoft** → Graph returns 403; the
+  existing Entra scan reports the error through its standard
+  outcome-tracking; `/connect` shows the existing degraded-status
+  treatment.
+- **Rate limited** → exponential backoff per Graph headers. If a
+  page fails, the unit reports `partial` and the rest of the scan
+  proceeds; we don't fail the whole Entra scan over a rate limit
+  in the sign-in pass.
+- **Customer on Entra Free tier** → `auditLogs/signIns` returns 403
+  `Authentication_RequestFromNonPremiumTenantOrB2CTenant`. **Microsoft
+  gates this endpoint on Entra ID P1 or P2 (Premium) license** — not
+  the 7-day-retention behaviour of the Entra portal UI. The try/except
+  wrapper in `main.py` swallows the error so Shasta's existing entra
+  checks still complete. **Confirmed live on 2026-05-23 against KK's
+  free-tier test tenant**: scan `b253e078…` wrote 16 Shasta findings
+  and 0 AI sign-in findings, exactly as designed. UX follow-on: surface
+  a "Entra Free tier — sign-in detection requires P1/P2" banner on
+  `/connect` so customers know why the Entra tile shows zero AI
+  findings.
 - **App ID changes upstream** → catalog falls back to `appDisplayName`;
   unmatched events drop silently (logged for telemetry).
 
