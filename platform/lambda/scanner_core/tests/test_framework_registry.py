@@ -469,3 +469,128 @@ def test_apply_runs_normalize_before_augment():
     assert f["frameworks"]["eu_ai_act"] == ["Article 9"]
     # Provenance recorded
     assert "add_eu_ai_act_to_governance_check" in f["evidence_packet"]["_registry_rule_ids"]
+
+
+# --- CME-v2 S2: mitre_atlas rewrite table ---
+
+
+def test_mitre_atlas_shasta_ids_passthrough_via_rewrite():
+    """All 15 Shasta-emitted MITRE ATLAS IDs round-trip identically through normalize."""
+    SHASTA_IDS = [
+        "AML.T0000", "AML.T0001", "AML.T0003", "AML.T0004",
+        "AML.T0010", "AML.T0011", "AML.T0012", "AML.T0015",
+        "AML.T0024", "AML.T0025", "AML.T0029", "AML.T0031",
+        "AML.T0035", "AML.T0051", "AML.T0052",
+    ]
+    f = _finding(check_id="x", frameworks={"mitre_atlas": list(SHASTA_IDS)})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    # All inputs preserved (sorted, deduped — same set)
+    assert set(f["frameworks"]["mitre_atlas"]) == set(SHASTA_IDS)
+
+
+# --- CME-v2 S2: owasp_llm_top10 rewrite table ---
+
+
+def test_owasp_llm_top10_year_pinning_rewrite():
+    """Shasta's bare LLMNN IDs (2023 numbering) rewrite to LLMNN:2025 (current edition)."""
+    # LLM01:2025 is Prompt Injection in both 2023 and 2025 — stable position, no renumbering.
+    f = _finding(check_id="x", frameworks={"owasp_llm_top10": ["LLM01"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "LLM01:2025" in f["frameworks"]["owasp_llm_top10"]
+
+
+def test_owasp_llm_top10_renumbered_items_map_to_2025_ids():
+    """2023's LLM06 Sensitive Information Disclosure became 2025's LLM02:2025."""
+    # Verified: 2023 LLM06 → 2025 LLM02:2025 (moved from #6 to #2 in the 2025 edition).
+    f = _finding(check_id="x", frameworks={"owasp_llm_top10": ["LLM06"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "LLM02:2025" in f["frameworks"]["owasp_llm_top10"]
+
+
+# --- CME-v2 S2: eu_ai_act rewrite table ---
+
+
+def test_eu_ai_act_euai_prefix_rewrites_to_article():
+    """Shasta's EUAI-N IDs rewrite to canonical Article N."""
+    SHASTA_IDS = ["EUAI-9", "EUAI-10", "EUAI-11", "EUAI-12", "EUAI-13", "EUAI-14", "EUAI-15"]
+    f = _finding(check_id="x", frameworks={"eu_ai_act": list(SHASTA_IDS)})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    # Each EUAI-N becomes Article N
+    for n in [9, 10, 11, 12, 13, 14, 15]:
+        assert f"Article {n}" in f["frameworks"]["eu_ai_act"]
+    # No EUAI- prefix should remain
+    assert not any(c.startswith("EUAI-") for c in f["frameworks"]["eu_ai_act"])
+
+
+def test_eu_ai_act_euai_52_resolves_to_canonical_article():
+    """EUAI-52 maps to Article 50 in the final regulation (OJ L 2024/1689).
+
+    Shasta used draft numbering 'Art. 52' for the limited-risk transparency
+    obligations. In the final published text, that provision is Article 50
+    ('Transparency Obligations for Providers and Deployers of Certain AI
+    Systems'). Article 52 in the final regulation is 'Procedure' — the
+    process for GPAI systemic-risk designation — an entirely different topic.
+    Verified at: https://artificialintelligenceact.eu/article/50/
+    """
+    f = _finding(check_id="x", frameworks={"eu_ai_act": ["EUAI-52"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "Article 50" in f["frameworks"]["eu_ai_act"]
+    assert "EUAI-52" not in f["frameworks"]["eu_ai_act"]
+
+
+# --- CME-v2 S2: nist_ai_rmf rewrite table ---
+
+
+def test_nist_ai_rmf_function_level_expands_to_subcategories():
+    """GOVERN-6 (Shasta's function-level) expands to all its subcategories."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN-6"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    # GOVERN 6 contains 6.1 and 6.2 per NIST AI 100-1 §5
+    expanded = f["frameworks"]["nist_ai_rmf"]
+    assert "GOVERN 6.1" in expanded
+    assert "GOVERN 6.2" in expanded
+    # No Shasta hyphen-format should remain
+    assert "GOVERN-6" not in expanded
+
+
+def test_nist_ai_rmf_measure_expansion():
+    """MEASURE-2 expands to its subcategories (MEASURE 2.x)."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["MEASURE-2"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    expanded = f["frameworks"]["nist_ai_rmf"]
+    # MEASURE 2 has 13 subcategories (2.1–2.13) per NIST AI 100-1 §5
+    assert any(c.startswith("MEASURE 2.") for c in expanded)
+    assert "MEASURE-2" not in expanded
+
+
+def test_nist_ai_rmf_slice_e_subcategories_pass_through():
+    """Slice E's already-canonical subcategory IDs (e.g., GOVERN 3.2) pass through unchanged."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN 3.2"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "GOVERN 3.2" in f["frameworks"]["nist_ai_rmf"]
+
+
+# --- CME-v2 S2: nist_ai_600_1 rewrite table ---
+
+
+def test_nist_ai_600_1_gai_ids_passthrough():
+    """All 12 GAI-N risk identifiers from Shasta pass through unchanged."""
+    SHASTA_IDS = [f"GAI-{n}" for n in range(1, 13)]
+    f = _finding(check_id="x", frameworks={"nist_ai_600_1": list(SHASTA_IDS)})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    for n in range(1, 13):
+        assert f"GAI-{n}" in f["frameworks"]["nist_ai_600_1"]
+
+
+def test_nist_ai_600_1_slice_e_govern_passes_through():
+    """Slice E's `GOVERN 1.6` (RMF subcategory reference) survives normalize unchanged.
+
+    Slice E rules incorrectly mixed RMF subcategory format into the nist_ai_600_1
+    framework. The registry treats it as passthrough — auditor sees both GAI-N
+    risk references and RMF subcategory references for AI 600-1 findings.
+    A future slice may unify by mapping RMF subcategory IDs to the GAI-N risks
+    they relate to.
+    """
+    f = _finding(check_id="x", frameworks={"nist_ai_600_1": ["GOVERN 1.6"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "GOVERN 1.6" in f["frameworks"]["nist_ai_600_1"]
