@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
