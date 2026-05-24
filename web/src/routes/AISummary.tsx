@@ -7,10 +7,14 @@ import { useEffect, useState } from "react";
 import { api, type AISummaryResponse, type AIStatusCounts } from "../lib/api";
 
 const FRAMEWORK_LABELS: Record<string, string> = {
-  nist_ai_rmf: "NIST AI RMF",
-  iso_42001:   "ISO 42001",
-  soc2_ai:     "SOC 2 AI",
-  eu_ai_act:   "EU AI Act",
+  nist_ai_rmf:     "NIST AI RMF",
+  iso_42001:       "ISO 42001",
+  soc2_ai:         "SOC 2 AI",
+  eu_ai_act:       "EU AI Act",
+  nist_ai_600_1:   "NIST AI 600-1",
+  owasp_llm_top10: "OWASP LLM Top 10",
+  owasp_agentic:   "OWASP Agentic",
+  mitre_atlas:     "MITRE ATLAS",
 };
 
 const SOURCE_LABELS: Record<string, string> = {
