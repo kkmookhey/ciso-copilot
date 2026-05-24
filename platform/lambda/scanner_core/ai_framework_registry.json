@@ -1,0 +1,45 @@
+{
+  "frameworks": {
+    "nist_ai_rmf": {
+      "name": "NIST AI RMF",
+      "source": "NIST AI 100-1 (2023)",
+      "control_descriptions": {}
+    },
+    "iso_42001": {
+      "name": "ISO/IEC 42001",
+      "source": "ISO/IEC 42001:2023",
+      "control_descriptions": {}
+    },
+    "soc2_ai": {
+      "name": "SOC 2 + AI",
+      "source": "AICPA Description Criteria for AI Systems (2024)",
+      "control_descriptions": {}
+    },
+    "eu_ai_act": {
+      "name": "EU AI Act",
+      "source": "Regulation (EU) 2024/1689",
+      "control_descriptions": {}
+    },
+    "nist_ai_600_1": {
+      "name": "NIST AI 600-1",
+      "source": "NIST AI 600-1 (2024)",
+      "control_descriptions": {}
+    },
+    "owasp_llm_top10": {
+      "name": "OWASP LLM Top 10",
+      "source": "OWASP 2025",
+      "control_descriptions": {}
+    },
+    "owasp_agentic": {
+      "name": "OWASP Agentic",
+      "source": "OWASP Agentic AI Top 10",
+      "control_descriptions": {}
+    },
+    "mitre_atlas": {
+      "name": "MITRE ATLAS",
+      "source": "MITRE ATLAS v4",
+      "control_descriptions": {}
+    }
+  },
+  "rules": []
+}
