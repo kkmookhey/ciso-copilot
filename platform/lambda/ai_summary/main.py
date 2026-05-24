@@ -33,6 +33,8 @@ import os
 
 import boto3
 
+from framework_meta import ai_family_meta
+
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
@@ -89,10 +91,11 @@ def handler(event: dict, context) -> dict:
     top_people   = _query_top_people(tenant_id)
 
     return _resp(200, {
-        "score":        score,
-        "by_source":    by_source,
-        "by_framework": by_framework,
-        "top_people":   top_people,
+        "score":           score,
+        "by_source":       by_source,
+        "by_framework":    by_framework,
+        "top_people":      top_people,
+        "frameworks_meta": ai_family_meta(),
     })
 
 
