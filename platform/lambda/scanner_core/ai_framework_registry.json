@@ -43,10 +43,26 @@
       "source_url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj",
       "version": "2024/1689",
       "canonical_format": "Article N or Article N(P)",
-      "rewrite_rules": [],
+      "rewrite_rules": [
+        {"from": "EUAI-9",  "to": ["Article 9"],  "source": "https://artificialintelligenceact.eu/article/9/  — Art. 9 Risk Management System"},
+        {"from": "EUAI-10", "to": ["Article 10"], "source": "https://artificialintelligenceact.eu/article/10/ — Art. 10 Data and Data Governance"},
+        {"from": "EUAI-11", "to": ["Article 11"], "source": "https://artificialintelligenceact.eu/article/11/ — Art. 11 Technical Documentation"},
+        {"from": "EUAI-12", "to": ["Article 12"], "source": "https://artificialintelligenceact.eu/article/12/ — Art. 12 Record-Keeping"},
+        {"from": "EUAI-13", "to": ["Article 13"], "source": "https://artificialintelligenceact.eu/article/13/ — Art. 13 Transparency and Provision of Information to Deployers"},
+        {"from": "EUAI-14", "to": ["Article 14"], "source": "https://artificialintelligenceact.eu/article/14/ — Art. 14 Human Oversight"},
+        {"from": "EUAI-15", "to": ["Article 15"], "source": "https://artificialintelligenceact.eu/article/15/ — Art. 15 Accuracy, Robustness and Cybersecurity"},
+        {"from": "EUAI-52", "to": ["Article 50"], "source": "https://artificialintelligenceact.eu/article/50/ — Shasta used draft numbering 'Art. 52' for what became Art. 50 (Transparency Obligations for Providers and Deployers of Certain AI Systems) in the final OJ text of Regulation 2024/1689. Art. 52 in the final regulation is 'Procedure' for GPAI systemic risk designation — an unrelated provision."}
+      ],
       "control_descriptions": {
         "Article 9": "A risk management system shall be established, implemented, documented and maintained in relation to high-risk AI systems — a continuous iterative process throughout the entire lifecycle.",
-        "Article 26": "Deployers of high-risk AI systems shall take appropriate technical and organisational measures to ensure use in accordance with instructions, and shall assign human oversight with necessary competence and authority."
+        "Article 10": "High-risk AI systems shall be developed on the basis of training, validation and testing datasets following appropriate data governance and management practices, ensuring datasets are relevant, sufficiently representative, and to the best extent possible free of errors and complete.",
+        "Article 11": "Providers of high-risk AI systems shall draw up technical documentation before placing the system on the market or putting it into service, containing minimum information set out in Annex IV to demonstrate compliance and enable competent authority oversight.",
+        "Article 12": "High-risk AI systems shall technically allow for the automatic recording of events (logs) over the lifetime of the system, to a degree appropriate to the intended purpose, supporting post-market monitoring and traceability of risk situations.",
+        "Article 13": "High-risk AI systems shall be designed and developed in such a way as to ensure that their operation is sufficiently transparent to enable deployers to interpret the system's output and use it appropriately, accompanied by instructions for use.",
+        "Article 14": "High-risk AI systems shall be designed and developed in such a way, including with appropriate human-machine interface tools, that they can be effectively overseen by natural persons during the period in which the AI system is in use.",
+        "Article 15": "High-risk AI systems shall be designed and developed in such a way that they achieve an appropriate level of accuracy, robustness, and cybersecurity, and perform consistently in those respects throughout their lifecycle.",
+        "Article 26": "Deployers of high-risk AI systems shall take appropriate technical and organisational measures to ensure use in accordance with instructions, and shall assign human oversight with necessary competence and authority.",
+        "Article 50": "Providers of AI systems intended to interact directly with natural persons shall ensure persons are informed they are interacting with an AI system; providers of AI generating synthetic audio, image, video or text content shall mark outputs as artificially generated or manipulated."
       }
     },
     "nist_ai_600_1": {

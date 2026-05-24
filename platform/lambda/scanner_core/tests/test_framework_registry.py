@@ -505,3 +505,34 @@ def test_owasp_llm_top10_renumbered_items_map_to_2025_ids():
     f = _finding(check_id="x", frameworks={"owasp_llm_top10": ["LLM06"]})
     fr._normalize_stage(f, registry=fr.load_registry())
     assert "LLM02:2025" in f["frameworks"]["owasp_llm_top10"]
+
+
+# --- CME-v2 S2: eu_ai_act rewrite table ---
+
+
+def test_eu_ai_act_euai_prefix_rewrites_to_article():
+    """Shasta's EUAI-N IDs rewrite to canonical Article N."""
+    SHASTA_IDS = ["EUAI-9", "EUAI-10", "EUAI-11", "EUAI-12", "EUAI-13", "EUAI-14", "EUAI-15"]
+    f = _finding(check_id="x", frameworks={"eu_ai_act": list(SHASTA_IDS)})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    # Each EUAI-N becomes Article N
+    for n in [9, 10, 11, 12, 13, 14, 15]:
+        assert f"Article {n}" in f["frameworks"]["eu_ai_act"]
+    # No EUAI- prefix should remain
+    assert not any(c.startswith("EUAI-") for c in f["frameworks"]["eu_ai_act"])
+
+
+def test_eu_ai_act_euai_52_resolves_to_canonical_article():
+    """EUAI-52 maps to Article 50 in the final regulation (OJ L 2024/1689).
+
+    Shasta used draft numbering 'Art. 52' for the limited-risk transparency
+    obligations. In the final published text, that provision is Article 50
+    ('Transparency Obligations for Providers and Deployers of Certain AI
+    Systems'). Article 52 in the final regulation is 'Procedure' — the
+    process for GPAI systemic-risk designation — an entirely different topic.
+    Verified at: https://artificialintelligenceact.eu/article/50/
+    """
+    f = _finding(check_id="x", frameworks={"eu_ai_act": ["EUAI-52"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "Article 50" in f["frameworks"]["eu_ai_act"]
+    assert "EUAI-52" not in f["frameworks"]["eu_ai_act"]
