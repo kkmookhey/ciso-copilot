@@ -111,7 +111,10 @@
       "version": "2023",
       "canonical_format": "Clause N or A.N.N (no AI- prefix)",
       "rewrite_rules": [],
-      "control_descriptions": {}
+      "control_descriptions": {
+        "A.6.2.4": "The organization shall ensure that AI systems it develops or uses meet appropriate safety and robustness requirements, including controls that limit outputs to acceptable ranges and prevent generation of harmful content. (ISO/IEC 42001:2023 Annex A, Control A.6.2.4)",
+        "A.8.2":   "The organization shall establish and maintain records for AI system activities to the extent necessary to provide evidence of conformity, support accountability, and enable retrospective analysis of AI system behavior and decisions. (ISO/IEC 42001:2023 Annex A, Control A.8.2)"
+      }
     },
     "soc2_ai": {
       "name": "SOC 2 + AI",
@@ -282,7 +285,7 @@
       "when": { "check_id_eq": "ai_signin_personal_tier" },
       "add_frameworks": {
         "nist_ai_rmf":     ["GOVERN 3.2", "GOVERN 6.1"],
-        "nist_ai_600_1":   ["GOVERN 1.6"],
+        "nist_ai_600_1":   ["GAI-2", "GAI-8", "GAI-9"],
         "eu_ai_act":       ["Article 9", "Article 26"],
         "owasp_llm_top10": ["LLM02:2025"],
         "mitre_atlas":     ["AML.T0057"]
@@ -293,7 +296,7 @@
       "when": { "check_id_eq": "ai_signin_corp_tier" },
       "add_frameworks": {
         "nist_ai_rmf":   ["GOVERN 1.1", "MAP 1.1"],
-        "nist_ai_600_1": ["GOVERN 1.6"],
+        "nist_ai_600_1": ["GAI-9"],
         "eu_ai_act":     ["Article 9"]
       }
     },
@@ -302,9 +305,106 @@
       "when": { "check_id_eq": "ai_signin_unknown_tier" },
       "add_frameworks": {
         "nist_ai_rmf":     ["MAP 1.1", "MAP 5.1"],
-        "nist_ai_600_1":   ["GOVERN 1.6"],
+        "nist_ai_600_1":   ["GAI-2", "GAI-8", "GAI-9"],
         "eu_ai_act":       ["Article 9", "Article 26"],
         "owasp_llm_top10": ["LLM02:2025"]
+      }
+    },
+    {
+      "id": "baseline_bedrock_content_filter",
+      "when": { "check_id_eq": "bedrock-content-filter" },
+      "add_frameworks": {
+        "nist_ai_rmf": ["MANAGE 2.4", "MEASURE 2.6", "MEASURE 2.7"],
+        "iso_42001":   ["A.6.2.4"]
+      }
+    },
+    {
+      "id": "baseline_bedrock_vpc_endpoint",
+      "when": { "check_id_eq": "bedrock-vpc-endpoint" },
+      "add_frameworks": {
+        "nist_ai_rmf": ["MANAGE 2.1", "MEASURE 2.7"],
+        "eu_ai_act":   ["Article 15"],
+        "iso_42001":   ["A.8.2"]
+      }
+    },
+    {
+      "id": "baseline_cloudtrail_ai_events",
+      "when": { "check_id_eq": "cloudtrail-ai-events" },
+      "add_frameworks": {
+        "iso_42001":       ["A.8.2"],
+        "nist_ai_600_1":   ["GAI-8"],
+        "owasp_llm_top10": ["LLM05:2025"]
+      }
+    },
+    {
+      "id": "baseline_s3_training_data_versioned",
+      "when": { "check_id_eq": "s3-training-data-versioned" },
+      "add_frameworks": {
+        "nist_ai_rmf": ["MANAGE 4.1", "MEASURE 2.6"],
+        "eu_ai_act":   ["Article 10"]
+      }
+    },
+    {
+      "id": "baseline_sagemaker_notebook_root_access",
+      "when": { "check_id_eq": "sagemaker-notebook-root-access" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["GOVERN 6.1", "MANAGE 2.1", "MANAGE 2.2"],
+        "eu_ai_act":       ["Article 9", "Article 15"],
+        "nist_ai_600_1":   ["GAI-9"],
+        "owasp_llm_top10": ["LLM06:2025"],
+        "mitre_atlas":     ["AML.T0012"]
+      }
+    },
+    {
+      "id": "baseline_sagemaker_training_vpc",
+      "when": { "check_id_eq": "sagemaker-training-vpc" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["MANAGE 2.1", "MEASURE 2.7"],
+        "eu_ai_act":       ["Article 15"],
+        "nist_ai_600_1":   ["GAI-9"],
+        "owasp_llm_top10": ["LLM03:2025"],
+        "mitre_atlas":     ["AML.T0024", "AML.T0025"]
+      }
+    },
+    {
+      "id": "baseline_sagemaker_model_approval",
+      "when": { "check_id_eq": "sagemaker-model-approval" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["GOVERN 6.1", "MANAGE 1.1", "MEASURE 2.5"],
+        "eu_ai_act":       ["Article 9"],
+        "nist_ai_600_1":   ["GAI-6", "GAI-9"],
+        "owasp_llm_top10": ["LLM03:2025"]
+      }
+    },
+    {
+      "id": "baseline_sagemaker_endpoint_encryption",
+      "when": { "check_id_eq": "sagemaker-endpoint-encryption" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["MANAGE 2.1", "MEASURE 2.7"],
+        "eu_ai_act":       ["Article 15"],
+        "nist_ai_600_1":   ["GAI-9"],
+        "owasp_llm_top10": ["LLM02:2025"]
+      }
+    },
+    {
+      "id": "baseline_sagemaker_data_capture",
+      "when": { "check_id_eq": "sagemaker-data-capture" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["MANAGE 4.1", "MEASURE 2.4", "MEASURE 2.7"],
+        "eu_ai_act":       ["Article 12", "Article 15"],
+        "nist_ai_600_1":   ["GAI-8"],
+        "owasp_llm_top10": ["LLM05:2025"]
+      }
+    },
+    {
+      "id": "baseline_sagemaker_model_registry_access",
+      "when": { "check_id_eq": "sagemaker-model-registry-access" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["GOVERN 6.1", "MANAGE 2.1", "MANAGE 2.2"],
+        "eu_ai_act":       ["Article 9", "Article 15"],
+        "nist_ai_600_1":   ["GAI-9", "GAI-10"],
+        "owasp_llm_top10": ["LLM06:2025"],
+        "mitre_atlas":     ["AML.T0012", "AML.T0035"]
       }
     }
   ]

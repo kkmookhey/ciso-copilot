@@ -209,7 +209,11 @@ def test_personal_tier_finding_tagged_with_ai_frameworks():
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "GOVERN 3.2" in result["frameworks"].get("nist_ai_rmf", [])
     assert "GOVERN 6.1" in result["frameworks"].get("nist_ai_rmf", [])
-    assert "GOVERN 1.6" in result["frameworks"].get("nist_ai_600_1", [])
+    # S3: replaced leaked RMF subcategory format with canonical GAI-N identifiers
+    assert "GAI-2" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GOVERN 1.6" not in result["frameworks"].get("nist_ai_600_1", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     assert "Article 26" in result["frameworks"].get("eu_ai_act", [])
     assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
@@ -221,7 +225,9 @@ def test_corp_tier_finding_tagged():
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "GOVERN 1.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MAP 1.1" in result["frameworks"].get("nist_ai_rmf", [])
-    assert "GOVERN 1.6" in result["frameworks"].get("nist_ai_600_1", [])
+    # S3: replaced leaked RMF subcategory format with canonical GAI-N identifiers
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GOVERN 1.6" not in result["frameworks"].get("nist_ai_600_1", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     # corp_tier should NOT carry Article 26 (deployer obligations for high-risk
     # systems) — only the unknown/personal tiers do
@@ -233,6 +239,11 @@ def test_unknown_tier_finding_tagged():
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "MAP 1.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MAP 5.1" in result["frameworks"].get("nist_ai_rmf", [])
+    # S3: replaced leaked RMF subcategory format with canonical GAI-N identifiers
+    assert "GAI-2" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GOVERN 1.6" not in result["frameworks"].get("nist_ai_600_1", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
 
@@ -582,15 +593,151 @@ def test_nist_ai_600_1_gai_ids_passthrough():
         assert f"GAI-{n}" in f["frameworks"]["nist_ai_600_1"]
 
 
-def test_nist_ai_600_1_slice_e_govern_passes_through():
-    """Slice E's `GOVERN 1.6` (RMF subcategory reference) survives normalize unchanged.
+def test_nist_ai_600_1_govern_id_passes_through_normalize():
+    """A bare `GOVERN 1.6` value in nist_ai_600_1 survives normalize unchanged.
 
-    Slice E rules incorrectly mixed RMF subcategory format into the nist_ai_600_1
-    framework. The registry treats it as passthrough — auditor sees both GAI-N
-    risk references and RMF subcategory references for AI 600-1 findings.
-    A future slice may unify by mapping RMF subcategory IDs to the GAI-N risks
-    they relate to.
+    S3 removed the Slice E format leak: the three ai_signin_* rules no longer
+    emit `GOVERN 1.6` into nist_ai_600_1 (they now emit GAI-N identifiers).
+    However, if historical data or an external source places `GOVERN 1.6` into
+    the nist_ai_600_1 framework list, normalize passes it through as-is (no
+    rewrite rule matches it), preserving data rather than silently dropping it.
     """
     f = _finding(check_id="x", frameworks={"nist_ai_600_1": ["GOVERN 1.6"]})
     fr._normalize_stage(f, registry=fr.load_registry())
     assert "GOVERN 1.6" in f["frameworks"]["nist_ai_600_1"]
+
+
+# --- CME-v2 S3: baseline rules for AI-domain check_ids ---
+
+
+def test_baseline_bedrock_content_filter():
+    """bedrock-content-filter gets nist_ai_rmf + iso_42001 gap-fills."""
+    f = _finding(check_id="bedrock-content-filter")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MANAGE 2.4" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.6" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "A.6.2.4" in result["frameworks"].get("iso_42001", [])
+    assert "baseline_bedrock_content_filter" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_bedrock_vpc_endpoint():
+    """bedrock-vpc-endpoint gets nist_ai_rmf + eu_ai_act + iso_42001 gap-fills."""
+    f = _finding(check_id="bedrock-vpc-endpoint")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
+    assert "A.8.2" in result["frameworks"].get("iso_42001", [])
+    assert "baseline_bedrock_vpc_endpoint" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_cloudtrail_ai_events():
+    """cloudtrail-ai-events gets iso_42001 + nist_ai_600_1 + owasp_llm_top10 gap-fills."""
+    f = _finding(check_id="cloudtrail-ai-events")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "A.8.2" in result["frameworks"].get("iso_42001", [])
+    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "LLM05:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "baseline_cloudtrail_ai_events" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_s3_training_data_versioned():
+    """s3-training-data-versioned gets nist_ai_rmf + eu_ai_act gap-fills."""
+    f = _finding(check_id="s3-training-data-versioned")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MANAGE 4.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.6" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 10" in result["frameworks"].get("eu_ai_act", [])
+    assert "baseline_s3_training_data_versioned" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_sagemaker_notebook_root_access():
+    """sagemaker-notebook-root-access gets comprehensive AI framework coverage (was soc2+fedramp only)."""
+    f = _finding(check_id="sagemaker-notebook-root-access")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    # nist_ai_rmf: privileged access to AI systems + third-party/library risk via notebook
+    assert "GOVERN 6.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MANAGE 2.2" in result["frameworks"].get("nist_ai_rmf", [])
+    # eu_ai_act: cybersecurity + risk management system
+    assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
+    assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
+    # nist_ai_600_1: third-party/supply chain risk (GAI-9)
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    # owasp_llm_top10: root access = excessive privilege (LLM06:2025 Excessive Agency)
+    assert "LLM06:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    # mitre_atlas: Valid Accounts (AML.T0012) — root-access enables backdoor injection
+    assert "AML.T0012" in result["frameworks"].get("mitre_atlas", [])
+    assert "baseline_sagemaker_notebook_root_access" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_sagemaker_training_vpc():
+    """sagemaker-training-vpc gets full AI framework coverage (was soc2+fedramp only)."""
+    f = _finding(check_id="sagemaker-training-vpc")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "LLM03:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "AML.T0024" in result["frameworks"].get("mitre_atlas", [])
+    assert "AML.T0025" in result["frameworks"].get("mitre_atlas", [])
+    assert "baseline_sagemaker_training_vpc" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_sagemaker_model_approval():
+    """sagemaker-model-approval gets AI framework gap-fills for model governance."""
+    f = _finding(check_id="sagemaker-model-approval")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "GOVERN 6.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MANAGE 1.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.5" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
+    assert "GAI-6" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "LLM03:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "baseline_sagemaker_model_approval" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_sagemaker_endpoint_encryption():
+    """sagemaker-endpoint-encryption gets AI framework gap-fills for data-in-transit protection."""
+    f = _finding(check_id="sagemaker-endpoint-encryption")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "baseline_sagemaker_endpoint_encryption" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_sagemaker_data_capture():
+    """sagemaker-data-capture gets AI framework gap-fills for inference monitoring/audit."""
+    f = _finding(check_id="sagemaker-data-capture")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MANAGE 4.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.4" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 12" in result["frameworks"].get("eu_ai_act", [])
+    assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
+    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "LLM05:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "baseline_sagemaker_data_capture" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_baseline_sagemaker_model_registry_access():
+    """sagemaker-model-registry-access gets AI framework gap-fills for model access control."""
+    f = _finding(check_id="sagemaker-model-registry-access")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "GOVERN 6.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MANAGE 2.2" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
+    assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
+    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "GAI-10" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "LLM06:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "AML.T0012" in result["frameworks"].get("mitre_atlas", [])
+    assert "AML.T0035" in result["frameworks"].get("mitre_atlas", [])
+    assert "baseline_sagemaker_model_registry_access" in result["evidence_packet"]["_registry_rule_ids"]
