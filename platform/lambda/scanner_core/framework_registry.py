@@ -92,9 +92,11 @@ def validate_registry(registry: dict) -> None:
         if not isinstance(fw, dict):
             raise RegistryValidationError(f"framework[{fw_key}]: must be an object")
 
-        # 'family' is optional in this task; Task 3 makes it required.
-        family = fw.get("family")
-        if family is not None and family not in _KNOWN_FAMILIES:
+        # CME-v2 §5: family is mandatory.
+        if "family" not in fw:
+            raise RegistryValidationError(f"framework[{fw_key}]: missing 'family'")
+        family = fw["family"]
+        if family not in _KNOWN_FAMILIES:
             raise RegistryValidationError(
                 f"framework[{fw_key}]: unknown family {family!r}; "
                 f"must be one of {sorted(_KNOWN_FAMILIES)}"

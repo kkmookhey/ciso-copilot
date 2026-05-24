@@ -317,3 +317,18 @@ def test_validator_rejects_invalid_family():
     }
     with pytest.raises(fr.RegistryValidationError, match="unknown family"):
         fr.validate_registry(bad)
+
+
+def test_validator_requires_family_on_every_framework():
+    """Spec §5: every framework must declare a family."""
+    bad = {
+        "frameworks": {
+            "no_family": {
+                "name": "x", "source": "x", "control_descriptions": {},
+                # 'family' deliberately omitted
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="missing 'family'"):
+        fr.validate_registry(bad)
