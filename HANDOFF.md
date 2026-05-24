@@ -4,11 +4,62 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-24 (AI Visibility v2 Slice 2.1 code shipped —
-> Entra Free-tier licensing banner. Backend writes
-> cloud_connections.scope.signin_premium_required on the specific
-> Microsoft 403; /connect renders an amber banner under flagged Entra
-> rows. Image + web both deployed).
+> Last updated: 2026-05-24 (AI Visibility v2 S2.1 verified — Entra
+> Free-tier licensing banner works end-to-end. Also: restored the
+> AiSummary Lambda + `/ai/summary` route after a stale-tree CDK deploy
+> on 2026-05-23 silently wiped them — `/ai` is live again. See gotcha
+> block below.)
+
+## 🛠 `/ai` endpoint restored (2026-05-24)
+
+Reactive fix during S2.1 verification — `/ai` was returning **500
+Internal Server Error**. Root-cause + fix below; the lesson is the
+load-bearing part.
+
+**Symptom:** `https://shasta.transilience.cloud/ai` → "Failed to load
+AI summary: 500 {\"message\": \"Internal server error\"}". `GET
+/v1/ai/summary` without auth returned 401 (so the route looked
+deployed), but `aws lambda list-functions` had no `AiSummaryFn` and
+the deployed CFN template had **zero** `AiSummary*` references.
+
+**Root cause:** `CisoCopilotApi` CFN events showed a deploy at
+**2026-05-23 19:28 UTC** that explicitly DELETED `AiSummaryFnFB51D79F`,
+`RestApiaisummaryC0CCE8FD` (the `/ai/summary` resource), the GET +
+OPTIONS methods, both Lambda permissions, and the service role +
+default policy. Timing math:
+- `1f2b926` ("feat(api): wire /ai/summary route + AiSummaryFn") on the
+  S1 branch — **2026-05-22 19:21 PDT**.
+- The 19:28 UTC deploy — **2026-05-23 12:28 PDT**.
+- PR #6 (S1) merged to main — **2026-05-23 17:03 PDT**.
+A `cdk deploy CisoCopilotApi` ran between the commit and the merge,
+from a tree (main, pre-merge) that didn't have the S1 code. CFN
+reconciled the deployed stack against that tree and dropped the
+"orphan" resources. The 401 from API Gateway after the wipe was a
+residual stage-deployment quirk; authed calls hit the missing
+integration and got 500.
+
+**Fix:** Single redeploy from current main HEAD (`bdbf7e8`), which has
+all three PRs (#6, #7, #8) merged in:
+```bash
+cd platform && npx cdk deploy CisoCopilotApi --require-approval never
+```
+82s, 13/13 resources `UPDATE_COMPLETE` — pure ADD of one Lambda + IAM
+role + policy + GET/OPTIONS methods + Lambda permissions + redeployed
+the v1 stage. Verified: Lambda live (direct invoke returns structured
+401 `no_tenant` on a synthetic event), `/ai/summary` resource back in
+API Gateway (id `175ooa`, GET + OPTIONS), no-auth curl returns 401
+(Cognito authorizer working).
+
+**▶ Lesson — paid in debugging time:** **Never `cdk deploy <stack>`
+from a tree that lacks feature work which has already been deployed
+from another branch.** CDK/CFN treats the divergence as drift and
+deletes the "extra" resources, silently. The 2026-05-22→2026-05-23
+window had a 22-hour gap between S1's deployed code and S1's merge to
+main, and a deploy from a different branch in that window wiped the
+endpoint. Mitigation in practice: if you're about to deploy from a
+non-main branch, `git fetch origin main && git diff origin/main..HEAD
+-- platform/lib/` to confirm you're not regressing main's CDK surface.
+Or — merge first, then deploy from main.
 
 ## 🚀 AI Visibility v2 — Slice 2.1 shipped (2026-05-24)
 
@@ -55,21 +106,11 @@ Built subagent-driven on branch **`feat/ai-visibility-v2-slice-2.1`**
   invalidation `I4H208LEK1MQDTTFZ91YEARAD1` queued. Live at
   `shasta.transilience.cloud`.
 
-**Live-verification (Task 5) — pending (KK-gated):**
-1. Trigger an Entra rescan via `/scan` on the existing Free-tier
-   tenant.
-2. Verify the flag landed:
-   ```bash
-   aws rds-data execute-statement \
-     --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-     --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
-     --database ciso_copilot \
-     --sql "SELECT conn_id::text, scope FROM cloud_connections WHERE cloud_type='entra' AND status='active'"
-   ```
-   Expect `scope.signin_premium_required = true`.
-3. Refresh `https://shasta.transilience.cloud/connect` in incognito;
-   confirm amber banner appears beneath the Entra row with the
-   expected copy + working Microsoft docs link.
+**Live-verification (Task 5) — VERIFIED (2026-05-24, KK):** Entra
+rescan against the Free-tier test tenant set
+`scope.signin_premium_required = true`; amber banner renders under the
+Entra row on `/connect` with the expected copy + Microsoft docs link.
+S2.1 passes end-to-end.
 
 **Execution notes:**
 - Task 3 implementer dropped a socket mid-write — re-dispatched cleanly
