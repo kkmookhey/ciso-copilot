@@ -3,7 +3,13 @@
     "nist_ai_rmf": {
       "name": "NIST AI RMF",
       "source": "NIST AI 100-1 (2023)",
-      "control_descriptions": {}
+      "control_descriptions": {
+        "GOVERN 1.1": "Legal and regulatory requirements involving AI are understood, managed, and documented.",
+        "GOVERN 3.2": "Policies and procedures are in place to define and differentiate roles and responsibilities for human-AI configurations and oversight of AI systems.",
+        "GOVERN 6.1": "Policies and procedures are in place that address AI risks associated with third-party entities, including risks of infringement of a third-party's intellectual property or other rights.",
+        "MAP 1.1": "Intended purposes, potentially beneficial uses, context-specific laws, norms and expectations, and prospective settings in which the AI system will be deployed are understood and documented.",
+        "MAP 5.1": "Likelihood and magnitude of each identified impact (both potentially beneficial and harmful) based on expected use, past uses of AI systems in similar contexts, and other data are identified and documented."
+      }
     },
     "iso_42001": {
       "name": "ISO/IEC 42001",
@@ -18,17 +24,24 @@
     "eu_ai_act": {
       "name": "EU AI Act",
       "source": "Regulation (EU) 2024/1689",
-      "control_descriptions": {}
+      "control_descriptions": {
+        "Article 9": "A risk management system shall be established, implemented, documented and maintained in relation to high-risk AI systems — a continuous iterative process throughout the entire lifecycle.",
+        "Article 26": "Deployers of high-risk AI systems shall take appropriate technical and organisational measures to ensure use in accordance with instructions, and shall assign human oversight with necessary competence and authority."
+      }
     },
     "nist_ai_600_1": {
       "name": "NIST AI 600-1",
       "source": "NIST AI 600-1 (2024)",
-      "control_descriptions": {}
+      "control_descriptions": {
+        "GOVERN 1.6": "Mechanisms are in place to inventory AI systems and are resourced according to organizational risk priorities."
+      }
     },
     "owasp_llm_top10": {
       "name": "OWASP LLM Top 10",
       "source": "OWASP 2025",
-      "control_descriptions": {}
+      "control_descriptions": {
+        "LLM02:2025": "Sensitive information can affect both the LLM and its application context, including PII, financial details, health records, confidential business data, security credentials, and legal documents."
+      }
     },
     "owasp_agentic": {
       "name": "OWASP Agentic",
@@ -38,8 +51,41 @@
     "mitre_atlas": {
       "name": "MITRE ATLAS",
       "source": "MITRE ATLAS v4",
-      "control_descriptions": {}
+      "control_descriptions": {
+        "AML.T0057": "Adversaries may craft prompts that induce the LLM to leak sensitive information, including private user data or proprietary information."
+      }
     }
   },
-  "rules": []
+  "rules": [
+    {
+      "id": "ai_signin_personal_tier_controls",
+      "when": { "check_id_eq": "ai_signin_personal_tier" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["GOVERN 3.2", "GOVERN 6.1"],
+        "nist_ai_600_1":   ["GOVERN 1.6"],
+        "eu_ai_act":       ["Article 9", "Article 26"],
+        "owasp_llm_top10": ["LLM02:2025"],
+        "mitre_atlas":     ["AML.T0057"]
+      }
+    },
+    {
+      "id": "ai_signin_corp_tier_controls",
+      "when": { "check_id_eq": "ai_signin_corp_tier" },
+      "add_frameworks": {
+        "nist_ai_rmf":   ["GOVERN 1.1", "MAP 1.1"],
+        "nist_ai_600_1": ["GOVERN 1.6"],
+        "eu_ai_act":     ["Article 9"]
+      }
+    },
+    {
+      "id": "ai_signin_unknown_tier_controls",
+      "when": { "check_id_eq": "ai_signin_unknown_tier" },
+      "add_frameworks": {
+        "nist_ai_rmf":     ["MAP 1.1", "MAP 5.1"],
+        "nist_ai_600_1":   ["GOVERN 1.6"],
+        "eu_ai_act":       ["Article 9", "Article 26"],
+        "owasp_llm_top10": ["LLM02:2025"]
+      }
+    }
+  ]
 }

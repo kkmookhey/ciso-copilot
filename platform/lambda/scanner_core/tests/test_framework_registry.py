@@ -199,3 +199,54 @@ def test_provenance_multiple_rules_recorded(simple_registry):
     f = _finding(check_id="ai_signin_personal_tier", domain="ai")
     result = fr.apply(f, entity_index={}, registry=simple_registry)
     assert sorted(result["evidence_packet"]["_registry_rule_ids"]) == ["by_check_eq", "by_domain"]
+
+
+# --- Slice E integration tests against the shipping registry ---
+
+
+def test_personal_tier_finding_tagged_with_ai_frameworks():
+    f = _finding(check_id="ai_signin_personal_tier")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "GOVERN 3.2" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "GOVERN 6.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "GOVERN 1.6" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
+    assert "Article 26" in result["frameworks"].get("eu_ai_act", [])
+    assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
+    assert "AML.T0057" in result["frameworks"].get("mitre_atlas", [])
+
+
+def test_corp_tier_finding_tagged():
+    f = _finding(check_id="ai_signin_corp_tier")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "GOVERN 1.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MAP 1.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "GOVERN 1.6" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
+    # corp_tier should NOT carry Article 26 (deployer obligations for high-risk
+    # systems) — only the unknown/personal tiers do
+    assert "Article 26" not in result["frameworks"].get("eu_ai_act", [])
+
+
+def test_unknown_tier_finding_tagged():
+    f = _finding(check_id="ai_signin_unknown_tier")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "MAP 1.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "MAP 5.1" in result["frameworks"].get("nist_ai_rmf", [])
+    assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
+    assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
+
+
+def test_unrelated_finding_not_tagged_by_entra_rules():
+    """A cloud finding (e.g., AWS S3) must not pick up the Entra-specific rules."""
+    f = _finding(check_id="cis_aws_2.1.1")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    # None of the Entra rules' frameworks should fire for an AWS finding.
+    assert "Article 9" not in result["frameworks"].get("eu_ai_act", [])
+    assert "GOVERN 3.2" not in result["frameworks"].get("nist_ai_rmf", [])
+
+
+def test_provenance_records_correct_rule_id_for_personal_tier():
+    f = _finding(check_id="ai_signin_personal_tier")
+    result = fr.apply(f, entity_index={}, registry=fr.load_registry())
+    assert "ai_signin_personal_tier_controls" in result["evidence_packet"]["_registry_rule_ids"]
