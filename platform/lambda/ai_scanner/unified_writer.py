@@ -20,13 +20,18 @@ Key semantics:
 """
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
 import os
 import uuid
 
 import boto3
 
 from detectors.base import EntityEmission, EdgeEmission, FindingEmission
+from framework_registry import apply as apply_registry, RegistryApplyError
+
+log = logging.getLogger(__name__)
 
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
@@ -48,6 +53,19 @@ def commit_scan(ctx, *,
             persisted_id = _upsert_entity(tx, e, ctx.tenant_id, scan_id=ctx.scan_id, stub=False)
             id_by_key[(e.kind, e.natural_key)] = persisted_id
 
+        # Build entity_index keyed by persisted entity id for the framework
+        # registry's ai_touching selector. Maps id → {domain, kind} so we can
+        # resolve ai_touching without a DB roundtrip per finding.
+        # NOTE: stub entities created during edges/findings resolution below are
+        # NOT backfilled into entity_index in this slice — the registry has
+        # rules: [] so ai_touching never gates anything yet. Backfill is a future
+        # enhancement when an authored rule starts depending on it.
+        entity_index: dict[str, dict] = {}
+        for e in entities:
+            eid = id_by_key.get((e.kind, e.natural_key))
+            if eid:
+                entity_index[eid] = {"domain": e.domain, "kind": e.kind}
+
         for edge in edges:
             src_id = _resolve_or_stub(tx, ctx.tenant_id, edge.source_kind,
                                        edge.source_natural_key, ctx.scan_id, id_by_key)
@@ -55,12 +73,44 @@ def commit_scan(ctx, *,
                                        edge.target_natural_key, ctx.scan_id, id_by_key)
             _upsert_edge(tx, edge, src_id, tgt_id, scan_id=ctx.scan_id)
 
+        rules_fired_count: dict[str, int] = {}
+        apply_failed_count = 0
         for f in findings:
             entity_id = None
             if f.subject_entity_kind and f.subject_entity_natural_key:
                 entity_id = _resolve_or_stub(tx, ctx.tenant_id, f.subject_entity_kind,
                                               f.subject_entity_natural_key, ctx.scan_id, id_by_key)
+            # --- framework registry pass ---
+            finding_view = {
+                "check_id":          f.finding_type,
+                "domain":            f.domain,
+                "resource_type":     f.subject_type,
+                "evidence_packet":   dict(f.evidence_packet or {}),
+                "subject_entity_id": entity_id,
+                "frameworks":        dict(f.frameworks or {}),
+            }
+            try:
+                apply_registry(finding_view, entity_index)
+                for rid in finding_view.get("evidence_packet", {}).get("_registry_rule_ids", []):
+                    rules_fired_count[rid] = rules_fired_count.get(rid, 0) + 1
+                # FindingEmission is frozen; replace with an updated copy.
+                f = dataclasses.replace(f,
+                    frameworks=finding_view["frameworks"],
+                    evidence_packet=finding_view["evidence_packet"],
+                )
+            except RegistryApplyError as e:
+                apply_failed_count += 1
+                log.warning("registry_apply_failed", extra={
+                    "check_id": f.finding_type, "err": str(e),
+                })
+            # --- end registry pass ---
             _insert_finding(tx, f, entity_id, scan_id=ctx.scan_id, ctx=ctx)
+
+        log.info("registry_apply_summary", extra={
+            "rules_fired_count":  rules_fired_count,
+            "apply_failed_count": apply_failed_count,
+            "scan_id": ctx.scan_id,
+        })
 
         _update_scan(tx, ctx, len(entities), len(edges), len(findings), status="success")
 

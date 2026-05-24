@@ -43,12 +43,15 @@ touch                              app/detectors/__init__.py
 cp ../ai_scanner/unified_writer.py app/unified_writer.py
 
 # 1c. Copy shared modules from the sibling scanner_core package
-#     (scan_pipeline.py + scan_state.py). Same rationale as 1b — one
-#     source of truth, .gitignore excludes the runtime copies.
+#     (scan_pipeline.py + scan_state.py + framework_registry). Same
+#     rationale as 1b — one source of truth, .gitignore excludes the
+#     runtime copies.
 echo "==> copying shared modules from ../scanner_core"
-rm -f app/scan_pipeline.py app/scan_state.py
-cp ../scanner_core/scan_pipeline.py app/scan_pipeline.py
-cp ../scanner_core/scan_state.py    app/scan_state.py
+rm -f app/scan_pipeline.py app/scan_state.py app/framework_registry.py app/ai_framework_registry.json
+cp ../scanner_core/scan_pipeline.py          app/scan_pipeline.py
+cp ../scanner_core/scan_state.py             app/scan_state.py
+cp ../scanner_core/framework_registry.py     app/framework_registry.py
+cp ../scanner_core/ai_framework_registry.json app/ai_framework_registry.json
 
 # 2. Authenticate to ECR.
 echo "==> authenticating to ECR"

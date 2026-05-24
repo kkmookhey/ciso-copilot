@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+
+# Build-time copies of shared modules (see build.sh scanner_core staging step).
+# Source of truth lives in scanner_core/; don't commit the runtime copies.
+framework_registry.py
+ai_framework_registry.json
