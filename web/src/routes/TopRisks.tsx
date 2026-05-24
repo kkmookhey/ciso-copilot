@@ -164,16 +164,17 @@ export function TopRisks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  // Fetch every finding once — grouping + filtering is all client-side.
+  // Fetch findings — server filters by framework so LIMIT 200 applies after the framework selector.
   useEffect(() => {
     setFindings(null);
-    api.listFindings({ status: "fail,partial,pass", limit: 200 })
+    api.listFindings({ status: "fail,partial,pass", limit: 200, framework })
       .then((r) => setFindings(r.findings))
       .catch(() => setFindings([]));
     api.listConnections()
       .then((r) => setLatestScan(mostRecentCompletedScan(r.connections)))
       .catch(() => setLatestScan(null));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [framework]);
 
   const q = params.get("q")?.toLowerCase() ?? "";
 

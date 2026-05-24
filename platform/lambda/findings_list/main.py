@@ -4,6 +4,7 @@ Query params:
   severity  — comma-separated subset of {critical, high, medium, low, info}
   status    — comma-separated subset of {fail, pass, not_assessed, not_applicable}; default 'fail'
   cloud     — 'aws' | 'azure' | 'entra' | 'gcp' (matches via conn_id join)
+  framework — JSONB top-level key, e.g. 'nist_ai_rmf'; filters to findings tagged with that framework
   limit     — default 50, max 200
   offset    — default 0
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import boto3
 
@@ -34,6 +36,10 @@ ALLOWED_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 ALLOWED_STATUSES   = {"fail", "partial", "pass", "not_assessed", "not_applicable"}
 ALLOWED_CLOUDS     = {"aws", "azure", "entra", "gcp"}
 
+# JSONB keys must be alphanum + underscore — defensive guard against SQL injection
+# via the framework param. We don't accept ad-hoc keys.
+_FRAMEWORK_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
+
 
 def handler(event: dict, context) -> dict:
     tenant_id = _resolve_tenant_id(event)
@@ -47,6 +53,9 @@ def handler(event: dict, context) -> dict:
     cloud      = (qp.get("cloud") or "").lower() if qp.get("cloud") else None
     if cloud and cloud not in ALLOWED_CLOUDS:
         return _resp(400, {"error": "invalid_cloud"})
+    framework  = (qp.get("framework") or "").strip().lower() or None
+    if framework and not _FRAMEWORK_KEY_RE.match(framework):
+        return _resp(400, {"error": "invalid_framework_key"})
     check_id   = (qp.get("check_id") or "").strip() or None
     limit  = min(int(qp.get("limit",  "50") or 50), 200)
     offset = max(int(qp.get("offset", "0")  or 0),  0)
@@ -62,6 +71,7 @@ def handler(event: dict, context) -> dict:
         + f"  AND f.severity IN ({_in_clause('sev', severities)}) "
         + f"  AND f.status   IN ({_in_clause('st',  statuses)}) "
         + ("  AND f.check_id = :chk " if check_id else "")
+        + ("  AND f.frameworks ? :framework " if framework else "")
         + "ORDER BY "
           "  CASE f.severity "
           "    WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 "
@@ -79,6 +89,8 @@ def handler(event: dict, context) -> dict:
         params.append({"name": f"st{i}", "value": {"stringValue": s}})
     if check_id:
         params.append({"name": "chk", "value": {"stringValue": check_id}})
+    if framework:
+        params.append({"name": "framework", "value": {"stringValue": framework}})
     params.append({"name": "limit",  "value": {"longValue": limit}})
     params.append({"name": "offset", "value": {"longValue": offset}})
 
@@ -97,6 +109,7 @@ def handler(event: dict, context) -> dict:
         + f"  AND f.severity IN ({_in_clause('sev', severities)}) "
         + f"  AND f.status   IN ({_in_clause('st',  statuses)})"
         + ("  AND f.check_id = :chk" if check_id else "")
+        + ("  AND f.frameworks ? :framework" if framework else "")
     )
     count_params = [p for p in params if p["name"] not in ("limit", "offset")]
     count_rs = rds_data.execute_statement(

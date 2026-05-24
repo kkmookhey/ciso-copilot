@@ -481,13 +481,14 @@ export const api = {
       `/events${qs ? "?" + qs : ""}`,
     );
   },
-  listFindings: (params?: { severity?: string; cloud?: string; check_id?: string; status?: string; limit?: number }) => {
+  listFindings: (params?: { severity?: string; cloud?: string; check_id?: string; status?: string; framework?: string; limit?: number }) => {
     const q = new URLSearchParams();
-    if (params?.severity) q.set("severity", params.severity);
-    if (params?.cloud)    q.set("cloud", params.cloud);
-    if (params?.check_id) q.set("check_id", params.check_id);
-    if (params?.status)   q.set("status", params.status);
-    if (params?.limit)    q.set("limit", String(params.limit));
+    if (params?.severity)  q.set("severity", params.severity);
+    if (params?.cloud)     q.set("cloud", params.cloud);
+    if (params?.check_id)  q.set("check_id", params.check_id);
+    if (params?.status)    q.set("status", params.status);
+    if (params?.framework) q.set("framework", params.framework);
+    if (params?.limit)     q.set("limit", String(params.limit));
     const qs = q.toString();
     return call<{ findings: Finding[]; limit: number; offset: number; count: number; total: number }>(
       `/findings${qs ? "?" + qs : ""}`,
