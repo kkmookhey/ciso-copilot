@@ -157,3 +157,45 @@ def test_no_rule_matches_no_op(simple_registry):
     f = _finding(check_id="random_check", frameworks={"soc2": ["CC1.1"]})
     result = fr.apply(f, entity_index={}, registry=simple_registry)
     assert result["frameworks"] == {"soc2": ["CC1.1"]}
+
+
+# --- Additive merge + idempotency ---
+
+def test_existing_frameworks_preserved(simple_registry):
+    """Shasta-emitted controls must not be overwritten."""
+    f = _finding(check_id="ai_signin_personal_tier",
+                 frameworks={"nist_ai_rmf": ["MANAGE-1.0"]})
+    result = fr.apply(f, entity_index={}, registry=simple_registry)
+    assert "MANAGE-1.0" in result["frameworks"]["nist_ai_rmf"]
+    assert "GOVERN-1.1" in result["frameworks"]["nist_ai_rmf"]
+    # Sorted for diff stability.
+    assert result["frameworks"]["nist_ai_rmf"] == sorted(result["frameworks"]["nist_ai_rmf"])
+
+
+def test_duplicate_controls_deduped(simple_registry):
+    """Re-apply produces same output."""
+    f = _finding(check_id="ai_signin_personal_tier",
+                 frameworks={"nist_ai_rmf": ["GOVERN-1.1"]})
+    result = fr.apply(f, entity_index={}, registry=simple_registry)
+    assert result["frameworks"]["nist_ai_rmf"].count("GOVERN-1.1") == 1
+
+
+def test_idempotency(simple_registry):
+    """apply(apply(f)) == apply(f)."""
+    f = _finding(check_id="ai_signin_personal_tier")
+    once = fr.apply(dict(f, frameworks={}), entity_index={}, registry=simple_registry)
+    twice = fr.apply(once, entity_index={}, registry=simple_registry)
+    assert once["frameworks"] == twice["frameworks"]
+    assert once["evidence_packet"]["_registry_rule_ids"] == twice["evidence_packet"]["_registry_rule_ids"]
+
+
+def test_provenance_rule_ids_recorded(simple_registry):
+    f = _finding(check_id="ai_signin_personal_tier")
+    result = fr.apply(f, entity_index={}, registry=simple_registry)
+    assert result["evidence_packet"]["_registry_rule_ids"] == ["by_check_eq"]
+
+
+def test_provenance_multiple_rules_recorded(simple_registry):
+    f = _finding(check_id="ai_signin_personal_tier", domain="ai")
+    result = fr.apply(f, entity_index={}, registry=simple_registry)
+    assert sorted(result["evidence_packet"]["_registry_rule_ids"]) == ["by_check_eq", "by_domain"]
