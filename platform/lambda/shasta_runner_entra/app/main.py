@@ -160,14 +160,27 @@ def _enrich_param_lists_with_registry(param_lists: list[list[dict]]) -> dict:
     rewrites the 'frameworks' and 'evidence_packet' value dicts to reflect
     additional controls + provenance.
 
-    Returns per-scan counters (rules_fired_count + apply_failed_count) for
-    the caller to log.
+    Returns per-scan counters (rules_fired_count + apply_failed_count +
+    normalize_rewrote_count + normalize_passthrough_count) for the caller
+    to log.
 
     Entra findings have no subject_entity_id, so the 'ai_touching' selector
     can only fire via evidence_packet.is_ai='true'. Entity_index is empty
     (no entity lookup needed).
     """
-    counters = {"rules_fired_count": {}, "apply_failed_count": 0}
+    counters = {
+        "rules_fired_count":           {},
+        "apply_failed_count":          0,
+        "normalize_rewrote_count":     {},
+        "normalize_passthrough_count": {},
+    }
+    # Engine-side keys 'normalize_rewrote' / 'normalize_passthrough' are
+    # shared by reference with the outer dict's *_count keys so increments
+    # land in the same place the caller reads.
+    normalize_counters = {
+        "normalize_rewrote":     counters["normalize_rewrote_count"],
+        "normalize_passthrough": counters["normalize_passthrough_count"],
+    }
     for ps in param_lists:
         param_by_name = {p["name"]: p for p in ps}
         try:
@@ -181,7 +194,7 @@ def _enrich_param_lists_with_registry(param_lists: list[list[dict]]) -> dict:
                 "subject_entity_id": None,  # Entra has no subject_entity_id column
                 "frameworks":        json.loads(fw_str) if fw_str else {},
             }
-            apply_registry(finding_view, entity_index={})
+            apply_registry(finding_view, entity_index={}, counters=normalize_counters)
             for rid in finding_view.get("evidence_packet", {}).get("_registry_rule_ids", []):
                 counters["rules_fired_count"][rid] = counters["rules_fired_count"].get(rid, 0) + 1
             # Write back the mutated frameworks + evidence_packet.
