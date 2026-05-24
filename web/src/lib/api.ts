@@ -52,7 +52,8 @@ export interface Connection {
   scope?:             { subscriptions?: string[]; selected?: string[];
                         subscription_names?: Record<string, string>;
                         mode?:               string;
-                        projects?:           Record<string, string> };
+                        projects?:           Record<string, string>;
+                        signin_premium_required?: boolean };
   latest_scan:        LatestScan | null;
 }
 

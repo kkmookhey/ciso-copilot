@@ -315,7 +315,7 @@ function CloudStatusPill({ status }: { status: Connection["status"] }) {
   );
 }
 
-function ConnectionRow({
+export function ConnectionRow({
   conn, actionMsg, onDelete,
 }: {
   conn: Connection;
@@ -346,6 +346,32 @@ function ConnectionRow({
           </button>
         </div>
       </div>
+      {conn.cloud_type === 'entra' && conn.scope?.signin_premium_required === true && (
+        <LicensingBanner />
+      )}
     </li>
+  );
+}
+
+function LicensingBanner() {
+  return (
+    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+      <div className="font-medium text-amber-900">
+        ⚠ Sign-in detection requires Microsoft Entra ID P1 or P2
+      </div>
+      <p className="mt-1 text-amber-800">
+        Microsoft restricts <code className="text-xs">/auditLogs/signIns</code> to
+        Premium-licensed tenants. Your tenant is on the Free tier, so AI SaaS
+        sign-in events can't be detected. All other Entra checks ran normally.
+      </p>
+      <a
+        href="https://learn.microsoft.com/en-us/entra/fundamentals/whatis"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-2 inline-block text-amber-900 underline hover:text-amber-700"
+      >
+        Learn more about Entra ID licensing →
+      </a>
+    </div>
   );
 }
