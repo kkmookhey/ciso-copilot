@@ -73,8 +73,9 @@ def handler(event: dict, context) -> dict:
         # Shasta Finding intermediate). Constructs its own Graph client from
         # the AZURE_* env vars set above. Wrapped so a Graph failure here
         # never fails the Shasta entra scan.
+        # AI sign-in pass — returns (param_lists, premium_required) per S2.1.
         try:
-            ai_signin_params = run_ai_signin_pass(
+            ai_signin_params, ai_signin_premium_required = run_ai_signin_pass(
                 graph_client=None,
                 tenant_id=tenant_id,
                 conn_id=conn_id,
@@ -84,9 +85,20 @@ def handler(event: dict, context) -> dict:
         except Exception as e:
             print(f"ai_signin_pass FAILED: {e}\n{traceback.format_exc()}")
             ai_signin_params = []
+            ai_signin_premium_required = False
 
         if ai_signin_params:
             written += _insert_finding_param_lists(ai_signin_params)
+
+        # S2.1: write/clear the licensing banner flag on the connection.
+        try:
+            _update_connection_premium_flag(
+                conn_id,
+                premium_required=ai_signin_premium_required,
+                signin_count=len(ai_signin_params),
+            )
+        except Exception as e:
+            print(f"WARN: failed to update signin_premium_required flag: {e}")
 
         _update_scan(scan_id, status="completed", stats={
             "findings":        written,
@@ -188,6 +200,47 @@ def _finding_to_params(f, scan_id, tenant_id, conn_id, entra_tenant_id):
         {"name": "remediation",   "value": {"stringValue": (f.remediation or "")[:2000]}},
         {"name": "evidence_packet", "value": {"stringValue": "{}"}},
     ]
+
+
+def _update_connection_premium_flag(conn_id: str, *,
+                                    premium_required: bool,
+                                    signin_count: int) -> None:
+    """S2.1: sticky-flag the connection when Graph returned the
+    licensing-403, or clear it when a future scan emitted real
+    sign-in findings (positive evidence the licensing constraint
+    is gone).
+
+    Ambiguous case (no 403 AND no findings) is a no-op — could be
+    a Premium tenant with no AI-app users yet, or a transient Graph
+    issue. We don't want to clear a sticky flag without positive
+    evidence.
+    """
+    if premium_required:
+        sql = (
+            "UPDATE cloud_connections "
+            "SET scope = jsonb_set(COALESCE(scope, '{}'::jsonb), "
+            "                      '{signin_premium_required}', 'true'::jsonb), "
+            "    updated_at = now() "
+            "WHERE conn_id = CAST(:cid AS UUID)"
+        )
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=sql,
+            parameters=[{"name": "cid", "value": {"stringValue": conn_id}}],
+        )
+    elif signin_count > 0:
+        sql = (
+            "UPDATE cloud_connections "
+            "SET scope = scope #- '{signin_premium_required}', "
+            "    updated_at = now() "
+            "WHERE conn_id = CAST(:cid AS UUID)"
+        )
+        rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=sql,
+            parameters=[{"name": "cid", "value": {"stringValue": conn_id}}],
+        )
+    # else: ambiguous case, no write
 
 
 def _update_scan(scan_id, status, stats=None, error=None):
