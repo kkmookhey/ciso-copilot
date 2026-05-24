@@ -189,6 +189,46 @@ def _is_ai_touching(finding: dict, entity_index: dict) -> bool:
     return False
 
 
+def _normalize_stage(finding: dict, registry: dict | None = None) -> dict:
+    """Stage 1 of the CME-v2 pipeline: rewrite scanner-emitted control IDs
+    to canonical published format using each framework's rewrite_rules.
+
+    Mutates finding['frameworks'] in place. Idempotent: re-running on an
+    already-normalized finding produces identical output.
+
+    For each (framework_key, control_ids) pair on the finding:
+      - Look up the framework's rewrite_rules (default empty list).
+      - For each control_id:
+        - If a rewrite rule has from == control_id, replace with rule.to entries.
+        - Else, passthrough (the ID stays).
+      - Result is the set-union of all rewritten + passthrough IDs, sorted.
+    """
+    reg = registry if registry is not None else _REGISTRY
+    frameworks_block = reg.get("frameworks", {})
+
+    for fw_key, ctrls in list(finding.get("frameworks", {}).items()):
+        fw_def = frameworks_block.get(fw_key, {})
+        rules = fw_def.get("rewrite_rules") or []
+        if not rules:
+            continue  # No rewrite rules for this framework — passthrough
+
+        # Build a {from: to-list} dict for O(1) lookup
+        rewrite_map: dict[str, list[str]] = {}
+        for rr in rules:
+            rewrite_map.setdefault(rr["from"], []).extend(rr["to"])
+
+        normalized: set[str] = set()
+        for cid in (ctrls or []):
+            if cid in rewrite_map:
+                normalized.update(rewrite_map[cid])
+            else:
+                normalized.add(cid)
+
+        finding["frameworks"][fw_key] = sorted(normalized)
+
+    return finding
+
+
 def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
     """Apply registry rules to a finding. Returns the SAME finding object
     (mutated in place — the caller already owns it). Additive, idempotent.
