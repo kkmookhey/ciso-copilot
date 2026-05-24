@@ -41,7 +41,7 @@ def test_handler_returns_score_by_source_by_framework_top_people(mock_rds):
             [{"stringValue": "azure"}, {"longValue": 4}],
             [{"stringValue": "code"},  {"longValue": 6}],
         ]),
-        # by_framework: nist_ai_rmf fail=4 partial=1 pass=8 ; iso_42001 fail=3 partial=2 pass=6
+        # by_framework: 8 frameworks with various counts
         _stmt([
             [{"stringValue": "nist_ai_rmf"}, {"stringValue": "fail"},    {"longValue": 4}],
             [{"stringValue": "nist_ai_rmf"}, {"stringValue": "partial"}, {"longValue": 1}],
@@ -49,6 +49,18 @@ def test_handler_returns_score_by_source_by_framework_top_people(mock_rds):
             [{"stringValue": "iso_42001"},   {"stringValue": "fail"},    {"longValue": 3}],
             [{"stringValue": "iso_42001"},   {"stringValue": "partial"}, {"longValue": 2}],
             [{"stringValue": "iso_42001"},   {"stringValue": "pass"},    {"longValue": 6}],
+            [{"stringValue": "nist_ai_600_1"}, {"stringValue": "fail"},    {"longValue": 2}],
+            [{"stringValue": "nist_ai_600_1"}, {"stringValue": "partial"}, {"longValue": 1}],
+            [{"stringValue": "nist_ai_600_1"}, {"stringValue": "pass"},    {"longValue": 5}],
+            [{"stringValue": "owasp_llm_top10"}, {"stringValue": "fail"},    {"longValue": 3}],
+            [{"stringValue": "owasp_llm_top10"}, {"stringValue": "partial"}, {"longValue": 0}],
+            [{"stringValue": "owasp_llm_top10"}, {"stringValue": "pass"},    {"longValue": 7}],
+            [{"stringValue": "owasp_agentic"}, {"stringValue": "fail"},    {"longValue": 1}],
+            [{"stringValue": "owasp_agentic"}, {"stringValue": "partial"}, {"longValue": 2}],
+            [{"stringValue": "owasp_agentic"}, {"stringValue": "pass"},    {"longValue": 4}],
+            [{"stringValue": "mitre_atlas"}, {"stringValue": "fail"},    {"longValue": 5}],
+            [{"stringValue": "mitre_atlas"}, {"stringValue": "partial"}, {"longValue": 1}],
+            [{"stringValue": "mitre_atlas"}, {"stringValue": "pass"},    {"longValue": 3}],
         ]),
         # top_people
         _stmt([
@@ -67,9 +79,13 @@ def test_handler_returns_score_by_source_by_framework_top_people(mock_rds):
     body = json.loads(resp["body"])
     assert body["score"] == {"fail": 12, "partial": 5, "pass": 21}
     assert body["by_source"] == {"aws": 7, "azure": 4, "code": 6, "entra": 0}
-    assert body["by_framework"]["nist_ai_rmf"] == {"fail": 4, "partial": 1, "pass": 8}
-    assert body["by_framework"]["iso_42001"]   == {"fail": 3, "partial": 2, "pass": 6}
-    assert body["by_framework"]["soc2_ai"]     == {"fail": 0, "partial": 0, "pass": 0}
-    assert body["by_framework"]["eu_ai_act"]   == {"fail": 0, "partial": 0, "pass": 0}
+    assert body["by_framework"]["nist_ai_rmf"]    == {"fail": 4, "partial": 1, "pass": 8}
+    assert body["by_framework"]["iso_42001"]      == {"fail": 3, "partial": 2, "pass": 6}
+    assert body["by_framework"]["soc2_ai"]        == {"fail": 0, "partial": 0, "pass": 0}
+    assert body["by_framework"]["eu_ai_act"]      == {"fail": 0, "partial": 0, "pass": 0}
+    assert body["by_framework"]["nist_ai_600_1"]  == {"fail": 2, "partial": 1, "pass": 5}
+    assert body["by_framework"]["owasp_llm_top10"]== {"fail": 3, "partial": 0, "pass": 7}
+    assert body["by_framework"]["owasp_agentic"]  == {"fail": 1, "partial": 2, "pass": 4}
+    assert body["by_framework"]["mitre_atlas"]    == {"fail": 5, "partial": 1, "pass": 3}
     assert body["top_people"][0]["email"] == "alice@acme.com"
     assert body["top_people"][0]["sources"] == ["aws", "code"]
