@@ -568,3 +568,29 @@ def test_nist_ai_rmf_slice_e_subcategories_pass_through():
     f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN 3.2"]})
     fr._normalize_stage(f, registry=fr.load_registry())
     assert "GOVERN 3.2" in f["frameworks"]["nist_ai_rmf"]
+
+
+# --- CME-v2 S2: nist_ai_600_1 rewrite table ---
+
+
+def test_nist_ai_600_1_gai_ids_passthrough():
+    """All 12 GAI-N risk identifiers from Shasta pass through unchanged."""
+    SHASTA_IDS = [f"GAI-{n}" for n in range(1, 13)]
+    f = _finding(check_id="x", frameworks={"nist_ai_600_1": list(SHASTA_IDS)})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    for n in range(1, 13):
+        assert f"GAI-{n}" in f["frameworks"]["nist_ai_600_1"]
+
+
+def test_nist_ai_600_1_slice_e_govern_passes_through():
+    """Slice E's `GOVERN 1.6` (RMF subcategory reference) survives normalize unchanged.
+
+    Slice E rules incorrectly mixed RMF subcategory format into the nist_ai_600_1
+    framework. The registry treats it as passthrough — auditor sees both GAI-N
+    risk references and RMF subcategory references for AI 600-1 findings.
+    A future slice may unify by mapping RMF subcategory IDs to the GAI-N risks
+    they relate to.
+    """
+    f = _finding(check_id="x", frameworks={"nist_ai_600_1": ["GOVERN 1.6"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "GOVERN 1.6" in f["frameworks"]["nist_ai_600_1"]
