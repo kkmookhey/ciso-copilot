@@ -493,7 +493,108 @@ once CME-v2 Slice 2 lands populated tables for each framework.
   documents are mostly published in English; localized control names
   are out of scope.
 
-## 17. Open questions
+## 17. Forward compatibility (load-bearing, not aspirational)
+
+CME-v2 is designed so that two future sub-projects slot in **with zero
+engine changes**. Both are explicitly called out here so the
+architecture is verified against them, not just against today's
+scanner sources.
+
+### 17.1 Findings History (next sub-project after CME-v2)
+
+Today's `findings` table is a current-state model — one row per
+finding identity, refreshed on each scan via `ON CONFLICT DO UPDATE`.
+The default view (latest scan) is trivially the entire table; no
+double counting.
+
+**Findings History** adds an append-only `finding_observations` table
+written in the same transaction as the `findings` UPSERT:
+
+```
+finding_observations
+  finding_id          UUID    — FK to findings
+  scan_id             UUID    — FK to scans
+  observed_at         TIMESTAMPTZ
+  status              TEXT    — snapshot of status at this scan
+  severity            TEXT    — snapshot
+  frameworks          JSONB   — snapshot of canonical-format tags
+  evidence_packet     JSONB   — snapshot
+
+UNIQUE (finding_id, scan_id)
+```
+
+What this enables:
+- **Trends** (failing-control count over time per framework)
+- **Delta tracking** ("did the customer close this finding between
+  scan A and scan B?")
+- **Auditor time-travel** (`SELECT * FROM finding_observations WHERE
+  scan_id = :id`)
+- **Per-scan purge** (`DELETE FROM finding_observations WHERE scan_id
+  IN (...)`)
+
+**CME-v2 impact:** the registry's normalize + augment stages run on
+the `finding_view` regardless of whether the writer is about to
+INSERT/UPSERT into 1 table (today) or 2 tables (after Findings
+History). The engine doesn't care about the storage shape.
+
+### 17.2 Evidence Ingestion (later sub-project)
+
+Future sources for findings will include user-uploaded artifacts
+(Excel sheets, PDFs, screenshots), API pulls (ticketing systems,
+firewall configs, IDP exports), and integrations that don't fit the
+"scanner" mental model. Some artifacts will be **multi-modal**
+(images, video transcripts) and unlabeled by the user.
+
+**Classification pipeline** (a sub-project, NOT part of CME-v2):
+1. Ingest artifact (file upload, API pull)
+2. Extract content (OCR / parse / ETL)
+3. Classify via LLM → candidate control IDs + per-control confidence
+4. Map LLM output to **canonical control IDs** using CME-v2's
+   framework declarations as the target vocabulary
+5. Emit a finding-shaped record into the same `findings` (and
+   `finding_observations`) tables that scanners write to
+
+**Schema extensions required** (future migration, NOT this slice):
+- `findings.source_type` ENUM: `scanner` | `user_upload` | `integration_pull` | `inferred` (defaults `scanner`)
+- `findings.artifact_ref` (nullable): URL/S3 path to the source artifact
+- `findings.classifier_confidence` (nullable FLOAT): for inferred classifications
+- `findings.resource_arn`: stays optional (evidence may not be resource-bound)
+
+**Why CME-v2 needs no code change for this:**
+- D-5 makes rules source-agnostic. A rule that fires on
+  `check_id_eq: "encryption_at_rest_policy_documented"` will match
+  whether the source is a scanner or an uploaded PDF.
+- D-9 makes canonical-format IDs the storage format. The classifier
+  emits directly in canonical format (using CME-v2's framework
+  declarations as its target vocabulary). No new normalization
+  path needed.
+- The selector kinds (`check_id`, `domain`, `evidence_packet`, etc.)
+  apply equally to evidence-derived findings.
+
+**The architectural test (extension of §8's 5th-source test):** an
+uploaded SOC 2 evidence PDF whose classifier output is
+`{check_id: "encryption_at_rest_policy_documented", domain: "encryption",
+evidence_packet: {ai_relevant: "true", artifact_type: "policy_pdf"}}`
+should pick up controls from every applicable framework family the
+same way an AWS encryption-at-rest scanner finding would. **Zero
+engine change, zero schema change beyond the four new fields above,
+zero new rule for evidence-vs-scanner.**
+
+If the design fails this test, it's wrong.
+
+### 17.3 Confidence terminology disambiguation
+
+Two confidence concepts will exist post-Evidence-Ingestion. Naming
+them now to prevent collision:
+
+| Name | Stored on | Means |
+|---|---|---|
+| `findings.classifier_confidence` | finding | How sure the classifier is that this artifact relates to this control (LLM output) |
+| `rules.crosswalk_confidence` | registry rule (future, §16 out-of-scope today) | How strong the crosswalk is between check_id and the controls it tags (manual authorship judgment) |
+
+Both are nullable / additive. Neither breaks the existing engine.
+
+## 18. Open questions
 
 1. **NIST AI RMF subcategory rewrite — what's the right `to` mapping
    for Shasta's `GOVERN-6`?** Function `GOVERN 6` in NIST AI 100-1
