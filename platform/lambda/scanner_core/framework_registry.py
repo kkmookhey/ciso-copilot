@@ -20,6 +20,8 @@ _KNOWN_SELECTORS = frozenset({
     "evidence_packet_eq",
 })
 
+_KNOWN_FAMILIES = frozenset({"security", "ai", "privacy", "industry"})
+
 _REGISTRY_PATH = Path(__file__).parent / "ai_framework_registry.json"
 
 # AI-touching entity kinds — mirrors ai_summary._AI_RESOURCE_KINDS.
@@ -84,6 +86,43 @@ def validate_registry(registry: dict) -> None:
             raise RegistryValidationError(
                 f"rule[{rule['id']}]: unknown framework(s) {sorted(unknown_fw)} in add_frameworks"
             )
+
+    # CME-v2 S1: validate per-framework metadata + rewrite_rules
+    for fw_key, fw in registry["frameworks"].items():
+        if not isinstance(fw, dict):
+            raise RegistryValidationError(f"framework[{fw_key}]: must be an object")
+
+        # 'family' is optional in this task; Task 3 makes it required.
+        family = fw.get("family")
+        if family is not None and family not in _KNOWN_FAMILIES:
+            raise RegistryValidationError(
+                f"framework[{fw_key}]: unknown family {family!r}; "
+                f"must be one of {sorted(_KNOWN_FAMILIES)}"
+            )
+
+        # rewrite_rules is optional; if present, must be a list of well-formed entries.
+        rewrite_rules = fw.get("rewrite_rules")
+        if rewrite_rules is not None:
+            if not isinstance(rewrite_rules, list):
+                raise RegistryValidationError(
+                    f"framework[{fw_key}]: 'rewrite_rules' must be a list"
+                )
+            for i, rr in enumerate(rewrite_rules):
+                ctx = f"framework[{fw_key}].rewrite_rules[{i}]"
+                if not isinstance(rr, dict):
+                    raise RegistryValidationError(f"{ctx}: must be an object")
+                if "from" not in rr:
+                    raise RegistryValidationError(f"{ctx}: missing 'from'")
+                if not isinstance(rr.get("from"), str) or not rr["from"]:
+                    raise RegistryValidationError(f"{ctx}: 'from' must be a non-empty string")
+                to = rr.get("to")
+                if not isinstance(to, list) or not to:
+                    raise RegistryValidationError(f"{ctx}: 'to' must be a non-empty list")
+                for t in to:
+                    if not isinstance(t, str) or not t:
+                        raise RegistryValidationError(
+                            f"{ctx}: every 'to' entry must be a non-empty string"
+                        )
 
 
 # Loaded once at module import. Failures fail the Lambda cold-start.

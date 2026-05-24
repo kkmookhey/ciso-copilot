@@ -250,3 +250,70 @@ def test_provenance_records_correct_rule_id_for_personal_tier():
     f = _finding(check_id="ai_signin_personal_tier")
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "ai_signin_personal_tier_controls" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+# --- CME-v2 S1: extended schema acceptance ---
+
+
+def test_validator_accepts_new_optional_fields():
+    """Frameworks with family/source_url/version/canonical_format/rewrite_rules validate."""
+    registry = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name":             "NIST AI RMF",
+                "family":           "ai",
+                "source":           "NIST AI 100-1 (2023)",
+                "source_url":       "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf",
+                "version":          "1.0",
+                "canonical_format": "FUNCTION SUBCATEGORY (space)",
+                "rewrite_rules":    [],
+                "control_descriptions": {},
+            },
+        },
+        "rules": [],
+    }
+    fr.validate_registry(registry)  # Should not raise
+
+
+def test_validator_rejects_rewrite_rule_with_no_from():
+    bad = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [{"to": ["GOVERN 6.1"]}],  # missing 'from'
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="missing 'from'"):
+        fr.validate_registry(bad)
+
+
+def test_validator_rejects_rewrite_rule_with_empty_to():
+    bad = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [{"from": "GOVERN-6", "to": []}],
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="'to' must be a non-empty"):
+        fr.validate_registry(bad)
+
+
+def test_validator_rejects_invalid_family():
+    bad = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "made_up_family", "source": "x",
+                "control_descriptions": {},
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="unknown family"):
+        fr.validate_registry(bad)
