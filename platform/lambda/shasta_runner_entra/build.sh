@@ -22,6 +22,10 @@ rsync -a \
   --exclude='.pytest_cache' --exclude='.ruff_cache' \
   "$SHASTA_SRC/" .build/shasta/
 
+echo "==> staging scanner_core framework_registry into app/"
+cp ../scanner_core/framework_registry.py app/framework_registry.py
+cp ../scanner_core/ai_framework_registry.json app/ai_framework_registry.json
+
 echo "==> ECR auth"
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$REPO" >/dev/null
