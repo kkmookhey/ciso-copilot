@@ -75,12 +75,16 @@ def commit_scan(ctx, *,
 
         rules_fired_count: dict[str, int] = {}
         apply_failed_count = 0
+        normalize_counters: dict[str, dict] = {
+            "normalize_rewrote": {},
+            "normalize_passthrough": {},
+        }
         for f in findings:
             entity_id = None
             if f.subject_entity_kind and f.subject_entity_natural_key:
                 entity_id = _resolve_or_stub(tx, ctx.tenant_id, f.subject_entity_kind,
                                               f.subject_entity_natural_key, ctx.scan_id, id_by_key)
-            # --- framework registry pass ---
+            # --- framework registry pass (CME-v2) ---
             finding_view = {
                 "check_id":          f.finding_type,
                 "domain":            f.domain,
@@ -90,7 +94,7 @@ def commit_scan(ctx, *,
                 "frameworks":        dict(f.frameworks or {}),
             }
             try:
-                apply_registry(finding_view, entity_index)
+                apply_registry(finding_view, entity_index, counters=normalize_counters)
                 for rid in finding_view.get("evidence_packet", {}).get("_registry_rule_ids", []):
                     rules_fired_count[rid] = rules_fired_count.get(rid, 0) + 1
                 # FindingEmission is frozen; replace with an updated copy.
@@ -103,12 +107,14 @@ def commit_scan(ctx, *,
                 log.warning("registry_apply_failed", extra={
                     "check_id": f.finding_type, "err": str(e),
                 })
-            # --- end registry pass ---
+            # --- end framework registry pass ---
             _insert_finding(tx, f, entity_id, scan_id=ctx.scan_id, ctx=ctx)
 
         log.info("registry_apply_summary", extra={
-            "rules_fired_count":  rules_fired_count,
-            "apply_failed_count": apply_failed_count,
+            "rules_fired_count":           rules_fired_count,
+            "apply_failed_count":          apply_failed_count,
+            "normalize_rewrote_count":     normalize_counters["normalize_rewrote"],
+            "normalize_passthrough_count": normalize_counters["normalize_passthrough"],
             "scan_id": ctx.scan_id,
         })
 

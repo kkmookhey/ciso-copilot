@@ -20,6 +20,8 @@ _KNOWN_SELECTORS = frozenset({
     "evidence_packet_eq",
 })
 
+_KNOWN_FAMILIES = frozenset({"security", "ai", "privacy", "industry"})
+
 _REGISTRY_PATH = Path(__file__).parent / "ai_framework_registry.json"
 
 # AI-touching entity kinds — mirrors ai_summary._AI_RESOURCE_KINDS.
@@ -85,6 +87,45 @@ def validate_registry(registry: dict) -> None:
                 f"rule[{rule['id']}]: unknown framework(s) {sorted(unknown_fw)} in add_frameworks"
             )
 
+    # CME-v2 S1: validate per-framework metadata + rewrite_rules
+    for fw_key, fw in registry["frameworks"].items():
+        if not isinstance(fw, dict):
+            raise RegistryValidationError(f"framework[{fw_key}]: must be an object")
+
+        # CME-v2 §5: family is mandatory.
+        if "family" not in fw:
+            raise RegistryValidationError(f"framework[{fw_key}]: missing 'family'")
+        family = fw["family"]
+        if family not in _KNOWN_FAMILIES:
+            raise RegistryValidationError(
+                f"framework[{fw_key}]: unknown family {family!r}; "
+                f"must be one of {sorted(_KNOWN_FAMILIES)}"
+            )
+
+        # rewrite_rules is optional; if present, must be a list of well-formed entries.
+        rewrite_rules = fw.get("rewrite_rules")
+        if rewrite_rules is not None:
+            if not isinstance(rewrite_rules, list):
+                raise RegistryValidationError(
+                    f"framework[{fw_key}]: 'rewrite_rules' must be a list"
+                )
+            for i, rr in enumerate(rewrite_rules):
+                ctx = f"framework[{fw_key}].rewrite_rules[{i}]"
+                if not isinstance(rr, dict):
+                    raise RegistryValidationError(f"{ctx}: must be an object")
+                if "from" not in rr:
+                    raise RegistryValidationError(f"{ctx}: missing 'from'")
+                if not isinstance(rr.get("from"), str) or not rr["from"]:
+                    raise RegistryValidationError(f"{ctx}: 'from' must be a non-empty string")
+                to = rr.get("to")
+                if not isinstance(to, list) or not to:
+                    raise RegistryValidationError(f"{ctx}: 'to' must be a non-empty list")
+                for t in to:
+                    if not isinstance(t, str) or not t:
+                        raise RegistryValidationError(
+                            f"{ctx}: every 'to' entry must be a non-empty string"
+                        )
+
 
 # Loaded once at module import. Failures fail the Lambda cold-start.
 _REGISTRY: dict = load_registry()
@@ -148,13 +189,56 @@ def _is_ai_touching(finding: dict, entity_index: dict) -> bool:
     return False
 
 
-def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
-    """Apply registry rules to a finding. Returns the SAME finding object
-    (mutated in place — the caller already owns it). Additive, idempotent.
+def _normalize_stage(finding: dict, registry: dict | None = None,
+                      counters: dict | None = None) -> dict:
+    """Stage 1 of the CME-v2 pipeline: rewrite scanner-emitted control IDs
+    to canonical published format using each framework's rewrite_rules.
 
-    Side-effects:
-      - finding['frameworks'] updated (set-union per framework key, sorted)
-      - finding['evidence_packet']['_registry_rule_ids'] appended (set-union, sorted)
+    Mutates finding['frameworks'] in place. Idempotent.
+
+    If `counters` is provided, populates two sub-dicts in place:
+      counters['normalize_rewrote'][f'{framework}:{from_id}']  += 1
+      counters['normalize_passthrough'][f'{framework}:{id}']   += 1
+    """
+    reg = registry if registry is not None else _REGISTRY
+    frameworks_block = reg.get("frameworks", {})
+    rewrote = counters.get("normalize_rewrote") if counters is not None else None
+    passthrough = counters.get("normalize_passthrough") if counters is not None else None
+
+    for fw_key, ctrls in list(finding.get("frameworks", {}).items()):
+        fw_def = frameworks_block.get(fw_key, {})
+        rules = fw_def.get("rewrite_rules") or []
+        if not rules:
+            continue  # No rewrite rules for this framework — passthrough
+
+        rewrite_map: dict[str, list[str]] = {}
+        for rr in rules:
+            rewrite_map.setdefault(rr["from"], []).extend(rr["to"])
+
+        normalized: set[str] = set()
+        for cid in (ctrls or []):
+            if cid in rewrite_map:
+                normalized.update(rewrite_map[cid])
+                if rewrote is not None:
+                    key = f"{fw_key}:{cid}"
+                    rewrote[key] = rewrote.get(key, 0) + 1
+            else:
+                normalized.add(cid)
+                if passthrough is not None:
+                    key = f"{fw_key}:{cid}"
+                    passthrough[key] = passthrough.get(key, 0) + 1
+
+        finding["frameworks"][fw_key] = sorted(normalized)
+
+    return finding
+
+
+def _augment_stage(finding: dict, entity_index: dict, registry: dict | None = None) -> dict:
+    """Stage 2 of the CME-v2 pipeline: walk registry rules, set-union merge
+    matching add_frameworks into finding's frameworks, record provenance.
+
+    This is the Slice 3 apply() logic, unchanged. Renamed so apply() can
+    orchestrate it after _normalize_stage.
     """
     reg = registry if registry is not None else _REGISTRY
     rules_fired: list[str] = []
@@ -167,7 +251,6 @@ def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> di
                     existing = set(finding["frameworks"].get(fw) or [])
                     finding["frameworks"][fw] = sorted(existing | set(ctrls))
         except RegistryApplyError:
-            # Re-raise so the writer's try/except catches it and logs.
             raise
 
     if rules_fired:
@@ -175,4 +258,24 @@ def apply(finding: dict, entity_index: dict, registry: dict | None = None) -> di
         prior = set(ep.get("_registry_rule_ids") or [])
         ep["_registry_rule_ids"] = sorted(prior | set(rules_fired))
 
+    return finding
+
+
+def apply(finding: dict, entity_index: dict, registry: dict | None = None,
+          counters: dict | None = None) -> dict:
+    """CME-v2 two-stage compliance crosswalk.
+
+    Stage 1 (normalize): rewrite scanner-emitted control IDs to canonical
+                          published format using each framework's rewrite_rules.
+    Stage 2 (augment):   walk registry rules, additively merge matching
+                          add_frameworks into finding's frameworks.
+
+    If `counters` is provided (a dict with optional sub-dicts
+    'normalize_rewrote', 'normalize_passthrough'), populates per-key counts.
+    Existing rules_fired counting stays in the caller (writer aggregates).
+
+    Mutates finding in place. Additive across runs. Idempotent.
+    """
+    _normalize_stage(finding, registry=registry, counters=counters)
+    _augment_stage(finding, entity_index, registry=registry)
     return finding

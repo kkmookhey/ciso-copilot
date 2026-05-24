@@ -3,6 +3,11 @@
     "nist_ai_rmf": {
       "name": "NIST AI RMF",
       "source": "NIST AI 100-1 (2023)",
+      "family": "ai",
+      "source_url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf",
+      "version": "1.0",
+      "canonical_format": "FUNCTION SUBCATEGORY (space separator, e.g., GOVERN 6.1)",
+      "rewrite_rules": [],
       "control_descriptions": {
         "GOVERN 1.1": "Legal and regulatory requirements involving AI are understood, managed, and documented.",
         "GOVERN 3.2": "Policies and procedures are in place to define and differentiate roles and responsibilities for human-AI configurations and oversight of AI systems.",
@@ -14,16 +19,31 @@
     "iso_42001": {
       "name": "ISO/IEC 42001",
       "source": "ISO/IEC 42001:2023",
+      "family": "ai",
+      "source_url": "https://www.iso.org/standard/81230.html",
+      "version": "2023",
+      "canonical_format": "Clause N or A.N.N (no AI- prefix)",
+      "rewrite_rules": [],
       "control_descriptions": {}
     },
     "soc2_ai": {
       "name": "SOC 2 + AI",
       "source": "AICPA Description Criteria for AI Systems (2024)",
+      "family": "ai",
+      "source_url": "https://www.aicpa-cima.com/topic/audit-assurance/audit-and-assurance-greater-than-soc-2",
+      "version": "2024-tbd",
+      "canonical_format": "AICPA control identifier per published criteria (see D-1 in CME-v2 spec)",
+      "rewrite_rules": [],
       "control_descriptions": {}
     },
     "eu_ai_act": {
       "name": "EU AI Act",
       "source": "Regulation (EU) 2024/1689",
+      "family": "ai",
+      "source_url": "https://eur-lex.europa.eu/eli/reg/2024/1689/oj",
+      "version": "2024/1689",
+      "canonical_format": "Article N or Article N(P)",
+      "rewrite_rules": [],
       "control_descriptions": {
         "Article 9": "A risk management system shall be established, implemented, documented and maintained in relation to high-risk AI systems — a continuous iterative process throughout the entire lifecycle.",
         "Article 26": "Deployers of high-risk AI systems shall take appropriate technical and organisational measures to ensure use in accordance with instructions, and shall assign human oversight with necessary competence and authority."
@@ -32,6 +52,11 @@
     "nist_ai_600_1": {
       "name": "NIST AI 600-1",
       "source": "NIST AI 600-1 (2024)",
+      "family": "ai",
+      "source_url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf",
+      "version": "1.0",
+      "canonical_format": "Suggested Action ID (e.g., MS-3.4-001) or RMF subcategory",
+      "rewrite_rules": [],
       "control_descriptions": {
         "GOVERN 1.6": "Mechanisms are in place to inventory AI systems and are resourced according to organizational risk priorities."
       }
@@ -39,6 +64,11 @@
     "owasp_llm_top10": {
       "name": "OWASP LLM Top 10",
       "source": "OWASP 2025",
+      "family": "ai",
+      "source_url": "https://genai.owasp.org/llm-top-10/",
+      "version": "2025",
+      "canonical_format": "LLMNN:2025 (year-pinned)",
+      "rewrite_rules": [],
       "control_descriptions": {
         "LLM02:2025": "Sensitive information can affect both the LLM and its application context, including PII, financial details, health records, confidential business data, security credentials, and legal documents."
       }
@@ -46,11 +76,21 @@
     "owasp_agentic": {
       "name": "OWASP Agentic",
       "source": "OWASP Agentic AI Top 10",
+      "family": "ai",
+      "source_url": "https://genai.owasp.org/",
+      "version": "draft-2025",
+      "canonical_format": "TBD pending taxonomy stabilization",
+      "rewrite_rules": [],
       "control_descriptions": {}
     },
     "mitre_atlas": {
       "name": "MITRE ATLAS",
       "source": "MITRE ATLAS v4",
+      "family": "ai",
+      "source_url": "https://atlas.mitre.org/matrices/ATLAS",
+      "version": "4",
+      "canonical_format": "AML.TNNNN",
+      "rewrite_rules": [],
       "control_descriptions": {
         "AML.T0057": "Adversaries may craft prompts that induce the LLM to leak sensitive information, including private user data or proprietary information."
       }

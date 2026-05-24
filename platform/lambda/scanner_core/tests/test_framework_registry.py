@@ -250,3 +250,222 @@ def test_provenance_records_correct_rule_id_for_personal_tier():
     f = _finding(check_id="ai_signin_personal_tier")
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "ai_signin_personal_tier_controls" in result["evidence_packet"]["_registry_rule_ids"]
+
+
+# --- CME-v2 S1: extended schema acceptance ---
+
+
+def test_validator_accepts_new_optional_fields():
+    """Frameworks with family/source_url/version/canonical_format/rewrite_rules validate."""
+    registry = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name":             "NIST AI RMF",
+                "family":           "ai",
+                "source":           "NIST AI 100-1 (2023)",
+                "source_url":       "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf",
+                "version":          "1.0",
+                "canonical_format": "FUNCTION SUBCATEGORY (space)",
+                "rewrite_rules":    [],
+                "control_descriptions": {},
+            },
+        },
+        "rules": [],
+    }
+    fr.validate_registry(registry)  # Should not raise
+
+
+def test_validator_rejects_rewrite_rule_with_no_from():
+    bad = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [{"to": ["GOVERN 6.1"]}],  # missing 'from'
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="missing 'from'"):
+        fr.validate_registry(bad)
+
+
+def test_validator_rejects_rewrite_rule_with_empty_to():
+    bad = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [{"from": "GOVERN-6", "to": []}],
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="'to' must be a non-empty"):
+        fr.validate_registry(bad)
+
+
+def test_validator_rejects_invalid_family():
+    bad = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "made_up_family", "source": "x",
+                "control_descriptions": {},
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="unknown family"):
+        fr.validate_registry(bad)
+
+
+def test_validator_requires_family_on_every_framework():
+    """Spec §5: every framework must declare a family."""
+    bad = {
+        "frameworks": {
+            "no_family": {
+                "name": "x", "source": "x", "control_descriptions": {},
+                # 'family' deliberately omitted
+            },
+        },
+        "rules": [],
+    }
+    with pytest.raises(fr.RegistryValidationError, match="missing 'family'"):
+        fr.validate_registry(bad)
+
+
+# --- CME-v2 S1: _normalize_stage ---
+
+
+@pytest.fixture
+def normalize_test_registry():
+    """A registry with rewrite_rules covering several patterns for normalize tests."""
+    return {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [
+                    {"from": "GOVERN-6", "to": ["GOVERN 6.1", "GOVERN 6.2", "GOVERN 6.3"]},
+                    {"from": "MANAGE-3", "to": ["MANAGE 3.1", "MANAGE 3.2"]},
+                ],
+            },
+            "owasp_llm_top10": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [
+                    {"from": "LLM01", "to": ["LLM01:2025"]},
+                    {"from": "LLM05", "to": ["LLM05:2025"]},
+                ],
+            },
+            "soc2": {
+                "name": "x", "family": "security", "source": "x",
+                "control_descriptions": {},
+                # No rewrite_rules at all — passthrough framework
+            },
+        },
+        "rules": [],
+    }
+
+
+def test_normalize_no_op_when_finding_has_no_frameworks(normalize_test_registry):
+    f = _finding(check_id="x", frameworks={})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    assert f["frameworks"] == {}
+
+
+def test_normalize_rewrites_one_to_many(normalize_test_registry):
+    """GOVERN-6 expands to three canonical subcategories."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN-6"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    assert f["frameworks"]["nist_ai_rmf"] == ["GOVERN 6.1", "GOVERN 6.2", "GOVERN 6.3"]
+
+
+def test_normalize_rewrites_one_to_one(normalize_test_registry):
+    """LLM01 becomes LLM01:2025."""
+    f = _finding(check_id="x", frameworks={"owasp_llm_top10": ["LLM01"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    assert f["frameworks"]["owasp_llm_top10"] == ["LLM01:2025"]
+
+
+def test_normalize_passes_through_unknown_id(normalize_test_registry):
+    """An ID with no matching rewrite rule stays as-is."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["UNKNOWN-42"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    assert f["frameworks"]["nist_ai_rmf"] == ["UNKNOWN-42"]
+
+
+def test_normalize_passes_through_framework_without_rewrite_rules(normalize_test_registry):
+    """A framework with no rewrite_rules block leaves its tags untouched."""
+    f = _finding(check_id="x", frameworks={"soc2": ["CC6.1"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    assert f["frameworks"]["soc2"] == ["CC6.1"]
+
+
+def test_normalize_handles_mixed_known_and_unknown_in_same_list(normalize_test_registry):
+    """A list with both rewritable and passthrough IDs: rewritable expands, unknown stays."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN-6", "UNKNOWN-99"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    # Result: union of GOVERN-6's expansion + UNKNOWN-99, sorted
+    assert f["frameworks"]["nist_ai_rmf"] == ["GOVERN 6.1", "GOVERN 6.2", "GOVERN 6.3", "UNKNOWN-99"]
+
+
+def test_normalize_idempotency(normalize_test_registry):
+    """Applying normalize twice yields the same result."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN-6"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    once = list(f["frameworks"]["nist_ai_rmf"])
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    twice = list(f["frameworks"]["nist_ai_rmf"])
+    assert once == twice
+
+
+def test_normalize_handles_multiple_rewrites_in_same_framework(normalize_test_registry):
+    """Two rewritable IDs in the same framework both expand."""
+    f = _finding(check_id="x", frameworks={"nist_ai_rmf": ["GOVERN-6", "MANAGE-3"]})
+    fr._normalize_stage(f, registry=normalize_test_registry)
+    assert f["frameworks"]["nist_ai_rmf"] == [
+        "GOVERN 6.1", "GOVERN 6.2", "GOVERN 6.3",
+        "MANAGE 3.1", "MANAGE 3.2",
+    ]
+
+
+# --- CME-v2 S1: end-to-end apply with both stages ---
+
+
+def test_apply_runs_normalize_before_augment():
+    """End-to-end: a finding with Shasta-format tags + a matching rule lands
+    with canonical tags (from normalize) AND added rule tags (from augment)."""
+    registry = {
+        "frameworks": {
+            "nist_ai_rmf": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [
+                    {"from": "GOVERN-6", "to": ["GOVERN 6.1", "GOVERN 6.2"]},
+                ],
+            },
+            "eu_ai_act": {
+                "name": "x", "family": "ai", "source": "x",
+                "control_descriptions": {},
+                "rewrite_rules": [],
+            },
+        },
+        "rules": [
+            {
+                "id": "add_eu_ai_act_to_governance_check",
+                "when": {"check_id_eq": "scanner-governance-check"},
+                "add_frameworks": {"eu_ai_act": ["Article 9"]},
+            },
+        ],
+    }
+    # Scanner emitted Shasta-format GOVERN-6
+    f = _finding(check_id="scanner-governance-check",
+                 frameworks={"nist_ai_rmf": ["GOVERN-6"]})
+    fr.apply(f, entity_index={}, registry=registry)
+    # Normalize ran first → GOVERN-6 expanded to canonical subcategories
+    assert f["frameworks"]["nist_ai_rmf"] == ["GOVERN 6.1", "GOVERN 6.2"]
+    # Augment ran second → rule added Article 9 to eu_ai_act
+    assert f["frameworks"]["eu_ai_act"] == ["Article 9"]
+    # Provenance recorded
+    assert "add_eu_ai_act_to_governance_check" in f["evidence_packet"]["_registry_rule_ids"]
