@@ -486,3 +486,22 @@ def test_mitre_atlas_shasta_ids_passthrough_via_rewrite():
     fr._normalize_stage(f, registry=fr.load_registry())
     # All inputs preserved (sorted, deduped — same set)
     assert set(f["frameworks"]["mitre_atlas"]) == set(SHASTA_IDS)
+
+
+# --- CME-v2 S2: owasp_llm_top10 rewrite table ---
+
+
+def test_owasp_llm_top10_year_pinning_rewrite():
+    """Shasta's bare LLMNN IDs (2023 numbering) rewrite to LLMNN:2025 (current edition)."""
+    # LLM01:2025 is Prompt Injection in both 2023 and 2025 — stable position, no renumbering.
+    f = _finding(check_id="x", frameworks={"owasp_llm_top10": ["LLM01"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "LLM01:2025" in f["frameworks"]["owasp_llm_top10"]
+
+
+def test_owasp_llm_top10_renumbered_items_map_to_2025_ids():
+    """2023's LLM06 Sensitive Information Disclosure became 2025's LLM02:2025."""
+    # Verified: 2023 LLM06 → 2025 LLM02:2025 (moved from #6 to #2 in the 2025 edition).
+    f = _finding(check_id="x", frameworks={"owasp_llm_top10": ["LLM06"]})
+    fr._normalize_stage(f, registry=fr.load_registry())
+    assert "LLM02:2025" in f["frameworks"]["owasp_llm_top10"]

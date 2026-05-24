@@ -68,9 +68,29 @@
       "source_url": "https://genai.owasp.org/llm-top-10/",
       "version": "2025",
       "canonical_format": "LLMNN:2025 (year-pinned)",
-      "rewrite_rules": [],
+      "rewrite_rules": [
+        {"from": "LLM01", "to": ["LLM01:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM01 Prompt Injection retained as 2025 LLM01:2025 Prompt Injection (same position)"},
+        {"from": "LLM02", "to": ["LLM05:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM02 Insecure Output Handling became 2025 LLM05:2025 Improper Output Handling (renumbered)"},
+        {"from": "LLM03", "to": ["LLM04:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM03 Training Data Poisoning became 2025 LLM04:2025 Data and Model Poisoning (renumbered, scope expanded)"},
+        {"from": "LLM04", "to": ["LLM10:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM04 Model Denial of Service absorbed into 2025 LLM10:2025 Unbounded Consumption (merged)"},
+        {"from": "LLM05", "to": ["LLM03:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM05 Supply Chain Vulnerabilities became 2025 LLM03:2025 Supply Chain (renumbered)"},
+        {"from": "LLM06", "to": ["LLM02:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM06 Sensitive Information Disclosure became 2025 LLM02:2025 Sensitive Information Disclosure (renumbered, moved to #2)"},
+        {"from": "LLM07", "to": ["LLM06:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM07 Insecure Plugin Design absorbed into 2025 LLM06:2025 Excessive Agency (plugin/tool design is a subcase of excessive agency in 2025)"},
+        {"from": "LLM08", "to": ["LLM06:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM08 Excessive Agency became 2025 LLM06:2025 Excessive Agency (renumbered)"},
+        {"from": "LLM09", "to": ["LLM09:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM09 Overreliance became 2025 LLM09:2025 Misinformation (renamed; overreliance is the primary mechanism of LLM misinformation)"},
+        {"from": "LLM10", "to": ["LLM10:2025"], "source": "OWASP LLM Top 10 2025 renumbering — 2023 LLM10 Model Theft absorbed into 2025 LLM10:2025 Unbounded Consumption (model extraction via API is explicitly covered under unbounded consumption)"}
+      ],
       "control_descriptions": {
-        "LLM02:2025": "Sensitive information can affect both the LLM and its application context, including PII, financial details, health records, confidential business data, security credentials, and legal documents."
+        "LLM01:2025": "Prompt Injection occurs when user prompts alter the LLM's behavior or output in unintended ways. Direct injections overwrite system prompts; indirect injections manipulate inputs from external sources such as websites or documents.",
+        "LLM02:2025": "Sensitive information can affect both the LLM and its application context, including PII, financial details, health records, confidential business data, security credentials, and legal documents.",
+        "LLM03:2025": "LLM supply chains are susceptible to vulnerabilities affecting the integrity of training data, models, and deployment platforms, including compromised third-party components, poisoned model weights, and outdated SDKs with known CVEs.",
+        "LLM04:2025": "Data and Model Poisoning occurs when pre-training, fine-tuning, or embedding data is manipulated to introduce vulnerabilities, backdoors, or biases that compromise model security, effectiveness, or ethical behavior.",
+        "LLM05:2025": "Improper Output Handling refers to insufficient validation, sanitization, and handling of LLM-generated outputs before passing them downstream, potentially enabling XSS, CSRF, SSRF, privilege escalation, or remote code execution.",
+        "LLM06:2025": "Excessive Agency occurs when an LLM-based system is granted excessive functionality, permissions, or autonomy, enabling damaging actions in response to unexpected, ambiguous, or manipulated outputs.",
+        "LLM07:2025": "System Prompt Leakage occurs when system prompts or embedded instructions containing sensitive information are exposed through LLM outputs, revealing confidential configurations, credentials, or operational details.",
+        "LLM08:2025": "Vector and Embedding Weaknesses present security risks in systems using retrieval-augmented generation (RAG) or embedding-based features, including poisoned vectors, cross-context contamination, and unauthorized data retrieval.",
+        "LLM09:2025": "Misinformation from LLMs poses a core vulnerability where models produce false, misleading, or dangerous content that appears authoritative, leading to security vulnerabilities, reputational damage, or harm when users over-rely on LLM output.",
+        "LLM10:2025": "Unbounded Consumption refers to LLM applications allowing excessive, uncontrolled inference leading to denial of service, financial losses, and model theft via API-based extraction, side-channel attacks, and functional model replication."
       }
     },
     "owasp_agentic": {
