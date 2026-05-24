@@ -5,7 +5,7 @@ import json
 import pytest
 from pathlib import Path
 
-from scanner_core import framework_registry as fr
+import framework_registry as fr
 
 
 def test_shipping_registry_loads_and_validates():
