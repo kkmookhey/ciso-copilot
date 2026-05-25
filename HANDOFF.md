@@ -9,10 +9,44 @@
 > canonical `NIST.AI.600-1:2.N` IDs replace Shasta `GAI-N` shorthand,
 > MITRE ATLAS control_descriptions now carry canonical v4 technique
 > names, §2.1 CBRN + §2.10 Intellectual Property entries added.
+> Same day later: PR #23 — /ai tile drill-down + GCP org-mode toggle +
+> dropped the OpenAI/Anthropic provider-connectors story. Then D-1
+> demo bug squashed (`scans_status` was counting `findings.scan_id`,
+> which gets reassigned to the latest emitting scan via ON CONFLICT
+> — now reads `scans.stats.findings` directly. See "D-1 fix" block
+> below.)
 > Earlier 2026-05-24: AI Visibility v2 S2.1 Entra licensing banner
 > verified; restored the AiSummary Lambda + `/ai/summary` route after
 > a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
 > gotcha block below.)
+
+## 🛠 D-1 fix — `scans_status` reads `stats.findings`, not the table (2026-05-25)
+
+Load-bearing demo bug squashed. `GET /v1/scans/{scan_id}` was returning
+`finding_count` from `SELECT count(*) FROM findings WHERE scan_id=X`.
+That query lies for every scan that isn't the most-recent emit of a
+given finding tuple, because `unified_writer._insert_finding`'s ON
+CONFLICT clause sets `scan_id=EXCLUDED.scan_id` on re-emit — migrating
+the row's ownership to the latest scan. Per-tenant evidence on
+transilienceai.com (8 scans): 5 completed scans reported zero findings
+despite emitting 116 / 785 / 857 / 1199 / 1442; the Medium scan
+(`b3091a57`) reported 7164 instead of 11008.
+
+**Fix:** `scans_status/main.py` now reads `scans.stats.findings`
+(authoritative count stamped by `scan_state.update_scan` at completion).
+Falls back to the live count only when `stats.findings` is unset
+(running scan, pre-completion). Docstring warnings added in all four
+`unified_writer.py` variants pointing future devs at this contract.
+The §17.1 Findings History sub-project remains the proper full fix for
+per-scan history; this is the surgical unblock.
+
+**Deployed:** `cdk deploy CisoCopilotApi --hotswap` (14s). Tests:
+4 new `scans_status/tests/test_main.py`, plus `scanner_core/tests/` 70
+pass unchanged.
+
+**▶ NEXT** — pick up #41 Findings History sub-project (the proper
+per-scan history substrate) OR Daily Brief generation (§G in BACKLOG).
+
 
 ## 🚀 Compliance Mapping Engine v2 — shipped end-to-end (2026-05-25)
 

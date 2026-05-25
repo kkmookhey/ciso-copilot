@@ -64,7 +64,7 @@ def handler(event: dict, context) -> dict:
 
     rs = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=("SELECT tier, status, phase, scope, "
+        sql=("SELECT tier, status, phase, scope, stats, "
              "started_at::text, finished_at::text "
              "FROM scans WHERE scan_id = CAST(:sid AS UUID) "
              "AND tenant_id = CAST(:tid AS UUID)"),
@@ -78,13 +78,23 @@ def handler(event: dict, context) -> dict:
         return _resp(404, {"error": "scan_not_found"})
     r = rows[0]
 
-    fc = rds_data.execute_statement(
-        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=("SELECT count(*) FROM findings "
-             "WHERE scan_id = CAST(:sid AS UUID)"),
-        parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
-    )
-    finding_count = fc["records"][0][0].get("longValue", 0)
+    # Authoritative finding count lives in `scans.stats.findings` — set by
+    # the scanner at completion (see scan_state.update_scan). Querying
+    # `findings WHERE scan_id=X` undercounts historical scans because
+    # unified_writer._insert_finding's ON CONFLICT clause reassigns
+    # `findings.scan_id` to the most-recent emitting scan. Fall back to
+    # the live count only when stats is unwritten (running scan).
+    stats_raw = r[4].get("stringValue") if not r[4].get("isNull") else None
+    stats = json.loads(stats_raw) if stats_raw else {}
+    finding_count = stats.get("findings")
+    if finding_count is None:
+        fc = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=("SELECT count(*) FROM findings "
+                 "WHERE scan_id = CAST(:sid AS UUID)"),
+            parameters=[{"name": "sid", "value": {"stringValue": scan_id}}],
+        )
+        finding_count = fc["records"][0][0].get("longValue", 0)
 
     scope_raw = r[3].get("stringValue") if not r[3].get("isNull") else None
     return _resp(200, {
@@ -93,8 +103,8 @@ def handler(event: dict, context) -> dict:
         "status":        r[1].get("stringValue"),
         "phase":         r[2].get("stringValue"),
         "coverage_map":  json.loads(scope_raw) if scope_raw else None,
-        "started_at":    r[4].get("stringValue"),
-        "finished_at":   r[5].get("stringValue") if not r[5].get("isNull") else None,
+        "started_at":    r[5].get("stringValue"),
+        "finished_at":   r[6].get("stringValue") if not r[6].get("isNull") else None,
         "finding_count": finding_count,
     })
 

@@ -290,7 +290,23 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
     """Upsert a finding on its natural key (tenant, conn, check_id, resource,
     region) so re-scans refresh in place rather than accumulate a fresh row.
     `first_seen` is preserved on conflict; `last_seen` + mutable state are
-    refreshed and `resolved_at` is cleared (the finding was seen again)."""
+    refreshed and `resolved_at` is cleared (the finding was seen again).
+
+    Important side-effect: `scan_id=EXCLUDED.scan_id` migrates each row's
+    scan_id to the MOST RECENT emitting scan. Consequently
+    `findings.scan_id` means "scan that last emitted this finding", NOT
+    "scan that first detected it" or "scan history". Callers that need
+    historical counts MUST read `scans.stats.findings` (the count the
+    scanner stamped at completion), not `count(*) FROM findings WHERE
+    scan_id=X` — the latter undercounts every scan that's been
+    superseded. The §17.1 Findings History sub-project is the proper
+    fix for per-scan history; this docstring is the load-bearing warning
+    until then.
+
+    NOTE: This file (ai_scanner/unified_writer.py) is the source of
+    truth. Each scanner image's app/unified_writer.py is a copy made by
+    its build.sh — do not edit those directly; they're gitignored and
+    overwritten on next build."""
     fid = str(uuid.uuid4())
     _rds.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,

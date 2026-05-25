@@ -29,7 +29,7 @@
 
 ## D. Live bugs / mysteries
 
-- [ ] **`findings` table inconsistency** *(load-bearing on every demo)*: 6 of 8 backend@'s scans show non-zero `stats.findings` but zero rows in the `findings` table. Trace the scan write path for `74c4aad2`, `83abb509`, `b0a5c2e1`, `613df8a8`, `bb2d4bcb`. ~1h of debug.
+- ✅ **`findings` table inconsistency** *(shipped 2026-05-25, scans_status hotswap)*: Root cause — `unified_writer._insert_finding`'s `ON CONFLICT ... DO UPDATE SET scan_id=EXCLUDED.scan_id` reassigns each finding row to the most-recent emitting scan, so `count(*) FROM findings WHERE scan_id=X` undercounts every superseded scan. `scans_status` now reads `scans.stats.findings` (the authoritative count the scanner stamps at completion) and falls back to the live count only when stats is unwritten (running scan). Docstring warnings added in all four `unified_writer.py` variants. The §17.1 Findings History sub-project remains the proper full fix for per-scan history. 4 new unit tests / 70 scanner_core tests still pass.
 - [ ] **Quick tier silently skips AI pass** *(hit twice in one day — AWS + Azure)*: UI shows `/ai = 0` with no explanation. Fix (a) slim AI pass on quick, or (b) UI hint when latest scan is quick.
 - [ ] **STS credentials expire mid-scan on medium tier multi-region** — scan `f749cb31` failed 2026-05-21. Bump role's `max-session-duration` + re-assume with `--duration-seconds`, or split medium into per-region chunks under a fresh session each.
 
