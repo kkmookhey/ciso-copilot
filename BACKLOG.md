@@ -29,7 +29,7 @@
 
 ## D. Live bugs / mysteries
 
-- [ ] **`findings` table inconsistency** *(load-bearing on every demo)*: 6 of 8 backend@'s scans show non-zero `stats.findings` but zero rows in the `findings` table. Trace the scan write path for `74c4aad2`, `83abb509`, `b0a5c2e1`, `613df8a8`, `bb2d4bcb`. ~1h of debug.
+- ~~**`findings` table inconsistency**~~ ✅ **NOT A BUG (verified 2026-05-25).** The 5 "broken" scans (`74c4aad2`, `83abb509`, `b0a5c2e1`, `613df8a8`, `bb2d4bcb`) had ALL their findings reparented to later scans via the `ON CONFLICT DO UPDATE` clause in `_insert_finding`. The `scan_id` column tracks "which scan most recently touched this finding," not "which scan discovered it." `first_seen` carries the discovery timestamp; `stats.findings` records what THIS scan emitted into memory (not what currently sits in the DB). Verified via Aurora query: `c660c70b` has 39 of its 116 rows with `first_seen` before `b3091a57` even started — those are inherited from the earlier "broken" scans. Documented as a HANDOFF gotcha.
 - [ ] **Quick tier silently skips AI pass** *(hit twice in one day — AWS + Azure)*: UI shows `/ai = 0` with no explanation. Fix (a) slim AI pass on quick, or (b) UI hint when latest scan is quick.
 - [ ] **STS credentials expire mid-scan on medium tier multi-region** — scan `f749cb31` failed 2026-05-21. Bump role's `max-session-duration` + re-assume with `--duration-seconds`, or split medium into per-region chunks under a fresh session each.
 
