@@ -4,11 +4,102 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-24 (AI Visibility v2 S2.1 verified — Entra
-> Free-tier licensing banner works end-to-end. Also: restored the
-> AiSummary Lambda + `/ai/summary` route after a stale-tree CDK deploy
-> on 2026-05-23 silently wiped them — `/ai` is live again. See gotcha
-> block below.)
+> Last updated: 2026-05-25 (Compliance Mapping Engine v2 fully shipped
+> across 4 slices — PRs #17–#20; plus tasks #53 + #54 follow-up PR #21:
+> canonical `NIST.AI.600-1:2.N` IDs replace Shasta `GAI-N` shorthand,
+> MITRE ATLAS control_descriptions now carry canonical v4 technique
+> names, §2.1 CBRN + §2.10 Intellectual Property entries added.
+> Earlier 2026-05-24: AI Visibility v2 S2.1 Entra licensing banner
+> verified; restored the AiSummary Lambda + `/ai/summary` route after
+> a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
+> gotcha block below.)
+
+## 🚀 Compliance Mapping Engine v2 — shipped end-to-end (2026-05-25)
+
+The architectural reset KK ordered ("Shasta isn't our binding framework.
+We are building something phenomenally better… built it once, built it
+right, architecturally sound for multi-modal evidence collection.") is
+fully live on `main`. CME-v2 is now the binding crosswalk between scanner-
+emitted control IDs and canonical published framework formats.
+
+**What's live (PRs #17–#20):**
+
+- **Two-stage pipeline** (`normalize` → `augment`) in `framework_registry.py`
+  runs on every finding write. `unified_writer.commit_scan` (AWS/Azure/GCP/
+  ai_scanner) + `shasta_runner_entra._enrich_param_lists_with_registry`
+  (Entra) both hook the pipeline.
+- **`ai_framework_registry.json`** declares 8 frameworks with `family`,
+  `source_url`, `version`, `canonical_format`, `rewrite_rules` (~65 entries),
+  `control_descriptions` (12 NIST §2 risks, 16 ATLAS techniques, 9 EU AI
+  Act articles, 10 OWASP LLM, 2 ISO 42001, plus all NIST AI RMF GOVERN/
+  MAP/MEASURE/MANAGE subcategories).
+- **13 canonical augment rules**: 3 Slice E ai_signin_* + 10 baseline AWS
+  check_id rules. All emit canonical published-format IDs directly so the
+  augment stage does not need a second normalize pass.
+- **`/ai/summary` + `/compliance/summary`** return `frameworks_meta` carrying
+  `{name, family, source_url, version}` per framework.
+- **Web `/ai` + Dashboard** render family-grouped tiles (security / ai /
+  industry). All framework tiles + the `/findings?framework=` filter chip
+  carry the §14.1 disclaimer ("Mapping only — not a compliance attestation.
+  Verify with your auditor.") on hover.
+- **CloudWatch observability**: `registry_apply_summary`,
+  `normalize_rewrote_count`, `normalize_passthrough_count` log per scan.
+- **Provenance**: every finding records `evidence_packet._registry_rule_ids`
+  with the IDs of every rule that fired.
+- **Forward-compat for §17.1 Findings History + §17.2 Evidence Ingestion**
+  preserved in the spec — both deferred to future sub-projects.
+
+### Tasks #53 + #54 follow-up (PR #21)
+
+After CME-v2 shipped, the Shasta-shorthand tail still leaked. PR #21 closes
+it strictly per D-2 ("canonical published format is binding"):
+
+- **NIST AI 600-1**: all 12 Shasta `GAI-N` IDs now rewrite to canonical
+  `NIST.AI.600-1:2.N` section anchors. GAI-5 and GAI-8 are multi-target where
+  NIST splits the concern across two sections. GAI-6 (Data Poisoning) and
+  GAI-7 (Prompt Injection) are documented as Shasta extensions and mapped
+  to the closest NIST anchors (`§2.9` + `§2.12` for the former, `§2.9` for
+  the latter).
+- **2 NIST risks now in registry that no Shasta check covers**: `§2.1 CBRN
+  Information or Capabilities` and `§2.10 Intellectual Property`. They sit
+  in `control_descriptions` so a future baseline-rule can attach them
+  without retroactively adding registry entries.
+- **MITRE ATLAS labels**: `control_descriptions` values converted from
+  plain strings to `{name, description}` so the canonical v4 technique
+  short-name (e.g. `AML.T0010` = "AI Supply Chain Compromise") is registry-
+  canonical instead of trusting potentially-drifted Shasta check titles.
+- **Stray `GOVERN 1.6`** removed from `nist_ai_600_1.control_descriptions`
+  (it belongs only in `nist_ai_rmf`).
+
+### What you'll see post next rescan
+
+Existing Aurora rows tagged `GAI-N` stay `GAI-N` until next purge — per
+KK's "don't backfill; we purge periodically pre-prod" stance from the
+CME-v2 spec. After the next AWS Medium rescan:
+
+- New findings land tagged `NIST.AI.600-1:2.X` in `findings.frameworks`
+  JSONB instead of `GAI-N`.
+- `/findings?framework=nist_ai_600_1` continues to populate (the framework
+  KEY didn't change; only the IDs within it did).
+- The 10 new baseline rules (`baseline_bedrock_*`, `baseline_sagemaker_*`,
+  `baseline_cloudtrail_ai_events`, `baseline_s3_training_data_versioned`)
+  fire from the AWS scanner image already in ECR and produce visible
+  CloudWatch `registry_apply_summary` deltas.
+
+### Tests (full suite green)
+
+- `pytest platform/lambda/scanner_core/tests/` — **70 passed**
+- `pytest platform/lambda/shasta_runner_entra/app/tests/` — 12 passed
+- `pytest platform/lambda/ai_summary/tests/` — 2 passed
+- `pytest platform/lambda/findings_list/tests/` — 4 passed (needs DB env-var
+  stubs; see Open items)
+
+### Known UX gaps logged (not blockers)
+
+- Framework tiles on `/ai` link to source docs but don't drill into
+  `/findings?framework=<key>`. ~10 min web tweak.
+- Redundant Entra ID P1/P2 hint copy in `AISummary.tsx:87` now overlaps
+  with the Slice 2.1 connect-page banner — trim or cross-link.
 
 ## 🛠 `/ai` endpoint restored (2026-05-24)
 
