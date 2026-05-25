@@ -27,6 +27,8 @@ import os
 
 import boto3
 
+from framework_meta import FRAMEWORK_META
+
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
@@ -99,8 +101,9 @@ def handler(event: dict, context) -> dict:
         }
 
     return _resp(200, {
-        "summary":               summary,
-        "by_framework_control":  by_control,
+        "summary":              summary,
+        "by_framework_control": by_control,
+        "frameworks_meta":      FRAMEWORK_META,
     })
 
 

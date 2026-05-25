@@ -6,17 +6,6 @@
 import { useEffect, useState } from "react";
 import { api, type AISummaryResponse, type AIStatusCounts } from "../lib/api";
 
-const FRAMEWORK_LABELS: Record<string, string> = {
-  nist_ai_rmf:     "NIST AI RMF",
-  iso_42001:       "ISO 42001",
-  soc2_ai:         "SOC 2 AI",
-  eu_ai_act:       "EU AI Act",
-  nist_ai_600_1:   "NIST AI 600-1",
-  owasp_llm_top10: "OWASP LLM Top 10",
-  owasp_agentic:   "OWASP Agentic",
-  mitre_atlas:     "MITRE ATLAS",
-};
-
 const SOURCE_LABELS: Record<string, string> = {
   aws:   "AWS",
   azure: "Azure",
@@ -57,24 +46,37 @@ export default function AISummary() {
               key={s}
               label={SOURCE_LABELS[s]}
               value={data.by_source[s]}
-              note={s === "entra" ? "coming in S2" : undefined}
             />
           ))}
         </div>
       </section>
 
-      {/* By framework */}
+      {/* By framework — grouped by family (CME-v2 S4) */}
       <section>
         <h2 className="text-lg font-medium mb-2">By framework</h2>
-        <div className="grid grid-cols-4 gap-3">
-          {Object.keys(FRAMEWORK_LABELS).map((fw) => (
-            <FrameworkTile
-              key={fw}
-              label={FRAMEWORK_LABELS[fw]}
-              counts={data.by_framework[fw as keyof AISummaryResponse["by_framework"]]}
-            />
-          ))}
-        </div>
+        {(["ai"] as const).map((family) => {
+          const keysInFamily = Object.entries(data.frameworks_meta)
+            .filter(([, m]) => m.family === family)
+            .map(([k]) => k);
+          if (keysInFamily.length === 0) return null;
+          return (
+            <div key={family} className="mb-4">
+              <h3 className="text-sm font-medium text-slate-600 mb-2 uppercase tracking-wide">
+                {family} frameworks
+              </h3>
+              <div className="grid grid-cols-4 gap-3">
+                {keysInFamily.map((fw) => (
+                  <FrameworkTile
+                    key={fw}
+                    label={data.frameworks_meta[fw]?.name ?? fw}
+                    counts={data.by_framework[fw as keyof AISummaryResponse["by_framework"]]}
+                    sourceUrl={data.frameworks_meta[fw]?.source_url}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       {/* Top people */}
@@ -82,7 +84,7 @@ export default function AISummary() {
         <h2 className="text-lg font-medium mb-2">Top AI users</h2>
         {data.top_people.length === 0 ? (
           <p className="text-sm text-slate-500">
-            No identifiable AI users yet — connect Entra (S2) to populate.
+            No identifiable AI users yet — Entra sign-in data populates this when available (requires Entra ID P1/P2).
           </p>
         ) : (
           <table className="w-full text-sm">
@@ -137,10 +139,21 @@ function SourceTile({ label, value, note }: {
   );
 }
 
-function FrameworkTile({ label, counts }: { label: string; counts: AIStatusCounts }) {
+function FrameworkTile({ label, counts, sourceUrl }: {
+  label:      string;
+  counts:     AIStatusCounts;
+  sourceUrl?: string;
+}) {
   return (
-    <div className="rounded-lg border p-3">
-      <div className="text-sm font-medium mb-1">{label}</div>
+    <div
+      className="rounded-lg border p-3"
+      title="Mapping only — not a compliance attestation. Verify with your auditor."
+    >
+      <div className="text-sm font-medium mb-1">
+        {sourceUrl
+          ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">{label}</a>
+          : label}
+      </div>
       <div className="flex gap-2 text-xs">
         <span className="text-red-700">F: {counts.fail}</span>
         <span className="text-amber-700">P: {counts.partial}</span>

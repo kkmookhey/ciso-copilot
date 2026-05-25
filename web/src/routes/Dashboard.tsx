@@ -152,22 +152,32 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Compliance posture — clickable framework tiles */}
+      {/* Compliance posture — grouped by family (CME-v2 S4) */}
       {compliance && Object.keys(compliance.summary).length > 0 && (
         <div className="mt-10">
           <h2 className="font-semibold text-lg mb-3">Compliance posture</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {Object.entries(compliance.summary)
-              .sort(([, a], [, b]) => b.total - a.total)
-              .map(([framework, agg]) => (
-                <FrameworkCard
-                  key={framework}
-                  framework={framework}
-                  agg={agg}
-                  onClick={() => nav(`/findings?framework=${framework}`)}
-                />
-              ))}
-          </div>
+          {(["security", "ai", "industry", "privacy"] as const).map((family) => {
+            const entries = Object.entries(compliance.summary)
+              .filter(([k]) => compliance.frameworks_meta?.[k]?.family === family)
+              .sort(([, a], [, b]) => b.total - a.total);
+            if (entries.length === 0) return null;
+            return (
+              <div key={family} className="mb-5">
+                <h3 className="text-sm font-medium text-slate-600 mb-2 uppercase tracking-wide">{family} frameworks</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {entries.map(([framework, agg]) => (
+                    <FrameworkCard
+                      key={framework}
+                      framework={framework}
+                      agg={agg}
+                      meta={compliance.frameworks_meta?.[framework]}
+                      onClick={() => nav(`/findings?framework=${framework}`)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -302,13 +312,19 @@ function Legend({ items }: { items: { label: string; color: string; value: numbe
   );
 }
 
-function FrameworkCard({ framework, agg, onClick }: { framework: string; agg: { total: number; passing: number; failing: number; score_pct: number }; onClick?: () => void }) {
+function FrameworkCard({ framework, agg, meta, onClick }: {
+  framework: string;
+  agg:       { total: number; passing: number; failing: number; score_pct: number };
+  meta?:     { name: string; family: string; source_url: string; version: string };
+  onClick?:  () => void;
+}) {
   const tone = agg.score_pct >= 80 ? "text-green-600" : agg.score_pct >= 50 ? "text-amber-600" : "text-red-600";
-  const label = FRAMEWORK_LABEL[framework] ?? framework.toUpperCase();
+  const label = meta?.name ?? FRAMEWORK_LABEL[framework] ?? framework.toUpperCase();
   return (
     <button
       type="button"
       onClick={onClick}
+      title="Mapping only — not a compliance attestation. Verify with your auditor."
       className="text-left rounded-2xl border border-slate-200 bg-white p-5 w-full hover:border-blue-400 transition cursor-pointer"
     >
       <div className="text-xs text-slate-500 uppercase tracking-wide">{label}</div>

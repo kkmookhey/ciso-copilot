@@ -207,8 +207,12 @@ export function TopRisks() {
   const filterChips = [
     severity  ? { key: "severity",  label: `severity: ${severity}` }   : null,
     cloud     ? { key: "cloud",     label: `cloud: ${cloud}` }          : null,
-    framework ? { key: "framework", label: `framework: ${framework}` } : null,
-  ].filter(Boolean) as { key: string; label: string }[];
+    framework ? {
+      key:   "framework",
+      label: `framework: ${framework}`,
+      title: "Mapping only — not a compliance attestation. Verify with your auditor.",
+    } : null,
+  ].filter(Boolean) as { key: string; label: string; title?: string }[];
 
   const totalFindings = sections?.reduce(
     (s, sec) => s + sec.groups.reduce((n, g) => n + g.findings.length, 0), 0) ?? 0;
@@ -256,7 +260,7 @@ export function TopRisks() {
               key={c.key}
               onClick={() => clearFilter(c.key)}
               className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
-              title="Click to clear"
+              title={c.title ?? "Click to clear"}
             >
               {c.label} ✕
             </button>

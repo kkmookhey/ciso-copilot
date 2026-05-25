@@ -89,3 +89,12 @@ def test_handler_returns_score_by_source_by_framework_top_people(mock_rds):
     assert body["by_framework"]["mitre_atlas"]    == {"fail": 5, "partial": 1, "pass": 3}
     assert body["top_people"][0]["email"] == "alice@acme.com"
     assert body["top_people"][0]["sources"] == ["aws", "code"]
+    # CME-v2 S4.T3: frameworks_meta carries family + display info per AI framework
+    meta = body["frameworks_meta"]
+    assert set(meta.keys()) >= {"nist_ai_rmf", "iso_42001", "soc2_ai", "eu_ai_act",
+                                 "nist_ai_600_1", "owasp_llm_top10", "owasp_agentic", "mitre_atlas"}
+    assert meta["nist_ai_rmf"]["family"] == "ai"
+    assert meta["nist_ai_rmf"]["name"] == "NIST AI RMF"
+    assert "source_url" in meta["nist_ai_rmf"]
+    # AI summary endpoint returns ONLY ai-family entries (no security/industry)
+    assert all(v["family"] == "ai" for v in meta.values())

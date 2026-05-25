@@ -173,9 +173,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface FrameworkMeta {
+  name:       string;
+  family:     "security" | "ai" | "privacy" | "industry";
+  source_url: string;
+  version:    string;
+}
+
 export interface ComplianceSummary {
   summary: Record<string, { total: number; passing: number; failing: number; score_pct: number }>;
   by_framework_control: Array<{ framework: string; control_id: string; fail_count: number; pass_count: number; total: number }>;
+  frameworks_meta: Record<string, FrameworkMeta>;
 }
 
 export interface TrustPageSettings {
@@ -351,6 +359,7 @@ export interface AISummaryResponse {
     partial:  number;
     sources:  string[];
   }>;
+  frameworks_meta: Record<string, FrameworkMeta>;
 }
 
 export const api = {
