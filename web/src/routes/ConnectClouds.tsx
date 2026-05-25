@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type AIConnection, type Connection } from "../lib/api";
+import { api, type AIConnection, type Connection, type InitiateGcpResponse } from "../lib/api";
 
 /// Phase A + B onboarding wizard. AWS = one-click CFN; Azure = Cloud-Shell
 /// curl pipe. Entra and GCP land in Phases C and D respectively.
@@ -63,7 +63,9 @@ export function ConnectClouds() {
   const [cfnUrl,        setCfnUrl]        = useState<string | null>(null);
   const [azureCmd,      setAzureCmd]      = useState<string | null>(null);
   const [entraConsent,  setEntraConsent]  = useState<string | null>(null);
-  const [gcpCmd,        setGcpCmd]        = useState<string | null>(null);
+  const [gcpInit,       setGcpInit]       = useState<InitiateGcpResponse | null>(null);
+  const [gcpMode,       setGcpMode]       = useState<"project" | "org">("project");
+  const [gcpOrgId,      setGcpOrgId]      = useState<string>("");
   const [error,         setError]         = useState<string | null>(null);
 
   async function connectAws() {
@@ -97,10 +99,17 @@ export function ConnectClouds() {
     setPendingGcp(true); setError(null);
     try {
       const r = await api.initiateGcpOnboarding("GCP Project");
-      setGcpCmd(r.run_command);
+      setGcpInit(r);
     } catch (e) { setError((e as Error).message); }
     finally { setPendingGcp(false); }
   }
+
+  const orgIdValid = /^\d{6,20}$/.test(gcpOrgId.trim());
+  const gcpCmd = gcpInit
+    ? (gcpMode === "org" && orgIdValid
+        ? `${gcpInit.run_command} --org ${gcpOrgId.trim()}`
+        : gcpInit.run_command)
+    : null;
 
   async function connectGithub() {
     setPendingGithub(true); setError(null);
@@ -242,23 +251,99 @@ export function ConnectClouds() {
         </div>
       )}
 
-      {gcpCmd && (
+      {gcpInit && gcpCmd && (
         <div className="mt-10 p-6 rounded-2xl border-2 border-orange-200 bg-orange-50">
           <h2 className="font-semibold text-lg">Run in Google Cloud Shell</h2>
-          <p className="text-sm text-slate-700 mt-2">
-            Make sure <code className="font-mono text-xs bg-white px-1 rounded">gcloud config get-value project</code> shows
-            the project you want to onboard. The script enables required APIs,
-            creates a Workload Identity Pool + AWS provider + service account
-            (Security Reviewer + Cloud Asset Viewer + Logging Viewer), and
-            binds our scanner role to impersonate it. No keys leave your
-            project — all auth is federated.
+
+          <fieldset className="mt-4">
+            <legend className="text-sm font-medium text-slate-700">Scope</legend>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:gap-6">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="gcp-mode"
+                  value="project"
+                  checked={gcpMode === "project"}
+                  onChange={() => setGcpMode("project")}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">Single project</span>
+                  <span className="block text-xs text-slate-600">
+                    Onboards the project from <code className="font-mono">gcloud config get-value project</code>.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="gcp-mode"
+                  value="org"
+                  checked={gcpMode === "org"}
+                  onChange={() => setGcpMode("org")}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">Whole organization</span>
+                  <span className="block text-xs text-slate-600">
+                    Reader roles bind at the Org node; all projects discover on the first scan. Requires org-admin.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          {gcpMode === "org" && (
+            <div className="mt-3">
+              <label htmlFor="gcp-org-id" className="block text-sm font-medium text-slate-700">
+                Organization ID
+              </label>
+              <input
+                id="gcp-org-id"
+                type="text"
+                inputMode="numeric"
+                value={gcpOrgId}
+                onChange={(e) => setGcpOrgId(e.target.value)}
+                placeholder="123456789012"
+                aria-invalid={gcpOrgId.length > 0 && !orgIdValid}
+                className="mt-1 w-64 px-3 py-2 rounded-md border border-slate-300 bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-300"
+              />
+              <p className="mt-1 text-xs text-slate-600">
+                Find with <code className="font-mono bg-white px-1 rounded">gcloud organizations list</code>.
+              </p>
+              {gcpOrgId.length > 0 && !orgIdValid && (
+                <p className="mt-1 text-xs text-red-700">Must be a numeric ID (6–20 digits).</p>
+              )}
+            </div>
+          )}
+
+          <p className="text-sm text-slate-700 mt-4">
+            {gcpMode === "org" ? (
+              <>
+                The script enables required APIs in your host project, creates a Workload
+                Identity Pool + AWS provider + service account, binds reader roles
+                (Security Reviewer + Cloud Asset Viewer + Logging Viewer + Browser)
+                at the Organization node, and grants our scanner role to impersonate it.
+                No keys leave your project — all auth is federated.
+              </>
+            ) : (
+              <>
+                Make sure <code className="font-mono text-xs bg-white px-1 rounded">gcloud config get-value project</code> shows
+                the project you want to onboard. The script enables required APIs,
+                creates a Workload Identity Pool + AWS provider + service account
+                (Security Reviewer + Cloud Asset Viewer + Logging Viewer), and
+                binds our scanner role to impersonate it. No keys leave your
+                project — all auth is federated.
+              </>
+            )}
           </p>
           <pre className="mt-4 p-3 rounded-lg bg-white text-xs font-mono overflow-x-auto select-all">
             {gcpCmd}
           </pre>
           <div className="mt-4 flex items-center gap-3">
             <button onClick={() => navigator.clipboard.writeText(gcpCmd)}
-                    className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-sm">
+                    disabled={gcpMode === "org" && !orgIdValid}
+                    className="bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg text-sm">
               Copy command
             </button>
             <a href="https://shell.cloud.google.com" target="_blank" rel="noopener noreferrer"

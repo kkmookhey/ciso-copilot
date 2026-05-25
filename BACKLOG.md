@@ -35,8 +35,8 @@
 
 ## E. UX gaps logged in this session (2026-05-25)
 
-- [ ] **Drill-down on framework tiles** *(KK flagged 2026-05-25 post PR #20)*: `/ai` tiles link to source docs but don't navigate to `/findings?framework=<key>`. ~10 min: split FrameworkTile so the label links to findings while the source-doc link moves to a small icon.
-- [ ] **Redundant Entra ID P1/P2 hint** in `AISummary.tsx:87` — Slice 2.1 banner now covers this surface area. Trim copy or cross-link to the banner.
+- ✅ **Drill-down on framework tiles** *(shipped 2026-05-25)*: `/ai` `FrameworkTile` now navigates to `/findings?framework=<key>` on click; source-doc link demoted to a small ↗ icon. Tooltip preserved.
+- ✅ **Redundant Entra ID P1/P2 hint** *(shipped 2026-05-25)*: `AISummary.tsx` empty-state trimmed to "No identifiable AI users yet — connect Entra to populate." with a `/connect` cross-link. P1/P2 detail lives only in the Slice 2.1 banner now.
 
 ## F. HANDOFF.md hygiene
 
@@ -59,7 +59,6 @@ From `HANDOFF.md §"Deferred follow-ups"`:
 From `docs/superpowers/specs/2026-05-22-ai-visibility-v2-design.md §3`:
 
 - **[DECIDE]** **GCP-AI cloud pass** — status of the sub-project?
-- **[DECIDE]** **OpenAI / Anthropic admin-API connectors** — blocked on admin-key access; OpenAI's admin API is now GA. Worth attempting.
 - **[DECIDE]** **MCP discovery** — see §M.M2 below.
 - **[DROP?]** Inline traffic / browser extension / endpoint agent — explicitly "wrong product shape." Confirm dropped.
 - **[DECIDE]** **M365 Copilot ingest** — deferred unless prospect asks. Has anyone asked?

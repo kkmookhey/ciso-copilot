@@ -4,6 +4,7 @@
 // Three rows + a per-person table, sourced from GET /ai/summary.
 
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api, type AISummaryResponse, type AIStatusCounts } from "../lib/api";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -16,6 +17,7 @@ const SOURCE_LABELS: Record<string, string> = {
 export default function AISummary() {
   const [data,  setData]  = useState<AISummaryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const nav = useNavigate();
 
   useEffect(() => {
     api.aiSummary()
@@ -68,9 +70,11 @@ export default function AISummary() {
                 {keysInFamily.map((fw) => (
                   <FrameworkTile
                     key={fw}
+                    fwKey={fw}
                     label={data.frameworks_meta[fw]?.name ?? fw}
                     counts={data.by_framework[fw as keyof AISummaryResponse["by_framework"]]}
                     sourceUrl={data.frameworks_meta[fw]?.source_url}
+                    onClick={() => nav(`/findings?framework=${fw}`)}
                   />
                 ))}
               </div>
@@ -84,7 +88,11 @@ export default function AISummary() {
         <h2 className="text-lg font-medium mb-2">Top AI users</h2>
         {data.top_people.length === 0 ? (
           <p className="text-sm text-slate-500">
-            No identifiable AI users yet — Entra sign-in data populates this when available (requires Entra ID P1/P2).
+            No identifiable AI users yet —{" "}
+            <Link to="/connect" className="text-orange-700 underline hover:text-orange-800">
+              connect Entra
+            </Link>{" "}
+            to populate.
           </p>
         ) : (
           <table className="w-full text-sm">
@@ -139,20 +147,39 @@ function SourceTile({ label, value, note }: {
   );
 }
 
-function FrameworkTile({ label, counts, sourceUrl }: {
+function FrameworkTile({ fwKey, label, counts, sourceUrl, onClick }: {
+  fwKey:      string;
   label:      string;
   counts:     AIStatusCounts;
   sourceUrl?: string;
+  onClick:    () => void;
 }) {
   return (
     <div
-      className="rounded-lg border p-3"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+      aria-label={`View findings for ${label}`}
+      data-framework={fwKey}
+      className="rounded-lg border p-3 cursor-pointer hover:border-blue-300 hover:shadow-sm transition focus:outline-none focus:ring-2 focus:ring-blue-300"
       title="Mapping only — not a compliance attestation. Verify with your auditor."
     >
-      <div className="text-sm font-medium mb-1">
-        {sourceUrl
-          ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">{label}</a>
-          : label}
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <span className="text-sm font-medium">{label}</span>
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`${label} source documentation`}
+            title="Open source documentation"
+            className="text-xs text-slate-400 hover:text-slate-700 shrink-0"
+          >
+            ↗
+          </a>
+        )}
       </div>
       <div className="flex gap-2 text-xs">
         <span className="text-red-700">F: {counts.fail}</span>

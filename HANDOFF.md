@@ -404,7 +404,6 @@ commits ahead of `main`).
   read zero until S3 maps the actual checks).
 - **S4** — iOS push notifications + polish.
 - **GCP-AI** — its own sub-project (Shasta has no `gcp/ai_*` today).
-- **Provider connectors** — OpenAI/Anthropic admin-API blocked.
 
 **Slice 1 live-verification — pending (KK-gated, Google OAuth):**
 1. Open `https://shasta.transilience.cloud/ai` in an incognito window;
@@ -603,8 +602,6 @@ in rough priority order:
 2. **Expose the GCP "org" toggle** in the web onboarding flow so the
    `--org <ORG_ID>` path in `cfn/gcp/onboard.sh` is reachable from the
    UI. Unblocks Slice 2a's human verification (requires GCP org-admin).
-3. **AI-discovery plan 2** — OpenAI / Anthropic provider connectors
-   (per `project_ciso_copilot` memory). Bigger lift; brainstorm first.
 
 ## 🚀 GCP Scanner Uplift — Slice 1a shipped (2026-05-22)
 
@@ -1051,13 +1048,6 @@ Major items, each its own brainstorm → spec → plan before build:
 **Status: shipped, deployed, merged to `main`.** Spec:
 `docs/superpowers/specs/2026-05-20-ai-discovery-connectors-design.md`.
 Plan: `docs/superpowers/plans/2026-05-20-ai-discovery-cloud-ai.md`.
-
-**Deferred — blocked:** Plan 2 — the **OpenAI / Anthropic provider
-connectors** (spec §7). The spec is written; the implementation plan is
-NOT. Blocked on KK obtaining enterprise/admin API access to OpenAI +
-Anthropic. Once unblocked: research the two admin APIs, write
-`docs/superpowers/plans/2026-05-20-ai-discovery-providers.md`, then build
-(a new `provider_scanner` Lambda + paste-key connect flow — see spec §7).
 
 **What landed (cloud-AI connector — completes the Discovery module's
 cloud surface):**
@@ -1572,11 +1562,10 @@ spec supersedes the bullet list that previously lived here.
    control on iOS Risks tab. Per-asset relationships in AssetDetail.
    Demo: per-repo trust graph + AI-typed findings separately surfaced.
 
-**Out of Slice 1 (deferred to future slices):** MCP server,
-OpenAI/Anthropic connectors, limited AWS-AI (Bedrock) connector, blast
-radius, KMS-signed evidence packets, cloud-finding evidence-packet
-backfill, push-webhook rescan-on-commit, sparse checkout for monorepos,
-all-repos aggregate trust graph.
+**Out of Slice 1 (deferred to future slices):** MCP server, limited
+AWS-AI (Bedrock) connector, blast radius, KMS-signed evidence packets,
+cloud-finding evidence-packet backfill, push-webhook rescan-on-commit,
+sparse checkout for monorepos, all-repos aggregate trust graph.
 
 Do not start before reading `~/Projects/Denali/denali-vision.md` (§II,
 §III, §IV) — the 8 invariants and the production sequence are

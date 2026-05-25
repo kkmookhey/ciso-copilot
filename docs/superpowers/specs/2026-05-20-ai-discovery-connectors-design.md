@@ -8,8 +8,19 @@
 > (the GitHub code scanner this sits beside).
 >
 > Date: 2026-05-20
-> Status: design approved by KK in brainstorm; awaiting written-spec review
-> before the implementation plan is written.
+> Status (updated 2026-05-25):
+>   - **Plan 1 — Cloud-AI connector (Bedrock / SageMaker / Comprehend):
+>     SHIPPED.** Folded into every AWS scan via `shasta_runner/app/ai_pass.py`.
+>     See HANDOFF.md "AI Discovery — cloud-AI connector + findings overhaul"
+>     block.
+>   - **Plan 2 — OpenAI / Anthropic provider connectors: DROPPED (2026-05-25).**
+>     Not pursuing. §7 below + the §3 in-scope mention + the §6/§8 plan-2
+>     references are kept as paper trail only; do not start work against them.
+>     Reason: admin-API access path is not viable for the product shape we
+>     want. Discovery of provider-side AI usage falls back to (a) the code
+>     scanner (Slice 1a/1b — shipped) for `from openai`/`from anthropic`
+>     imports and (b) the Entra sign-in pass (Slice 2 — shipped) for
+>     SaaS-tier ChatGPT/Claude logins.
 
 ---
 
