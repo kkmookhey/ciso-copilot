@@ -209,10 +209,11 @@ def test_personal_tier_finding_tagged_with_ai_frameworks():
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "GOVERN 3.2" in result["frameworks"].get("nist_ai_rmf", [])
     assert "GOVERN 6.1" in result["frameworks"].get("nist_ai_rmf", [])
-    # S3: replaced leaked RMF subcategory format with canonical GAI-N identifiers
-    assert "GAI-2" in result["frameworks"].get("nist_ai_600_1", [])
-    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: canonical NIST AI 600-1 §2.N format replaces Shasta GAI-N shorthand.
+    # GAI-2 → §2.4, GAI-8 → §2.8 (+§2.9), GAI-9 → §2.12.
+    assert "NIST.AI.600-1:2.4"  in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.8"  in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])
     assert "GOVERN 1.6" not in result["frameworks"].get("nist_ai_600_1", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     assert "Article 26" in result["frameworks"].get("eu_ai_act", [])
@@ -225,8 +226,8 @@ def test_corp_tier_finding_tagged():
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "GOVERN 1.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MAP 1.1" in result["frameworks"].get("nist_ai_rmf", [])
-    # S3: replaced leaked RMF subcategory format with canonical GAI-N identifiers
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: GAI-9 → NIST.AI.600-1:2.12 (Value Chain and Component Integration)
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])
     assert "GOVERN 1.6" not in result["frameworks"].get("nist_ai_600_1", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     # corp_tier should NOT carry Article 26 (deployer obligations for high-risk
@@ -239,10 +240,10 @@ def test_unknown_tier_finding_tagged():
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "MAP 1.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MAP 5.1" in result["frameworks"].get("nist_ai_rmf", [])
-    # S3: replaced leaked RMF subcategory format with canonical GAI-N identifiers
-    assert "GAI-2" in result["frameworks"].get("nist_ai_600_1", [])
-    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: canonical NIST AI 600-1 §2.N format replaces Shasta GAI-N shorthand.
+    assert "NIST.AI.600-1:2.4"  in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.8"  in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])
     assert "GOVERN 1.6" not in result["frameworks"].get("nist_ai_600_1", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
@@ -584,23 +585,85 @@ def test_nist_ai_rmf_slice_e_subcategories_pass_through():
 # --- CME-v2 S2: nist_ai_600_1 rewrite table ---
 
 
-def test_nist_ai_600_1_gai_ids_passthrough():
-    """All 12 GAI-N risk identifiers from Shasta pass through unchanged."""
+def test_nist_ai_600_1_gai_ids_rewrite_to_canonical_nist_section_anchors():
+    """CME-v2 #54: Shasta's 12 GAI-N IDs rewrite to canonical NIST.AI.600-1:2.N anchors.
+
+    Per D-2, the canonical published format is binding. NIST AI 600-1 v1.0 does
+    not use GAI-N numbering — Shasta adopted that shorthand. The registry now
+    rewrites every GAI-N to the corresponding NIST §2.N section anchor.
+    GAI-5 and GAI-8 are multi-target (NIST splits the concern across two
+    sections); GAI-6 is a Shasta extension and maps to the two closest NIST
+    anchors (§2.9 + §2.12).
+    """
     SHASTA_IDS = [f"GAI-{n}" for n in range(1, 13)]
     f = _finding(check_id="x", frameworks={"nist_ai_600_1": list(SHASTA_IDS)})
     fr._normalize_stage(f, registry=fr.load_registry())
+    out = f["frameworks"]["nist_ai_600_1"]
+    # No GAI-N shorthand survives normalize.
     for n in range(1, 13):
-        assert f"GAI-{n}" in f["frameworks"]["nist_ai_600_1"]
+        assert f"GAI-{n}" not in out, f"GAI-{n} should have been rewritten"
+    # All 10 NIST §2.N anchors that Shasta GAI-N collectively maps to are present.
+    # (NIST §2.1 CBRN and §2.10 Intellectual Property are NOT in this set —
+    #  no Shasta-emitted GAI-N maps there; they're the 2 uncovered NIST risks.)
+    expected_canonical = {
+        "NIST.AI.600-1:2.2",   # GAI-1 Confabulation
+        "NIST.AI.600-1:2.3",   # GAI-5 (partial)
+        "NIST.AI.600-1:2.4",   # GAI-2 Data Privacy
+        "NIST.AI.600-1:2.5",   # GAI-12 Environmental
+        "NIST.AI.600-1:2.6",   # GAI-3 + GAI-4
+        "NIST.AI.600-1:2.7",   # GAI-11 Human-AI Config
+        "NIST.AI.600-1:2.8",   # GAI-8 (partial)
+        "NIST.AI.600-1:2.9",   # GAI-6 + GAI-7 + GAI-8 + GAI-10
+        "NIST.AI.600-1:2.11",  # GAI-5 (partial)
+        "NIST.AI.600-1:2.12",  # GAI-6 + GAI-9
+    }
+    assert set(out) == expected_canonical
+
+
+def test_nist_ai_600_1_canonical_registry_carries_all_12_section_risks():
+    """The registry's control_descriptions for nist_ai_600_1 must enumerate all
+    12 NIST AI 600-1 v1.0 §2 section risks, including the 2 that no Shasta
+    GAI-N maps to today (§2.1 CBRN Information and §2.10 Intellectual Property).
+    These two entries exist so that future baseline-rule authoring can attach
+    them to relevant check_ids without retroactively adding registry entries.
+    """
+    reg = fr.load_registry()
+    keys = set(reg["frameworks"]["nist_ai_600_1"]["control_descriptions"].keys())
+    expected = {f"NIST.AI.600-1:2.{n}" for n in range(1, 13)}
+    assert keys == expected, f"missing or extra keys: expected={expected}, got={keys}"
+    # Spot-check the structured shape carries a canonical NIST risk name.
+    cbrn = reg["frameworks"]["nist_ai_600_1"]["control_descriptions"]["NIST.AI.600-1:2.1"]
+    assert isinstance(cbrn, dict)
+    assert cbrn["name"] == "CBRN Information or Capabilities"
+
+
+def test_mitre_atlas_control_descriptions_carry_canonical_v4_technique_names():
+    """CME-v2 #53: ATLAS control_descriptions are now {name, description} objects
+    so consumers display the canonical v4 technique short-name (e.g. 'AI Supply
+    Chain Compromise' for AML.T0010) rather than depending on potentially-drifted
+    Shasta-emitted labels.
+    """
+    reg = fr.load_registry()
+    atlas_ctrls = reg["frameworks"]["mitre_atlas"]["control_descriptions"]
+    assert isinstance(atlas_ctrls["AML.T0010"], dict)
+    assert atlas_ctrls["AML.T0010"]["name"] == "AI Supply Chain Compromise"
+    assert atlas_ctrls["AML.T0015"]["name"] == "Evade AI Model"
+    assert atlas_ctrls["AML.T0051"]["name"] == "LLM Prompt Injection"
+    # Every entry has both fields.
+    for tid, ctrl in atlas_ctrls.items():
+        assert isinstance(ctrl, dict), f"{tid} is not a dict"
+        assert "name" in ctrl and "description" in ctrl, f"{tid} missing name/description"
 
 
 def test_nist_ai_600_1_govern_id_passes_through_normalize():
     """A bare `GOVERN 1.6` value in nist_ai_600_1 survives normalize unchanged.
 
     S3 removed the Slice E format leak: the three ai_signin_* rules no longer
-    emit `GOVERN 1.6` into nist_ai_600_1 (they now emit GAI-N identifiers).
-    However, if historical data or an external source places `GOVERN 1.6` into
-    the nist_ai_600_1 framework list, normalize passes it through as-is (no
-    rewrite rule matches it), preserving data rather than silently dropping it.
+    emit `GOVERN 1.6` into nist_ai_600_1 (CME-v2 #54 emits canonical
+    NIST.AI.600-1:2.N identifiers). However, if historical data or an external
+    source places `GOVERN 1.6` into the nist_ai_600_1 framework list, normalize
+    passes it through as-is (no rewrite rule matches it), preserving data
+    rather than silently dropping it.
     """
     f = _finding(check_id="x", frameworks={"nist_ai_600_1": ["GOVERN 1.6"]})
     fr._normalize_stage(f, registry=fr.load_registry())
@@ -637,7 +700,9 @@ def test_baseline_cloudtrail_ai_events():
     f = _finding(check_id="cloudtrail-ai-events")
     result = fr.apply(f, entity_index={}, registry=fr.load_registry())
     assert "A.8.2" in result["frameworks"].get("iso_42001", [])
-    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: GAI-8 (Information Leakage) → NIST §2.8 (Information Integrity)
+    #            + §2.9 (Information Security) per current NIST mapping.
+    assert "NIST.AI.600-1:2.8" in result["frameworks"].get("nist_ai_600_1", [])
     assert "LLM05:2025" in result["frameworks"].get("owasp_llm_top10", [])
     assert "baseline_cloudtrail_ai_events" in result["evidence_packet"]["_registry_rule_ids"]
 
@@ -663,8 +728,8 @@ def test_baseline_sagemaker_notebook_root_access():
     # eu_ai_act: cybersecurity + risk management system
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
-    # nist_ai_600_1: third-party/supply chain risk (GAI-9)
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    # nist_ai_600_1: third-party/supply chain risk → §2.12 Value Chain (CME-v2 #54)
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])
     # owasp_llm_top10: root access = excessive privilege (LLM06:2025 Excessive Agency)
     assert "LLM06:2025" in result["frameworks"].get("owasp_llm_top10", [])
     # mitre_atlas: Valid Accounts (AML.T0012) — root-access enables backdoor injection
@@ -679,7 +744,7 @@ def test_baseline_sagemaker_training_vpc():
     assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
     assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])  # CME-v2 #54
     assert "LLM03:2025" in result["frameworks"].get("owasp_llm_top10", [])
     assert "AML.T0024" in result["frameworks"].get("mitre_atlas", [])
     assert "AML.T0025" in result["frameworks"].get("mitre_atlas", [])
@@ -694,8 +759,10 @@ def test_baseline_sagemaker_model_approval():
     assert "MANAGE 1.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MEASURE 2.5" in result["frameworks"].get("nist_ai_rmf", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
-    assert "GAI-6" in result["frameworks"].get("nist_ai_600_1", [])
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: GAI-6 (Data Poisoning — Shasta ext) → §2.9 + §2.12;
+    #            GAI-9 (Value Chain) → §2.12. Union: §2.9, §2.12.
+    assert "NIST.AI.600-1:2.9"  in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])
     assert "LLM03:2025" in result["frameworks"].get("owasp_llm_top10", [])
     assert "baseline_sagemaker_model_approval" in result["evidence_packet"]["_registry_rule_ids"]
 
@@ -707,7 +774,7 @@ def test_baseline_sagemaker_endpoint_encryption():
     assert "MANAGE 2.1" in result["frameworks"].get("nist_ai_rmf", [])
     assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
     assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])  # CME-v2 #54
     assert "LLM02:2025" in result["frameworks"].get("owasp_llm_top10", [])
     assert "baseline_sagemaker_endpoint_encryption" in result["evidence_packet"]["_registry_rule_ids"]
 
@@ -721,7 +788,8 @@ def test_baseline_sagemaker_data_capture():
     assert "MEASURE 2.7" in result["frameworks"].get("nist_ai_rmf", [])
     assert "Article 12" in result["frameworks"].get("eu_ai_act", [])
     assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
-    assert "GAI-8" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: GAI-8 (Information Leakage) → §2.8 (+ §2.9)
+    assert "NIST.AI.600-1:2.8" in result["frameworks"].get("nist_ai_600_1", [])
     assert "LLM05:2025" in result["frameworks"].get("owasp_llm_top10", [])
     assert "baseline_sagemaker_data_capture" in result["evidence_packet"]["_registry_rule_ids"]
 
@@ -735,8 +803,9 @@ def test_baseline_sagemaker_model_registry_access():
     assert "MANAGE 2.2" in result["frameworks"].get("nist_ai_rmf", [])
     assert "Article 9" in result["frameworks"].get("eu_ai_act", [])
     assert "Article 15" in result["frameworks"].get("eu_ai_act", [])
-    assert "GAI-9" in result["frameworks"].get("nist_ai_600_1", [])
-    assert "GAI-10" in result["frameworks"].get("nist_ai_600_1", [])
+    # CME-v2 #54: GAI-9 → §2.12 (Value Chain); GAI-10 → §2.9 (Information Security)
+    assert "NIST.AI.600-1:2.9"  in result["frameworks"].get("nist_ai_600_1", [])
+    assert "NIST.AI.600-1:2.12" in result["frameworks"].get("nist_ai_600_1", [])
     assert "LLM06:2025" in result["frameworks"].get("owasp_llm_top10", [])
     assert "AML.T0012" in result["frameworks"].get("mitre_atlas", [])
     assert "AML.T0035" in result["frameworks"].get("mitre_atlas", [])
