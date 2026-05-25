@@ -161,35 +161,34 @@
       "family": "ai",
       "source_url": "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf",
       "version": "1.0",
-      "canonical_format": "GAI-N risk identifier (Shasta-adopted numerical convention for NIST AI 600-1 Section 2 risks)",
+      "canonical_format": "NIST.AI.600-1:2.N (section-anchored canonical identifier — N is the §2.N subsection in NIST AI 600-1 v1.0)",
       "rewrite_rules": [
-        {"from": "GAI-1",  "to": ["GAI-1"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Confabulation [Shasta GAI-1; NIST doc order: risk #2]"},
-        {"from": "GAI-2",  "to": ["GAI-2"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Data Privacy [Shasta GAI-2; NIST doc order: risk #4]"},
-        {"from": "GAI-3",  "to": ["GAI-3"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Harmful Bias (partial) [Shasta GAI-3 'Bias Amplification'; NIST doc order: risk #6 'Harmful Bias and Homogenization' — Shasta splits this into GAI-3 and GAI-4]"},
-        {"from": "GAI-4",  "to": ["GAI-4"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Homogenization (partial) [Shasta GAI-4 'Homogenisation of Outputs'; NIST doc order: risk #6 'Harmful Bias and Homogenization' — Shasta splits this into GAI-3 and GAI-4]"},
-        {"from": "GAI-5",  "to": ["GAI-5"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Harmful Content Generation [Shasta GAI-5; maps to NIST doc risk #3 'Dangerous, Violent, or Hateful Content' and risk #11 'Obscene, Degrading, and/or Abusive Content']"},
-        {"from": "GAI-6",  "to": ["GAI-6"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Data Poisoning / Integrity [Shasta GAI-6; not a standalone NIST 600-1 risk — closest is risk #9 'Information Security' and risk #12 'Value Chain and Component Integration'; Shasta treats this as a distinct risk]"},
-        {"from": "GAI-7",  "to": ["GAI-7"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Prompt Injection [Shasta GAI-7; not a standalone NIST 600-1 risk — mentioned under risk #9 'Information Security' but not listed as one of the 12 section-level risks; Shasta promotes it to a distinct risk]"},
-        {"from": "GAI-8",  "to": ["GAI-8"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Information Leakage [Shasta GAI-8; maps to NIST doc risk #8 'Information Integrity' and risk #9 'Information Security']"},
-        {"from": "GAI-9",  "to": ["GAI-9"],  "source": "NIST AI 600-1 (2024) Section 2 — Risk: Value Chain and Component Integration [Shasta GAI-9 'Third-Party / Supply Chain Risk'; NIST doc order: risk #12]"},
-        {"from": "GAI-10", "to": ["GAI-10"], "source": "NIST AI 600-1 (2024) Section 2 — Risk: Information Security (subset) [Shasta GAI-10 'Model Theft / Extraction'; NIST doc order: risk #9 'Information Security']"},
-        {"from": "GAI-11", "to": ["GAI-11"], "source": "NIST AI 600-1 (2024) Section 2 — Risk: Human-AI Configuration [Shasta GAI-11 'Overreliance / Automation Bias'; NIST doc order: risk #7]"},
-        {"from": "GAI-12", "to": ["GAI-12"], "source": "NIST AI 600-1 (2024) Section 2 — Risk: Environmental Impacts [Shasta GAI-12; NIST doc order: risk #5]"}
+        {"from": "GAI-1",  "to": ["NIST.AI.600-1:2.2"],                            "source": "NIST AI 600-1 (2024) §2.2 Confabulation — Shasta GAI-1"},
+        {"from": "GAI-2",  "to": ["NIST.AI.600-1:2.4"],                            "source": "NIST AI 600-1 (2024) §2.4 Data Privacy — Shasta GAI-2"},
+        {"from": "GAI-3",  "to": ["NIST.AI.600-1:2.6"],                            "source": "NIST AI 600-1 (2024) §2.6 Harmful Bias and Homogenization — Shasta GAI-3 'Bias Amplification' (partial; paired with GAI-4)"},
+        {"from": "GAI-4",  "to": ["NIST.AI.600-1:2.6"],                            "source": "NIST AI 600-1 (2024) §2.6 Harmful Bias and Homogenization — Shasta GAI-4 'Homogenisation of Outputs' (partial; paired with GAI-3)"},
+        {"from": "GAI-5",  "to": ["NIST.AI.600-1:2.3", "NIST.AI.600-1:2.11"],      "source": "NIST AI 600-1 (2024) §2.3 Dangerous/Violent/Hateful Content + §2.11 Obscene/Degrading/Abusive Content — Shasta GAI-5 (multi-target: NIST splits these into two sections)"},
+        {"from": "GAI-6",  "to": ["NIST.AI.600-1:2.9", "NIST.AI.600-1:2.12"],      "source": "NIST AI 600-1 (2024) §2.9 Information Security + §2.12 Value Chain and Component Integration — Shasta GAI-6 'Data Poisoning' is a Shasta extension; not a NIST §2-level risk; multi-target maps to the two closest NIST anchors"},
+        {"from": "GAI-7",  "to": ["NIST.AI.600-1:2.9"],                            "source": "NIST AI 600-1 (2024) §2.9 Information Security — Shasta GAI-7 'Prompt Injection' is a Shasta extension; NIST 600-1 mentions prompt injection under §2.9 Information Security but does not promote it to a §2-level risk"},
+        {"from": "GAI-8",  "to": ["NIST.AI.600-1:2.8", "NIST.AI.600-1:2.9"],       "source": "NIST AI 600-1 (2024) §2.8 Information Integrity + §2.9 Information Security — Shasta GAI-8 'Information Leakage' (multi-target: NIST 600-1 places this concern in both sections)"},
+        {"from": "GAI-9",  "to": ["NIST.AI.600-1:2.12"],                           "source": "NIST AI 600-1 (2024) §2.12 Value Chain and Component Integration — Shasta GAI-9 'Third-Party / Supply Chain Risk'"},
+        {"from": "GAI-10", "to": ["NIST.AI.600-1:2.9"],                            "source": "NIST AI 600-1 (2024) §2.9 Information Security — Shasta GAI-10 'Model Theft / Extraction' (model-theft subset of NIST §2.9)"},
+        {"from": "GAI-11", "to": ["NIST.AI.600-1:2.7"],                            "source": "NIST AI 600-1 (2024) §2.7 Human-AI Configuration — Shasta GAI-11 'Overreliance / Automation Bias'"},
+        {"from": "GAI-12", "to": ["NIST.AI.600-1:2.5"],                            "source": "NIST AI 600-1 (2024) §2.5 Environmental Impacts — Shasta GAI-12"}
       ],
       "control_descriptions": {
-        "GAI-1":  "Confabulation: GenAI produces confidently stated but erroneous or false content (hallucinations/fabrications) that users may mistake for accurate information. (NIST 600-1 §2.2)",
-        "GAI-2":  "Data Privacy: GenAI systems may leak, memorize, or disclose PII, biometric data, health records, or other sensitive information through outputs, training data extraction, or prompt context. (NIST 600-1 §2.4)",
-        "GAI-3":  "Harmful Bias (Shasta split of NIST §2.6): GenAI amplifies historical and societal biases in training data, producing discriminatory or stereotyping outputs that perpetuate harm at scale. (NIST 600-1 §2.6)",
-        "GAI-4":  "Homogenization (Shasta split of NIST §2.6): Widespread use of a small number of foundation models reduces diversity of perspectives and may lead to systemic concentration risk or model collapse. (NIST 600-1 §2.6)",
-        "GAI-5":  "Harmful Content Generation: GenAI systems ease production of dangerous, violent, hateful, obscene, or degrading content including CSAM, disinformation, and content that facilitates illegal activities. (NIST 600-1 §2.3, §2.11)",
-        "GAI-6":  "Data Poisoning / Integrity [Shasta extension]: Training data can be corrupted or manipulated to introduce backdoors, biases, or degraded performance. Not a standalone NIST 600-1 section-level risk; closest to Information Security (§2.9) and Value Chain (§2.12).",
-        "GAI-7":  "Prompt Injection [Shasta extension]: Attackers craft inputs that override model instructions or bypass safety controls. Not a standalone NIST 600-1 section-level risk; mentioned within Information Security (§2.9) but Shasta promotes it as a distinct risk.",
-        "GAI-8":  "Information Leakage: GenAI systems may expose system prompts, internal instructions, fine-tuning data, or sensitive implementation details through crafted queries. Relates to Information Integrity (§2.8) and Information Security (§2.9).",
-        "GAI-9":  "Value Chain and Component Integration: Non-transparent integration of upstream third-party components, improper supplier vetting, or other issues that reduce transparency or accountability for downstream users. (NIST 600-1 §2.12)",
-        "GAI-10": "Information Security (model theft subset): Lowered barriers for offensive cyber capabilities and elevated attack surface including model theft via repeated API queries, side-channel attacks, or direct model weight access. (NIST 600-1 §2.9)",
-        "GAI-11": "Human-AI Configuration: Humans may inappropriately anthropomorphize GAI systems or experience automation bias, over-reliance, or emotional entanglement, leading to poor decision-making. (NIST 600-1 §2.7)",
-        "GAI-12": "Environmental Impacts: Training and operating large GenAI models requires significant compute resources, contributing to energy consumption, carbon emissions, and water usage. (NIST 600-1 §2.5)",
-        "GOVERN 1.6": "Mechanisms are in place to inventory AI systems and are resourced according to organizational risk priorities."
+        "NIST.AI.600-1:2.1":  {"name": "CBRN Information or Capabilities", "description": "Eased access to or synthesis of materially nefarious information or design capabilities related to chemical, biological, radiological, or nuclear (CBRN) weapons or other dangerous biological materials. (NIST AI 600-1 v1.0 §2.1) — no Shasta-emitted GAI-N maps here today; coverage lands when a CBRN-specific check is authored as a baseline rule."},
+        "NIST.AI.600-1:2.2":  {"name": "Confabulation", "description": "GenAI produces confidently stated but erroneous or false content (hallucinations/fabrications) that users may mistake for accurate information. (NIST AI 600-1 v1.0 §2.2)"},
+        "NIST.AI.600-1:2.3":  {"name": "Dangerous, Violent, or Hateful Content", "description": "Eased production of and access to violent, inciting, radicalizing, or threatening content as well as recommendations to carry out self-harm or conduct illegal activities. (NIST AI 600-1 v1.0 §2.3)"},
+        "NIST.AI.600-1:2.4":  {"name": "Data Privacy", "description": "Impacts to information privacy including PII leakage, biometric/health data exposure, and unauthorized disclosure of sensitive information through outputs, training-data extraction, or prompt context. (NIST AI 600-1 v1.0 §2.4)"},
+        "NIST.AI.600-1:2.5":  {"name": "Environmental Impacts", "description": "Impacts due to high compute resource utilization in training or operating GAI models, and related outcomes that may adversely impact ecosystems. (NIST AI 600-1 v1.0 §2.5)"},
+        "NIST.AI.600-1:2.6":  {"name": "Harmful Bias and Homogenization", "description": "Amplification and exacerbation of historical, societal, and systemic biases; performance disparities between sub-groups or languages; widespread reliance on a small number of models reducing diversity of perspectives. (NIST AI 600-1 v1.0 §2.6) — Shasta splits this into GAI-3 (Bias Amplification) and GAI-4 (Homogenisation)."},
+        "NIST.AI.600-1:2.7":  {"name": "Human-AI Configuration", "description": "Arrangements of or interactions between humans and GAI systems that can result in algorithmic aversion, automation bias, overreliance, mis-calibrated reliance, or emotional entanglement. (NIST AI 600-1 v1.0 §2.7)"},
+        "NIST.AI.600-1:2.8":  {"name": "Information Integrity", "description": "Lowered barrier to entry for generation and propagation of mis- and disinformation at scale; provenance and tracking challenges for synthetic content. (NIST AI 600-1 v1.0 §2.8)"},
+        "NIST.AI.600-1:2.9":  {"name": "Information Security", "description": "Lowered barriers for offensive cyber capabilities including hacking, malware, phishing, social engineering, and offensive AI; expanded attack surface including prompt injection, jailbreaks, and model-theft via API queries or weight exfiltration. (NIST AI 600-1 v1.0 §2.9)"},
+        "NIST.AI.600-1:2.10": {"name": "Intellectual Property", "description": "Eased production or replication of alleged copyrighted, trademarked, or licensed content without authorization, particularly in cases where the GAI system has been trained on such content. (NIST AI 600-1 v1.0 §2.10) — no Shasta-emitted GAI-N maps here today; coverage lands when an IP-specific check is authored as a baseline rule."},
+        "NIST.AI.600-1:2.11": {"name": "Obscene, Degrading, and/or Abusive Content", "description": "Eased production of and access to obscene, degrading, or abusive content including non-consensual intimate imagery and child sexual abuse material. (NIST AI 600-1 v1.0 §2.11)"},
+        "NIST.AI.600-1:2.12": {"name": "Value Chain and Component Integration", "description": "Non-transparent or untraceable integration of upstream third-party components including data, software libraries, foundation models, or services; improper supplier vetting; opaque downstream impacts. (NIST AI 600-1 v1.0 §2.12)"}
       }
     },
     "owasp_llm_top10": {
@@ -260,22 +259,22 @@
         {"from": "AML.T0057", "to": ["AML.T0057"], "source": "MITRE ATLAS v4 matrix — technique 'LLM Data Leakage'"}
       ],
       "control_descriptions": {
-        "AML.T0000": "Adversaries search publicly available technical documentation and open databases to learn how and where AI is used within a victim organization.",
-        "AML.T0001": "Adversaries research vulnerabilities of common AI models to identify attack methods, examining academic papers and locating existing exploit code.",
-        "AML.T0003": "Adversaries scan victim-owned websites for information usable during targeting, including technical details about AI products and organizational structure.",
-        "AML.T0004": "Adversaries search open application repositories such as app stores to find applications containing AI-enabled components for potential compromise.",
-        "AML.T0010": "Adversaries compromise unique portions of the AI supply chain including hardware, data, software stack, and models to gain initial system access.",
-        "AML.T0011": "Users inadvertently execute unsafe code introduced via supply chain, or are subjected to social engineering to execute malicious AI artifacts or packages.",
-        "AML.T0012": "Adversaries obtain and abuse credentials of existing accounts including usernames, passwords, and API keys to access AI resources with potential elevated privileges.",
-        "AML.T0015": "Adversaries create adversarial data that prevents an AI model from correctly identifying contents, or generate deepfakes to fool AI-based detection systems.",
-        "AML.T0024": "Adversaries exfiltrate private information via the AI inference API using membership inference, model inversion, and model extraction techniques.",
-        "AML.T0025": "Adversaries exfiltrate AI artifacts or other information relevant to their goals via traditional cyber means.",
-        "AML.T0029": "Adversaries target AI systems with a flood of requests to degrade or shut down the service, exploiting significant AI compute requirements.",
-        "AML.T0031": "Adversaries degrade a target model's performance with adversarial data inputs to erode confidence in the system over time.",
-        "AML.T0035": "Adversaries collect AI artifacts for exfiltration or attack staging, including models, datasets, and telemetry data produced when interacting with a model.",
-        "AML.T0051": "Adversaries craft malicious prompts as inputs to an LLM that cause it to act in unintended ways, overriding original instructions to follow adversary instructions.",
-        "AML.T0052": "Adversaries send phishing messages leveraging generative AI including LLMs, visual deepfakes, and audio deepfakes to scale social engineering campaigns.",
-        "AML.T0057": "Adversaries may craft prompts that induce the LLM to leak sensitive information, including private user data or proprietary information."
+        "AML.T0000": {"name": "Search for Victim's Publicly Available Research Materials", "description": "Adversaries search publicly available technical documentation and open databases to learn how and where AI is used within a victim organization."},
+        "AML.T0001": {"name": "Search for Publicly Available Adversarial Vulnerability Analysis", "description": "Adversaries research vulnerabilities of common AI models to identify attack methods, examining academic papers and locating existing exploit code."},
+        "AML.T0003": {"name": "Search Victim-Owned Websites", "description": "Adversaries scan victim-owned websites for information usable during targeting, including technical details about AI products and organizational structure."},
+        "AML.T0004": {"name": "Search Application Repositories", "description": "Adversaries search open application repositories such as app stores to find applications containing AI-enabled components for potential compromise."},
+        "AML.T0010": {"name": "AI Supply Chain Compromise", "description": "Adversaries compromise unique portions of the AI supply chain including hardware, data, software stack, and models to gain initial system access."},
+        "AML.T0011": {"name": "User Execution", "description": "Users inadvertently execute unsafe code introduced via supply chain, or are subjected to social engineering to execute malicious AI artifacts or packages."},
+        "AML.T0012": {"name": "Valid Accounts", "description": "Adversaries obtain and abuse credentials of existing accounts including usernames, passwords, and API keys to access AI resources with potential elevated privileges."},
+        "AML.T0015": {"name": "Evade AI Model", "description": "Adversaries create adversarial data that prevents an AI model from correctly identifying contents, or generate deepfakes to fool AI-based detection systems."},
+        "AML.T0024": {"name": "Exfiltration via AI Inference API", "description": "Adversaries exfiltrate private information via the AI inference API using membership inference, model inversion, and model extraction techniques."},
+        "AML.T0025": {"name": "Exfiltration via Cyber Means", "description": "Adversaries exfiltrate AI artifacts or other information relevant to their goals via traditional cyber means."},
+        "AML.T0029": {"name": "Denial of AI Service", "description": "Adversaries target AI systems with a flood of requests to degrade or shut down the service, exploiting significant AI compute requirements."},
+        "AML.T0031": {"name": "Erode AI Model Integrity", "description": "Adversaries degrade a target model's performance with adversarial data inputs to erode confidence in the system over time."},
+        "AML.T0035": {"name": "AI Artifact Collection", "description": "Adversaries collect AI artifacts for exfiltration or attack staging, including models, datasets, and telemetry data produced when interacting with a model."},
+        "AML.T0051": {"name": "LLM Prompt Injection", "description": "Adversaries craft malicious prompts as inputs to an LLM that cause it to act in unintended ways, overriding original instructions to follow adversary instructions."},
+        "AML.T0052": {"name": "Phishing", "description": "Adversaries send phishing messages leveraging generative AI including LLMs, visual deepfakes, and audio deepfakes to scale social engineering campaigns."},
+        "AML.T0057": {"name": "LLM Data Leakage", "description": "Adversaries may craft prompts that induce the LLM to leak sensitive information, including private user data or proprietary information."}
       }
     }
   },
@@ -285,7 +284,7 @@
       "when": { "check_id_eq": "ai_signin_personal_tier" },
       "add_frameworks": {
         "nist_ai_rmf":     ["GOVERN 3.2", "GOVERN 6.1"],
-        "nist_ai_600_1":   ["GAI-2", "GAI-8", "GAI-9"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.4", "NIST.AI.600-1:2.8", "NIST.AI.600-1:2.9", "NIST.AI.600-1:2.12"],
         "eu_ai_act":       ["Article 9", "Article 26"],
         "owasp_llm_top10": ["LLM02:2025"],
         "mitre_atlas":     ["AML.T0057"]
@@ -296,7 +295,7 @@
       "when": { "check_id_eq": "ai_signin_corp_tier" },
       "add_frameworks": {
         "nist_ai_rmf":   ["GOVERN 1.1", "MAP 1.1"],
-        "nist_ai_600_1": ["GAI-9"],
+        "nist_ai_600_1": ["NIST.AI.600-1:2.12"],
         "eu_ai_act":     ["Article 9"]
       }
     },
@@ -305,7 +304,7 @@
       "when": { "check_id_eq": "ai_signin_unknown_tier" },
       "add_frameworks": {
         "nist_ai_rmf":     ["MAP 1.1", "MAP 5.1"],
-        "nist_ai_600_1":   ["GAI-2", "GAI-8", "GAI-9"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.4", "NIST.AI.600-1:2.8", "NIST.AI.600-1:2.9", "NIST.AI.600-1:2.12"],
         "eu_ai_act":       ["Article 9", "Article 26"],
         "owasp_llm_top10": ["LLM02:2025"]
       }
@@ -332,7 +331,7 @@
       "when": { "check_id_eq": "cloudtrail-ai-events" },
       "add_frameworks": {
         "iso_42001":       ["A.8.2"],
-        "nist_ai_600_1":   ["GAI-8"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.8", "NIST.AI.600-1:2.9"],
         "owasp_llm_top10": ["LLM05:2025"]
       }
     },
@@ -350,7 +349,7 @@
       "add_frameworks": {
         "nist_ai_rmf":     ["GOVERN 6.1", "MANAGE 2.1", "MANAGE 2.2"],
         "eu_ai_act":       ["Article 9", "Article 15"],
-        "nist_ai_600_1":   ["GAI-9"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.12"],
         "owasp_llm_top10": ["LLM06:2025"],
         "mitre_atlas":     ["AML.T0012"]
       }
@@ -361,7 +360,7 @@
       "add_frameworks": {
         "nist_ai_rmf":     ["MANAGE 2.1", "MEASURE 2.7"],
         "eu_ai_act":       ["Article 15"],
-        "nist_ai_600_1":   ["GAI-9"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.12"],
         "owasp_llm_top10": ["LLM03:2025"],
         "mitre_atlas":     ["AML.T0024", "AML.T0025"]
       }
@@ -372,7 +371,7 @@
       "add_frameworks": {
         "nist_ai_rmf":     ["GOVERN 6.1", "MANAGE 1.1", "MEASURE 2.5"],
         "eu_ai_act":       ["Article 9"],
-        "nist_ai_600_1":   ["GAI-6", "GAI-9"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.9", "NIST.AI.600-1:2.12"],
         "owasp_llm_top10": ["LLM03:2025"]
       }
     },
@@ -382,7 +381,7 @@
       "add_frameworks": {
         "nist_ai_rmf":     ["MANAGE 2.1", "MEASURE 2.7"],
         "eu_ai_act":       ["Article 15"],
-        "nist_ai_600_1":   ["GAI-9"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.12"],
         "owasp_llm_top10": ["LLM02:2025"]
       }
     },
@@ -392,7 +391,7 @@
       "add_frameworks": {
         "nist_ai_rmf":     ["MANAGE 4.1", "MEASURE 2.4", "MEASURE 2.7"],
         "eu_ai_act":       ["Article 12", "Article 15"],
-        "nist_ai_600_1":   ["GAI-8"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.8", "NIST.AI.600-1:2.9"],
         "owasp_llm_top10": ["LLM05:2025"]
       }
     },
@@ -402,7 +401,7 @@
       "add_frameworks": {
         "nist_ai_rmf":     ["GOVERN 6.1", "MANAGE 2.1", "MANAGE 2.2"],
         "eu_ai_act":       ["Article 9", "Article 15"],
-        "nist_ai_600_1":   ["GAI-9", "GAI-10"],
+        "nist_ai_600_1":   ["NIST.AI.600-1:2.9", "NIST.AI.600-1:2.12"],
         "owasp_llm_top10": ["LLM06:2025"],
         "mitre_atlas":     ["AML.T0012", "AML.T0035"]
       }
