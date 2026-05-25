@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
+import type { ReactElement } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import AISummary from "./AISummary";
+
+// AISummary now uses <Link> (drill-down + connect cross-link), so tests need
+// a router. Helper to wrap inline at each render site.
+const renderWithRouter = (ui: ReactElement) =>
+  render(<MemoryRouter>{ui}</MemoryRouter>);
 
 const AI_FRAMEWORKS_META = {
   nist_ai_rmf:     { name: "NIST AI RMF",     family: "ai" as const, source_url: "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf", version: "1.0" },
@@ -42,7 +49,7 @@ afterEach(() => cleanup());
 
 describe("AISummary", () => {
   it("renders the score tiles, by-source tiles, framework tiles, and top people", async () => {
-    render(<AISummary />);
+    renderWithRouter(<AISummary />);
     expect(screen.getByText(/loading/i)).toBeTruthy();
     await waitFor(() => expect(screen.getByText("12")).toBeTruthy());
     expect(screen.getAllByText(/fail/i).length).toBeGreaterThan(0);
@@ -56,14 +63,14 @@ describe("AISummary", () => {
   });
 
   it("renders an 'AI frameworks' subhead grouping the framework tiles by family", async () => {
-    render(<AISummary />);
+    renderWithRouter(<AISummary />);
     await waitFor(() => expect(screen.getByText("12")).toBeTruthy());
     // CME-v2 S4: family heading present
     expect(screen.getByText(/ai frameworks/i)).toBeTruthy();
   });
 
   it("carries the mapping-not-attestation tooltip on framework tiles", async () => {
-    const { container } = render(<AISummary />);
+    const { container } = renderWithRouter(<AISummary />);
     await waitFor(() => expect(screen.getByText("12")).toBeTruthy());
     // CME-v2 §14.1: every framework tile carries the disclaimer in its title attribute
     const tiles = container.querySelectorAll('[title*="Mapping only"]');
@@ -88,7 +95,7 @@ describe("AISummary", () => {
       top_people:   [],
       frameworks_meta: AI_FRAMEWORKS_META,
     });
-    render(<AISummary />);
+    renderWithRouter(<AISummary />);
     await waitFor(() =>
       expect(screen.getByText(/No identifiable AI users yet/i)).toBeTruthy(),
     );

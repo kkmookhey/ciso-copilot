@@ -4,6 +4,7 @@
 // Three rows + a per-person table, sourced from GET /ai/summary.
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type AISummaryResponse, type AIStatusCounts } from "../lib/api";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -68,6 +69,7 @@ export default function AISummary() {
                 {keysInFamily.map((fw) => (
                   <FrameworkTile
                     key={fw}
+                    fwKey={fw}
                     label={data.frameworks_meta[fw]?.name ?? fw}
                     counts={data.by_framework[fw as keyof AISummaryResponse["by_framework"]]}
                     sourceUrl={data.frameworks_meta[fw]?.source_url}
@@ -84,7 +86,7 @@ export default function AISummary() {
         <h2 className="text-lg font-medium mb-2">Top AI users</h2>
         {data.top_people.length === 0 ? (
           <p className="text-sm text-slate-500">
-            No identifiable AI users yet — Entra sign-in data populates this when available (requires Entra ID P1/P2).
+            No identifiable AI users yet. Connect Entra (see <Link to="/connect" className="text-blue-600 hover:underline">Connect</Link> for any licensing notes) to populate this.
           </p>
         ) : (
           <table className="w-full text-sm">
@@ -139,20 +141,36 @@ function SourceTile({ label, value, note }: {
   );
 }
 
-function FrameworkTile({ label, counts, sourceUrl }: {
+function FrameworkTile({ fwKey, label, counts, sourceUrl }: {
+  fwKey:      string;
   label:      string;
   counts:     AIStatusCounts;
   sourceUrl?: string;
 }) {
   return (
     <div
-      className="rounded-lg border p-3"
+      className="rounded-lg border p-3 hover:bg-slate-50"
       title="Mapping only — not a compliance attestation. Verify with your auditor."
     >
-      <div className="text-sm font-medium mb-1">
-        {sourceUrl
-          ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">{label}</a>
-          : label}
+      <div className="text-sm font-medium mb-1 flex items-center justify-between gap-2">
+        <Link
+          to={`/findings?framework=${encodeURIComponent(fwKey)}`}
+          className="hover:underline flex-1 truncate"
+        >
+          {label}
+        </Link>
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-400 hover:text-slate-600 text-xs"
+            title="Open source document"
+            onClick={(e) => e.stopPropagation()}
+          >
+            ↗
+          </a>
+        )}
       </div>
       <div className="flex gap-2 text-xs">
         <span className="text-red-700">F: {counts.fail}</span>
