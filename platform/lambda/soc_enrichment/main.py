@@ -23,11 +23,10 @@ DB_NAME        = os.environ["DB_NAME"]
 rds_data = boto3.client("rds-data")
 
 
-# Stubs — replaced in Tasks 9 (compute_features) and 10 (call_llm).
-def compute_features(row: dict) -> dict:
-    return {}
+from features import compute_features  # noqa: F401  (re-exported for tests to monkeypatch via main.compute_features)
 
 
+# Stub — replaced in Task 10 (call_llm).
 def call_llm(row: dict, features: dict) -> dict:
     return {"narrative": None, "anomaly_class": None, "anomaly_score": None,
             "next_steps": None, "mitre_technique": None,
