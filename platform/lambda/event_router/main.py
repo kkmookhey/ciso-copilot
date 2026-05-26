@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from severity_rules import drift_severity
 
 DB_CLUSTER_ARN    = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN     = os.environ["DB_SECRET_ARN"]
@@ -58,7 +59,8 @@ def handler(event: dict, context) -> dict:
         # 3. Normalize → events row
         normalized = _normalize(event, source, detail_type)
         kind       = _classify_kind(source, detail_type, event.get("detail", {}))
-        severity   = _severity(source, event.get("detail", {}))
+        before_state, after_state = _extract_states(source, event.get("detail", {}))
+        severity   = _severity(source, event.get("detail", {}), kind, after_state)
 
         source_event_id = _source_event_id(event)
 
@@ -85,7 +87,9 @@ def handler(event: dict, context) -> dict:
 
         # 4. Drift extension if applicable
         if kind == "drift":
-            _insert_drift(event_id, normalized)
+            action = event.get("detail", {}).get("eventName") or \
+                     (event.get("detail", {}).get("configurationItem") or {}).get("resourceType", "drift")
+            _insert_drift(event_id, action, before_state, after_state, normalized.get("resource_arn"))
 
         # 5. Push-rules evaluation — implemented in the follow-up
         # if _should_push(source, severity, event): _send_push(...)
@@ -225,6 +229,24 @@ def _classify_kind(source: str, detail_type: str, detail: dict) -> str:
     return "alert"
 
 
+def _extract_states(source: str, detail: dict) -> tuple[dict | None, dict | None]:
+    """Return (before_state, after_state) JSON-like dicts. (None, None) for non-drift sources."""
+    if source == "aws.config":
+        ci   = detail.get("configurationItem", {}) or {}
+        diff = detail.get("configurationItemDiff", {}) or {}
+        after  = ci.get("configuration") or {}
+        before: dict = {}
+        for path, change in (diff.get("changedProperties") or {}).items():
+            if "previousValue" in change:
+                before[path] = change["previousValue"]
+        return (before or None), (after or None)
+
+    if source == "aws.cloudtrail":
+        return None, (detail.get("requestParameters") or None)
+
+    return None, None
+
+
 def _source_event_id(event: dict) -> str | None:
     """Return a stable per-source idempotency key, or None for unknown sources."""
     source = event.get("source", "")
@@ -247,10 +269,9 @@ def _source_event_id(event: dict) -> str | None:
     return None
 
 
-def _severity(source: str, detail: dict) -> str:
+def _severity(source: str, detail: dict, kind: str, after_state: dict | None) -> str:
     """Normalize source-specific severities to {critical, high, medium, low, info}."""
     if source == "aws.guardduty":
-        # GuardDuty: 0-10 scale; 7+ high, 8+ critical
         sev = detail.get("severity", 0)
         if sev >= 8: return "critical"
         if sev >= 7: return "high"
@@ -266,8 +287,12 @@ def _severity(source: str, detail: dict) -> str:
         label = ((finding.get("Severity") or {}).get("Label") or "").upper()
         return {"CRITICAL": "critical", "HIGH": "high", "MEDIUM": "medium",
                 "LOW": "low", "INFORMATIONAL": "info"}.get(label, "info")
-    # CloudTrail + Config drift events default to medium; push-rule layer
-    # promotes specific high-blast-radius actions to critical.
+
+    # CloudTrail + Config drift use the rule table over after_state
+    if kind == "drift":
+        action = detail.get("eventName") or (detail.get("configurationItem") or {}).get("resourceType", "")
+        return drift_severity(action=action, after=(after_state or {}))
+
     return "medium"
 
 
@@ -328,19 +353,23 @@ def _insert_event(
     return len(result.get("records", [])) > 0
 
 
-def _insert_drift(event_id: str, normalized: dict) -> None:
-    # before/after state extraction lives in the source-specific parsers;
-    # for now we just record the action.
+def _insert_drift(event_id: str, action: str, before_state: dict | None, after_state: dict | None,
+                  target_resource_arn: str | None) -> None:
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN,
         secretArn=DB_SECRET_ARN,
         database=DB_NAME,
         sql=(
-            "INSERT INTO drift_events (event_id, action, before_state, after_state) "
-            "VALUES (CAST(:eid AS UUID), :action, NULL, NULL)"
+            "INSERT INTO drift_events (event_id, action, before_state, after_state, target_resource_arn) "
+            "VALUES (CAST(:eid AS UUID), :action, "
+            "        CAST(:before AS JSONB), CAST(:after AS JSONB), :tgt) "
+            "ON CONFLICT (event_id) DO NOTHING"
         ),
         parameters=[
             {"name": "eid",    "value": {"stringValue": event_id}},
-            {"name": "action", "value": {"stringValue": normalized.get("title", "unknown")}},
+            {"name": "action", "value": {"stringValue": action}},
+            {"name": "before", "value": ({"stringValue": json.dumps(before_state)} if before_state else {"isNull": True})},
+            {"name": "after",  "value": ({"stringValue": json.dumps(after_state)}  if after_state  else {"isNull": True})},
+            {"name": "tgt",    "value": ({"stringValue": target_resource_arn}      if target_resource_arn else {"isNull": True})},
         ],
     )
