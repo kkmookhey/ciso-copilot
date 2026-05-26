@@ -31,6 +31,23 @@ def test_call_llm_short_circuits_when_cap_reached(monkeypatch):
     assert out["narrative"] is None
 
 
+def test_parse_json_response_handles_markdown_fences():
+    """Claude often wraps JSON in ```json blocks even with strict prompt."""
+    fenced = '```json\n{"narrative": "hello", "anomaly_score": 50}\n```'
+    out = llm._parse_json_response(fenced)
+    assert out == {"narrative": "hello", "anomaly_score": 50}
+
+
+def test_parse_json_response_handles_plain_json():
+    out = llm._parse_json_response('{"narrative": "x"}')
+    assert out == {"narrative": "x"}
+
+
+def test_parse_json_response_handles_bare_fences():
+    out = llm._parse_json_response('```\n{"a": 1}\n```')
+    assert out == {"a": 1}
+
+
 def test_call_llm_returns_parsed_response(monkeypatch):
     monkeypatch.setattr(llm.spend_cap, "llm_spend_today_cents", lambda t: 0)
     monkeypatch.setattr(llm.spend_cap, "llm_spend_add",         lambda t, c: 0)

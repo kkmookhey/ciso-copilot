@@ -64,7 +64,7 @@ def handler(event: dict, context) -> dict:
         # 3. Normalize → events row
         normalized = _normalize(event, source, detail_type)
         kind       = _classify_kind(source, detail_type, event.get("detail", {}))
-        before_state, after_state = _extract_states(source, event.get("detail", {}))
+        before_state, after_state = _extract_states(source, detail_type, event.get("detail", {}))
         severity   = _severity(source, event.get("detail", {}), kind, after_state)
 
         source_event_id = _source_event_id(event)
@@ -231,7 +231,10 @@ def _normalize(event: dict, source: str, detail_type: str) -> dict[str, Any]:
             "resource_arn": (finding.get("Resources") or [{}])[0].get("Id"),
             "actor":        None,
         }
-    if source == "aws.cloudtrail":
+    # CloudTrail management API events arrive with source=aws.<service>
+    # (e.g. aws.ec2, aws.iam, aws.s3) — not aws.cloudtrail. We key on
+    # detail-type which is unique to these events.
+    if detail_type == "AWS API Call via CloudTrail":
         return {
             "title":        detail.get("eventName", detail_type),
             "description":  None,
@@ -239,7 +242,7 @@ def _normalize(event: dict, source: str, detail_type: str) -> dict[str, Any]:
             "actor":        ((detail.get("userIdentity") or {}).get("arn")
                              or (detail.get("userIdentity") or {}).get("userName")),
         }
-    if source == "aws.config":
+    if detail_type == "Configuration Item Change Notification":
         ci = detail.get("configurationItem", {}) or {}
         return {
             "title":        f"Config change: {ci.get('resourceType')}",
@@ -271,14 +274,14 @@ def _extract_cloudtrail_resource(detail: dict) -> str | None:
 
 def _classify_kind(source: str, detail_type: str, detail: dict) -> str:
     """alert: native security detector. drift: configuration change."""
-    if source in ("aws.cloudtrail", "aws.config"):
+    if detail_type in ("AWS API Call via CloudTrail", "Configuration Item Change Notification"):
         return "drift"
     return "alert"
 
 
-def _extract_states(source: str, detail: dict) -> tuple[dict | None, dict | None]:
+def _extract_states(source: str, detail_type: str, detail: dict) -> tuple[dict | None, dict | None]:
     """Return (before_state, after_state) JSON-like dicts. (None, None) for non-drift sources."""
-    if source == "aws.config":
+    if detail_type == "Configuration Item Change Notification":
         ci   = detail.get("configurationItem", {}) or {}
         diff = detail.get("configurationItemDiff", {}) or {}
         after  = ci.get("configuration") or {}
@@ -288,7 +291,7 @@ def _extract_states(source: str, detail: dict) -> tuple[dict | None, dict | None
                 before[path] = change["previousValue"]
         return (before or None), (after or None)
 
-    if source == "aws.cloudtrail":
+    if detail_type == "AWS API Call via CloudTrail":
         return None, (detail.get("requestParameters") or None)
 
     return None, None
@@ -296,12 +299,13 @@ def _extract_states(source: str, detail: dict) -> tuple[dict | None, dict | None
 
 def _source_event_id(event: dict) -> str | None:
     """Return a stable per-source idempotency key, or None for unknown sources."""
-    source = event.get("source", "")
-    detail = event.get("detail", {}) or {}
+    source      = event.get("source", "")
+    detail_type = event.get("detail-type", "")
+    detail      = event.get("detail", {}) or {}
 
-    if source == "aws.cloudtrail":
+    if detail_type == "AWS API Call via CloudTrail":
         return detail.get("eventID")
-    if source == "aws.config":
+    if detail_type == "Configuration Item Change Notification":
         ci = detail.get("configurationItem", {}) or {}
         capture = ci.get("configurationItemCaptureTime")
         rid     = ci.get("resourceId")

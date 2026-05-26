@@ -7,6 +7,10 @@ import sys
 import boto3
 import litellm
 
+# Anthropic doesn't support OpenAI's response_format param — drop unsupported
+# params silently rather than raising. Our SYSTEM prompt enforces JSON output.
+litellm.drop_params = True
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spend_cap  # type: ignore
 
@@ -65,6 +69,24 @@ def build_messages(row: dict, features: dict) -> list[dict]:
     ]
 
 
+def _parse_json_response(raw) -> dict:
+    """Parse the LLM JSON response, tolerating markdown code fences.
+
+    Anthropic (and other providers) often wrap JSON in ```json...``` blocks
+    even when the system prompt says JSON-only. Strip them defensively.
+    """
+    if not isinstance(raw, str):
+        return raw if isinstance(raw, dict) else {}
+    s = raw.strip()
+    if s.startswith("```"):
+        # Drop leading ```json or ``` and trailing ```
+        s = s.split("\n", 1)[1] if "\n" in s else s.lstrip("`")
+        if s.endswith("```"):
+            s = s[: -3]
+        s = s.strip()
+    return json.loads(s) if s else {}
+
+
 def _estimate_cents(prompt_tokens: int, completion_tokens: int, model: str) -> int:
     in_per_M, out_per_M = PRICING.get(model, (300, 1500))
     return (prompt_tokens * in_per_M // 1_000_000) + (completion_tokens * out_per_M // 1_000_000)
@@ -86,7 +108,7 @@ def call_llm(row: dict, features: dict) -> dict:
         timeout=30,
     )
     raw = resp.choices[0].message.content
-    parsed = json.loads(raw) if isinstance(raw, str) else raw
+    parsed = _parse_json_response(raw)
 
     cents = _estimate_cents(resp.usage.prompt_tokens, resp.usage.completion_tokens, MODEL)
     spend_cap.llm_spend_add(tenant_id, cents)
