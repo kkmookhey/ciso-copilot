@@ -377,7 +377,7 @@ def _insert_event(
             "        :kind, :source, :severity, :title, :description, :resource_arn, "
             "        :actor, :raw_s3_key, CAST(:normalized AS JSONB), "
             "        CAST(:fired_at AS TIMESTAMPTZ), :sei) "
-            "ON CONFLICT (tenant_id, source, source_event_id) DO NOTHING "
+            "ON CONFLICT (tenant_id, source, source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING "
             "RETURNING event_id"
         ),
         parameters=[
