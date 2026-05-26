@@ -20,14 +20,20 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+from severity_rules import drift_severity
+import push
+import spend_cap
 
 DB_CLUSTER_ARN    = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN     = os.environ["DB_SECRET_ARN"]
 DB_NAME           = os.environ["DB_NAME"]
 RAW_EVENTS_BUCKET = os.environ["RAW_EVENTS_BUCKET"]
+APNS_PLATFORM_APP_ARN = os.environ.get("APNS_PLATFORM_APPLICATION_ARN", "")
+ENRICHMENT_QUEUE_URL  = os.environ.get("ENRICHMENT_QUEUE_URL", "")
 
 rds_data = boto3.client("rds-data")
 s3       = boto3.client("s3")
+sqs      = boto3.client("sqs")
 
 
 def handler(event: dict, context) -> dict:
@@ -58,30 +64,71 @@ def handler(event: dict, context) -> dict:
         # 3. Normalize → events row
         normalized = _normalize(event, source, detail_type)
         kind       = _classify_kind(source, detail_type, event.get("detail", {}))
-        severity   = _severity(source, event.get("detail", {}))
+        before_state, after_state = _extract_states(source, detail_type, event.get("detail", {}))
+        severity   = _severity(source, event.get("detail", {}), kind, after_state)
 
-        _insert_event(
-            event_id      = event_id,
-            tenant_id     = conn["tenant_id"],
-            conn_id       = conn["conn_id"],
-            kind          = kind,
-            source        = source,
-            severity      = severity,
-            title         = normalized.get("title", detail_type or source),
-            description   = normalized.get("description"),
-            resource_arn  = normalized.get("resource_arn"),
-            actor         = normalized.get("actor"),
-            raw_s3_key    = raw_s3_key,
-            normalized    = normalized,
-            fired_at      = fired_at,
+        source_event_id = _source_event_id(event)
+
+        inserted = _insert_event(
+            event_id        = event_id,
+            tenant_id       = conn["tenant_id"],
+            conn_id         = conn["conn_id"],
+            kind            = kind,
+            source          = source,
+            severity        = severity,
+            title           = normalized.get("title", detail_type or source),
+            description     = normalized.get("description"),
+            resource_arn    = normalized.get("resource_arn"),
+            actor           = normalized.get("actor"),
+            raw_s3_key      = raw_s3_key,
+            normalized      = normalized,
+            fired_at        = fired_at,
+            source_event_id = source_event_id,
         )
+
+        if not inserted:
+            print(f"DROP: duplicate (tenant={conn['tenant_id']}, source={source}, sei={source_event_id})")
+            return {"ok": True, "deduped": True}
 
         # 4. Drift extension if applicable
         if kind == "drift":
-            _insert_drift(event_id, normalized)
+            action = event.get("detail", {}).get("eventName") or \
+                     (event.get("detail", {}).get("configurationItem") or {}).get("resourceType", "drift")
+            _insert_drift(event_id, action, before_state, after_state, normalized.get("resource_arn"))
 
-        # 5. Push-rules evaluation — implemented in the follow-up
-        # if _should_push(source, severity, event): _send_push(...)
+        # 5. Push-rule evaluation
+        try:
+            current = spend_cap.push_count_current(conn["tenant_id"])
+            if push.should_push(severity, current) and APNS_PLATFORM_APP_ARN:
+                tokens = _device_tokens_for_tenant(conn["tenant_id"])
+                if tokens:
+                    body = push.format_push_body(
+                        kind=kind, severity=severity,
+                        title=normalized.get("title", ""),
+                        resource_arn=normalized.get("resource_arn"),
+                        actor=normalized.get("actor"),
+                    )
+                    push.send_push(device_tokens=tokens,
+                                   platform_app_arn=APNS_PLATFORM_APP_ARN,
+                                   body=body)
+                    spend_cap.push_count_increment(conn["tenant_id"])
+                    rds_data.execute_statement(
+                        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+                        sql="UPDATE events SET push_sent = true WHERE event_id = CAST(:e AS UUID)",
+                        parameters=[{"name": "e", "value": {"stringValue": event_id}}],
+                    )
+        except Exception as e:
+            print(f"WARN: push failed (non-fatal): {e}")
+
+        # 6. Enqueue for async AI enrichment (Slice 1 = drift only)
+        if kind == "drift" and ENRICHMENT_QUEUE_URL:
+            try:
+                sqs.send_message(
+                    QueueUrl=ENRICHMENT_QUEUE_URL,
+                    MessageBody=json.dumps({"event_id": event_id, "tenant_id": conn["tenant_id"]}),
+                )
+            except Exception as e:
+                print(f"WARN: enrichment enqueue failed (non-fatal, will rely on backfill): {e}")
 
         return {"ok": True, "event_id": event_id, "tenant_id": conn["tenant_id"]}
 
@@ -113,6 +160,17 @@ def _find_connection_by_account(account_id: str) -> dict[str, Any] | None:
         return None
     r = rows[0]
     return {"conn_id": r[0].get("stringValue"), "tenant_id": r[1].get("stringValue")}
+
+
+def _device_tokens_for_tenant(tenant_id: str) -> list[str]:
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql="SELECT device_token FROM users WHERE tenant_id = CAST(:t AS UUID) AND device_token IS NOT NULL",
+        parameters=[{"name": "t", "value": {"stringValue": tenant_id}}],
+    )
+    return [r[0].get("stringValue", "") for r in rs.get("records", []) if r[0].get("stringValue")]
 
 
 # ============================================================================
@@ -173,7 +231,10 @@ def _normalize(event: dict, source: str, detail_type: str) -> dict[str, Any]:
             "resource_arn": (finding.get("Resources") or [{}])[0].get("Id"),
             "actor":        None,
         }
-    if source == "aws.cloudtrail":
+    # CloudTrail management API events arrive with source=aws.<service>
+    # (e.g. aws.ec2, aws.iam, aws.s3) — not aws.cloudtrail. We key on
+    # detail-type which is unique to these events.
+    if detail_type == "AWS API Call via CloudTrail":
         return {
             "title":        detail.get("eventName", detail_type),
             "description":  None,
@@ -181,7 +242,7 @@ def _normalize(event: dict, source: str, detail_type: str) -> dict[str, Any]:
             "actor":        ((detail.get("userIdentity") or {}).get("arn")
                              or (detail.get("userIdentity") or {}).get("userName")),
         }
-    if source == "aws.config":
+    if detail_type == "Configuration Item Change Notification":
         ci = detail.get("configurationItem", {}) or {}
         return {
             "title":        f"Config change: {ci.get('resourceType')}",
@@ -213,15 +274,55 @@ def _extract_cloudtrail_resource(detail: dict) -> str | None:
 
 def _classify_kind(source: str, detail_type: str, detail: dict) -> str:
     """alert: native security detector. drift: configuration change."""
-    if source in ("aws.cloudtrail", "aws.config"):
+    if detail_type in ("AWS API Call via CloudTrail", "Configuration Item Change Notification"):
         return "drift"
     return "alert"
 
 
-def _severity(source: str, detail: dict) -> str:
+def _extract_states(source: str, detail_type: str, detail: dict) -> tuple[dict | None, dict | None]:
+    """Return (before_state, after_state) JSON-like dicts. (None, None) for non-drift sources."""
+    if detail_type == "Configuration Item Change Notification":
+        ci   = detail.get("configurationItem", {}) or {}
+        diff = detail.get("configurationItemDiff", {}) or {}
+        after  = ci.get("configuration") or {}
+        before: dict = {}
+        for path, change in (diff.get("changedProperties") or {}).items():
+            if "previousValue" in change:
+                before[path] = change["previousValue"]
+        return (before or None), (after or None)
+
+    if detail_type == "AWS API Call via CloudTrail":
+        return None, (detail.get("requestParameters") or None)
+
+    return None, None
+
+
+def _source_event_id(event: dict) -> str | None:
+    """Return a stable per-source idempotency key, or None for unknown sources."""
+    source      = event.get("source", "")
+    detail_type = event.get("detail-type", "")
+    detail      = event.get("detail", {}) or {}
+
+    if detail_type == "AWS API Call via CloudTrail":
+        return detail.get("eventID")
+    if detail_type == "Configuration Item Change Notification":
+        ci = detail.get("configurationItem", {}) or {}
+        capture = ci.get("configurationItemCaptureTime")
+        rid     = ci.get("resourceId")
+        return f"{capture}:{rid}" if capture and rid else None
+    if source == "aws.guardduty":
+        return detail.get("id")
+    if source == "aws.inspector2":
+        return (detail.get("findingArn") or "").split("/")[-1] or None
+    if source == "aws.securityhub":
+        first = (detail.get("findings") or [{}])[0]
+        return first.get("Id")
+    return None
+
+
+def _severity(source: str, detail: dict, kind: str, after_state: dict | None) -> str:
     """Normalize source-specific severities to {critical, high, medium, low, info}."""
     if source == "aws.guardduty":
-        # GuardDuty: 0-10 scale; 7+ high, 8+ critical
         sev = detail.get("severity", 0)
         if sev >= 8: return "critical"
         if sev >= 7: return "high"
@@ -237,8 +338,12 @@ def _severity(source: str, detail: dict) -> str:
         label = ((finding.get("Severity") or {}).get("Label") or "").upper()
         return {"CRITICAL": "critical", "HIGH": "high", "MEDIUM": "medium",
                 "LOW": "low", "INFORMATIONAL": "info"}.get(label, "info")
-    # CloudTrail + Config drift events default to medium; push-rule layer
-    # promotes specific high-blast-radius actions to critical.
+
+    # CloudTrail + Config drift use the rule table over after_state
+    if kind == "drift":
+        action = detail.get("eventName") or (detail.get("configurationItem") or {}).get("resourceType", "")
+        return drift_severity(action=action, after=(after_state or {}))
+
     return "medium"
 
 
@@ -261,19 +366,23 @@ def _insert_event(
     raw_s3_key: str,
     normalized: dict,
     fired_at: str,
-) -> None:
-    rds_data.execute_statement(
+    source_event_id: str | None,
+) -> bool:
+    """INSERT into events with ON CONFLICT DO NOTHING. Returns True if inserted, False if dup."""
+    result = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN,
         secretArn=DB_SECRET_ARN,
         database=DB_NAME,
         sql=(
             "INSERT INTO events (event_id, tenant_id, conn_id, kind, source, severity, "
             "                    title, description, resource_arn, actor, raw_s3_key, "
-            "                    normalized, fired_at) "
+            "                    normalized, fired_at, source_event_id) "
             "VALUES (CAST(:eid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
             "        :kind, :source, :severity, :title, :description, :resource_arn, "
             "        :actor, :raw_s3_key, CAST(:normalized AS JSONB), "
-            "        CAST(:fired_at AS TIMESTAMPTZ))"
+            "        CAST(:fired_at AS TIMESTAMPTZ), :sei) "
+            "ON CONFLICT (tenant_id, source, source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING "
+            "RETURNING event_id"
         ),
         parameters=[
             {"name": "eid",          "value": {"stringValue": event_id}},
@@ -289,23 +398,29 @@ def _insert_event(
             {"name": "raw_s3_key",   "value": {"stringValue": raw_s3_key}},
             {"name": "normalized",   "value": {"stringValue": json.dumps(normalized)}},
             {"name": "fired_at",     "value": {"stringValue": fired_at}},
+            {"name": "sei",          "value": ({"stringValue": source_event_id} if source_event_id else {"isNull": True})},
         ],
     )
+    return len(result.get("records", [])) > 0
 
 
-def _insert_drift(event_id: str, normalized: dict) -> None:
-    # before/after state extraction lives in the source-specific parsers;
-    # for now we just record the action.
+def _insert_drift(event_id: str, action: str, before_state: dict | None, after_state: dict | None,
+                  target_resource_arn: str | None) -> None:
     rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN,
         secretArn=DB_SECRET_ARN,
         database=DB_NAME,
         sql=(
-            "INSERT INTO drift_events (event_id, action, before_state, after_state) "
-            "VALUES (CAST(:eid AS UUID), :action, NULL, NULL)"
+            "INSERT INTO drift_events (event_id, action, before_state, after_state, target_resource_arn) "
+            "VALUES (CAST(:eid AS UUID), :action, "
+            "        CAST(:before AS JSONB), CAST(:after AS JSONB), :tgt) "
+            "ON CONFLICT (event_id) DO NOTHING"
         ),
         parameters=[
             {"name": "eid",    "value": {"stringValue": event_id}},
-            {"name": "action", "value": {"stringValue": normalized.get("title", "unknown")}},
+            {"name": "action", "value": {"stringValue": action}},
+            {"name": "before", "value": ({"stringValue": json.dumps(before_state)} if before_state else {"isNull": True})},
+            {"name": "after",  "value": ({"stringValue": json.dumps(after_state)}  if after_state  else {"isNull": True})},
+            {"name": "tgt",    "value": ({"stringValue": target_resource_arn}      if target_resource_arn else {"isNull": True})},
         ],
     )

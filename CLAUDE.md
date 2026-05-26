@@ -121,6 +121,21 @@ xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
   `gpt-realtime` and `claude-sonnet-4-6`.
 - **The iOS / web apps never call upstream sources.** Only the API
   Gateway. This is the rate-limit and key-protection boundary.
+- **Cognito subject extraction always uses `identities[0].userId` first,
+  then falls back to `sub`.** For federated logins (Microsoft/Google),
+  `claims.sub` is the Cognito-user-pool sub — NOT the upstream IdP sub.
+  `users.sso_subject` stores the upstream value (from the `identities`
+  claim). Any handler that JOINs `users.sso_subject` must follow this
+  pattern; see `voice_session._subject_from_claims` and
+  `events_list._resolve_tenant_id` for the canonical impl. Reaching for
+  `claims.get("sub")` directly silently 401s every federated user.
+- **EventBridge rule patterns for "AWS API Call via CloudTrail" events
+  must NOT filter on `source`.** Real management API events arrive with
+  `source: aws.<service>` (aws.ec2, aws.iam, aws.s3, etc.) — never
+  `aws.cloudtrail`. Filter on `detail-type` + `detail.eventName` only.
+  Same gotcha lives in the router's `_normalize` / `_classify_kind` /
+  `_source_event_id` / `_extract_states` — they all key on `detail-type`,
+  not `source`, for this exact reason.
 
 ## Things you must NOT do
 

@@ -52,8 +52,24 @@ Parameters:
       AWS Config charges per recorded resource. Set to false if Config is
       already enabled by your organization.
 
+  ConfigRecordingMode:
+    Type: String
+    Default: essentials
+    AllowedValues: [essentials, all]
+    Description: >
+      'essentials' records ~25 security-critical resource types
+      (~$30-80/mo in a typical account). 'all' records everything
+      (~3-10x more expensive, mostly unused signal for SOC).
+      Default essentials.
+
 Conditions:
   ShouldEnableConfig: !Equals [!Ref EnableAwsConfig, "true"]
+  RecordEssentials: !And
+    - !Condition ShouldEnableConfig
+    - !Equals [!Ref ConfigRecordingMode, "essentials"]
+  RecordAll: !And
+    - !Condition ShouldEnableConfig
+    - !Equals [!Ref ConfigRecordingMode, "all"]
 
 Resources:
 
@@ -117,12 +133,12 @@ Resources:
       EventBusName: default
       State: ENABLED
       EventPattern:
-        source:
-          - aws.guardduty
-          - aws.inspector2
-          - aws.securityhub
-          - aws.config
-          - aws.cloudtrail
+        # NOTE: do NOT filter by `source`. CloudTrail "AWS API Call via
+        # CloudTrail" events arrive with source=aws.<service> (aws.ec2,
+        # aws.iam, aws.s3, etc.) — NOT aws.cloudtrail. Filtering on
+        # `source: [aws.cloudtrail]` silently drops every management
+        # API event. The detail-type + eventName filters below are
+        # narrow enough on their own.
         detail-type:
           - GuardDuty Finding
           - Inspector2 Finding
@@ -226,9 +242,52 @@ Resources:
               StringEquals:
                 "s3:x-amz-acl": "bucket-owner-full-control"
 
-  ConfigRecorder:
+  ConfigRecorderEssentials:
     Type: AWS::Config::ConfigurationRecorder
-    Condition: ShouldEnableConfig
+    Condition: RecordEssentials
+    DependsOn: ConfigDeliveryChannel
+    Properties:
+      Name: CISOCopilotConfigRecorder
+      RoleARN: !GetAtt ConfigRecorderRole.Arn
+      RecordingGroup:
+        AllSupported: false
+        IncludeGlobalResourceTypes: false
+        ResourceTypes:
+          # IAM (global)
+          - AWS::IAM::User
+          - AWS::IAM::Role
+          - AWS::IAM::Group
+          - AWS::IAM::Policy
+          - AWS::IAM::AccessKey
+          # Compute
+          - AWS::EC2::Instance
+          - AWS::EC2::SecurityGroup
+          - AWS::EC2::NetworkAcl
+          - AWS::EC2::Subnet
+          - AWS::EC2::VPC
+          - AWS::EC2::RouteTable
+          - AWS::EC2::InternetGateway
+          - AWS::EC2::NatGateway
+          - AWS::EC2::VPCPeeringConnection
+          # Lambda
+          - AWS::Lambda::Function
+          # Storage / Data
+          - AWS::S3::Bucket
+          - AWS::RDS::DBInstance
+          - AWS::RDS::DBCluster
+          - AWS::DynamoDB::Table
+          - AWS::SecretsManager::Secret
+          # Crypto
+          - AWS::KMS::Key
+          # Audit / Logging
+          - AWS::CloudTrail::Trail
+          - AWS::Config::ConfigurationRecorder
+          # Containers
+          - AWS::EKS::Cluster
+
+  ConfigRecorderAll:
+    Type: AWS::Config::ConfigurationRecorder
+    Condition: RecordAll
     DependsOn: ConfigDeliveryChannel
     Properties:
       Name: CISOCopilotConfigRecorder
