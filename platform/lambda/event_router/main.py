@@ -29,9 +29,11 @@ DB_SECRET_ARN     = os.environ["DB_SECRET_ARN"]
 DB_NAME           = os.environ["DB_NAME"]
 RAW_EVENTS_BUCKET = os.environ["RAW_EVENTS_BUCKET"]
 APNS_PLATFORM_APP_ARN = os.environ.get("APNS_PLATFORM_APPLICATION_ARN", "")
+ENRICHMENT_QUEUE_URL  = os.environ.get("ENRICHMENT_QUEUE_URL", "")
 
 rds_data = boto3.client("rds-data")
 s3       = boto3.client("s3")
+sqs      = boto3.client("sqs")
 
 
 def handler(event: dict, context) -> dict:
@@ -117,6 +119,16 @@ def handler(event: dict, context) -> dict:
                     )
         except Exception as e:
             print(f"WARN: push failed (non-fatal): {e}")
+
+        # 6. Enqueue for async AI enrichment (Slice 1 = drift only)
+        if kind == "drift" and ENRICHMENT_QUEUE_URL:
+            try:
+                sqs.send_message(
+                    QueueUrl=ENRICHMENT_QUEUE_URL,
+                    MessageBody=json.dumps({"event_id": event_id, "tenant_id": conn["tenant_id"]}),
+                )
+            except Exception as e:
+                print(f"WARN: enrichment enqueue failed (non-fatal, will rely on backfill): {e}")
 
         return {"ok": True, "event_id": event_id, "tenant_id": conn["tenant_id"]}
 
