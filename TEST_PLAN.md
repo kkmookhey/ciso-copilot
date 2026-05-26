@@ -175,3 +175,51 @@ Your tenant `gmail.com` is already approved in DB; this section is a smoke check
 5. Section 6 (browser compat) — if time permits.
 
 Skip Section 2 unless we register a new tenant on purpose.
+
+## SOC Slice 1 — AWS Config drift end-to-end (added 2026-05-25)
+
+### Setup (one-time per test session)
+
+- Test AWS account `470226123496` already onboarded with `ConfigRecordingMode=essentials` (default in the latest aws-onboard.yaml).
+- Test user has `device_token` populated in the `users` table (verify via Aurora query).
+- iPhone signed in to CISO Copilot iOS app on TestFlight.
+- APNs Platform Application provisioned (Sandbox): `arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox`.
+
+### Gate
+
+1. In the test AWS account, open a security group to the world on port 22:
+   ```bash
+   aws ec2 authorize-security-group-ingress \
+     --group-id sg-TESTGROUP \
+     --protocol tcp --port 22 --cidr 0.0.0.0/0
+   ```
+
+2. **Within 20s:** Refresh https://shasta.transilience.cloud/soc — the event appears at the top of the timeline with severity `high`, source `aws.config`, title `AuthorizeSecurityGroupIngress`, resource shown as `sg-TESTGROUP`, actor shown as the IAM user that ran the command.
+
+3. **Within 60s:** iPhone vibrates with a push notification matching the templated body: `drift · high · sg-TESTGROUP · AuthorizeSecurityGroupIngress · by <user>`.
+
+4. **Within ~25s of the event:** Tap the timeline row in `/soc`. The detail pane shows:
+   - AI narrative (1-2 sentences naming what happened and why it's notable)
+   - Anomaly class (`unusual` or `suspicious` likely; `expected` if this actor regularly opens SGs)
+   - Anomaly score 0-100
+   - Suggested next steps (e.g., "Revoke the rule" with the corresponding `aws ec2 revoke-security-group-ingress` command)
+   - "Why this fired (features)" expandable block showing `first_time_actor_on_resource`, `off_hours`, `action_rarity`, `blast_radius_proxy`
+   - Related findings on the resource (if any)
+   - Feedback buttons
+
+5. Click 👍 helpful. Expect "Thanks for the feedback" + new row in `feedback` table with `target_kind='event'`, `sentiment='up'`.
+
+6. **Cleanup:** Revoke the rule:
+   ```bash
+   aws ec2 revoke-security-group-ingress \
+     --group-id sg-TESTGROUP \
+     --protocol tcp --port 22 --cidr 0.0.0.0/0
+   ```
+   This generates a second drift event with severity `medium` (revocation is the safe direction — rule fires `medium` per severity_rules.py). Verify it appears in /soc.
+
+### Failure modes to watch
+
+- AI narrative absent for >30s after event lands → check CloudWatch logs for `/aws/lambda/CisoCopilotEvents-SocEnrichment*` (Anthropic 5xx? cap reached? prompt parse failure?).
+- Push doesn't arrive → check `users.device_token` populated; check `events.push_sent=true` for the row; check CloudWatch logs for SNS publish errors.
+- Duplicate event row → check `source_event_id` is populated; the ON CONFLICT should have deduped.
+- 42P10 SQL error → indicates partial unique index ON CONFLICT WHERE clause missing in router INSERT (was a real bug fixed in commit `aeb28bc`).

@@ -14,6 +14,29 @@
 > a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
 > gotcha block below.)
 
+## 🚀 SOC Slice 1 — shipped (2026-05-25)
+
+AI-powered SOC sub-project Slice 1 live end-to-end. AWS Config drift
+flows: customer EventBridge rule → central bus → event_router (with new
+source_event_id dedupe + Config severity rule table + push +
+SQS enqueue) → soc-enrichment-queue → soc_enrichment Lambda
+(features + LiteLLM `claude-sonnet-4-6` + UPDATE) → /soc web page +
+APNs push.
+
+**What's live:**
+- New `/soc` page (web) — timeline + filter chips + detail pane + feedback
+- New `soc_enrichment` Lambda with LiteLLM abstraction (env-driven model)
+- Per-tenant daily LLM spend cap ($10 default) in DynamoDB
+- Per-tenant push rate limit (10/hr default, criticals bypass)
+- Schema migration 011 — AI fields + source_event_id + indices + drift target_resource_arn
+- AWS Config essentials recording profile (~$30-80/mo customer cost vs $200+ for all-resources)
+- APNs sandbox SNS Platform Application provisioned with the .p8 at repo root
+
+**Next slice:** 1c — pluggable threat-intel substrate (free feeds: abuse.ch, CISA KEV, Tor list, GreyNoise Community). Then Slice 2 — identity drift (AWS IAM via CloudTrail + Entra audit).
+
+**Spec:** `docs/superpowers/specs/2026-05-25-ai-powered-soc-design.md`
+**Plan:** `docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1.md`
+
 ## 🚀 Compliance Mapping Engine v2 — shipped end-to-end (2026-05-25)
 
 The architectural reset KK ordered ("Shasta isn't our binding framework.
