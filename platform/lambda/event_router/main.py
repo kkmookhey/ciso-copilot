@@ -84,6 +84,7 @@ def handler(event: dict, context) -> dict:
             normalized      = normalized,
             fired_at        = fired_at,
             source_event_id = source_event_id,
+            source_ip       = _extract_source_ip(event),
         )
 
         if not inserted:
@@ -272,6 +273,21 @@ def _extract_cloudtrail_resource(detail: dict) -> str | None:
     return None
 
 
+def _extract_source_ip(event: dict) -> str | None:
+    """Return CloudTrail's caller IP, or None for non-CloudTrail / AWS-internal calls."""
+    if event.get("detail-type") != "AWS API Call via CloudTrail":
+        return None
+    raw = (event.get("detail") or {}).get("sourceIPAddress")
+    if not raw or not isinstance(raw, str):
+        return None
+    # AWS uses service-principal strings for internal calls; only keep dotted-quad / IPv6.
+    if "." not in raw and ":" not in raw:
+        return None
+    if raw.endswith(".amazonaws.com") or raw.endswith(".amazon.com"):
+        return None
+    return raw
+
+
 def _classify_kind(source: str, detail_type: str, detail: dict) -> str:
     """alert: native security detector. drift: configuration change."""
     if detail_type in ("AWS API Call via CloudTrail", "Configuration Item Change Notification"):
@@ -367,6 +383,7 @@ def _insert_event(
     normalized: dict,
     fired_at: str,
     source_event_id: str | None,
+    source_ip: str | None,
 ) -> bool:
     """INSERT into events with ON CONFLICT DO NOTHING. Returns True if inserted, False if dup."""
     result = rds_data.execute_statement(
@@ -376,11 +393,11 @@ def _insert_event(
         sql=(
             "INSERT INTO events (event_id, tenant_id, conn_id, kind, source, severity, "
             "                    title, description, resource_arn, actor, raw_s3_key, "
-            "                    normalized, fired_at, source_event_id) "
+            "                    normalized, fired_at, source_event_id, source_ip) "
             "VALUES (CAST(:eid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
             "        :kind, :source, :severity, :title, :description, :resource_arn, "
             "        :actor, :raw_s3_key, CAST(:normalized AS JSONB), "
-            "        CAST(:fired_at AS TIMESTAMPTZ), :sei) "
+            "        CAST(:fired_at AS TIMESTAMPTZ), :sei, :source_ip) "
             "ON CONFLICT (tenant_id, source, source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING "
             "RETURNING event_id"
         ),
@@ -399,6 +416,7 @@ def _insert_event(
             {"name": "normalized",   "value": {"stringValue": json.dumps(normalized)}},
             {"name": "fired_at",     "value": {"stringValue": fired_at}},
             {"name": "sei",          "value": ({"stringValue": source_event_id} if source_event_id else {"isNull": True})},
+            {"name": "source_ip",    "value": ({"stringValue": source_ip} if source_ip else {"isNull": True})},
         ],
     )
     return len(result.get("records", [])) > 0

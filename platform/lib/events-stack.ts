@@ -154,12 +154,81 @@ export class EventsStack extends cdk.Stack {
       actions:   ['secretsmanager:GetSecretValue'],
       resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/anthropic-api-key*`],
     }));
+    enrichmentFn.addEnvironment('GREYNOISE_API_KEY_SECRET_NAME', 'ciso-copilot/greynoise-api-key');
+    enrichmentFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/greynoise-api-key*`],
+    }));
     enrichmentFn.addEventSource(new sqsEventSource.SqsEventSource(this.enrichmentQueue, {
       batchSize: 5,
       maxBatchingWindow: cdk.Duration.seconds(2),
       reportBatchItemFailures: true,
     }));
     new cdk.CfnOutput(this, 'SocEnrichmentFnName', { value: enrichmentFn.functionName });
+
+    // ============================================================
+    // SOC Slice 1c — TI feed cron Lambdas
+    // ============================================================
+    const tiFeedEnv = {
+      DB_CLUSTER_ARN: props.dbCluster.clusterArn,
+      DB_SECRET_ARN:  props.dbCluster.secret!.secretArn,
+      DB_NAME:        'ciso_copilot',
+    };
+
+    const tiFeedAbusechFn = new lambda.Function(this, 'TiFeedAbusechFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ti_feed_abusech', 'dist', 'ti_feed_abusech.zip')),
+      timeout:    cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: tiFeedEnv,
+    });
+    props.dbCluster.grantDataApiAccess(tiFeedAbusechFn);
+
+    const tiFeedKevFn = new lambda.Function(this, 'TiFeedKevFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ti_feed_kev', 'dist', 'ti_feed_kev.zip')),
+      timeout:    cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: tiFeedEnv,
+    });
+    props.dbCluster.grantDataApiAccess(tiFeedKevFn);
+
+    const tiFeedTorFn = new lambda.Function(this, 'TiFeedTorFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ti_feed_tor', 'dist', 'ti_feed_tor.zip')),
+      timeout:    cdk.Duration.minutes(2),
+      memorySize: 512,
+      environment: tiFeedEnv,
+    });
+    props.dbCluster.grantDataApiAccess(tiFeedTorFn);
+
+    new events.Rule(this, 'TiFeedAbusechSchedule', {
+      ruleName:    'ti-feed-abusech-hourly',
+      description: 'Hourly abuse.ch Feodo + ThreatFox ETL into threat_indicators.',
+      schedule:    events.Schedule.rate(cdk.Duration.hours(1)),
+      targets:     [new targets.LambdaFunction(tiFeedAbusechFn)],
+    });
+
+    new events.Rule(this, 'TiFeedKevSchedule', {
+      ruleName:    'ti-feed-kev-daily',
+      description: 'Daily CISA KEV ETL into threat_indicators.',
+      schedule:    events.Schedule.rate(cdk.Duration.hours(24)),
+      targets:     [new targets.LambdaFunction(tiFeedKevFn)],
+    });
+
+    new events.Rule(this, 'TiFeedTorSchedule', {
+      ruleName:    'ti-feed-tor-hourly',
+      description: 'Hourly Tor exit list ETL into threat_indicators.',
+      schedule:    events.Schedule.rate(cdk.Duration.hours(1)),
+      targets:     [new targets.LambdaFunction(tiFeedTorFn)],
+    });
+
+    new cdk.CfnOutput(this, 'TiFeedAbusechFnName', { value: tiFeedAbusechFn.functionName });
+    new cdk.CfnOutput(this, 'TiFeedKevFnName',     { value: tiFeedKevFn.functionName });
+    new cdk.CfnOutput(this, 'TiFeedTorFnName',     { value: tiFeedTorFn.functionName });
 
     // ============================================================
     // Fan every event from the central bus into the router Lambda

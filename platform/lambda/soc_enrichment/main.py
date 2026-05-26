@@ -70,7 +70,7 @@ def _load_event_row(event_id: str, tenant_id: str) -> dict | None:
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
             "SELECT e.event_id::text, e.tenant_id::text, e.source, e.kind, e.severity, "
-            "       e.title, e.actor, e.resource_arn, e.fired_at::text, "
+            "       e.title, e.actor, e.resource_arn, e.fired_at::text, e.source_ip, "
             "       d.before_state::text, d.after_state::text "
             "FROM events e LEFT JOIN drift_events d USING (event_id) "
             "WHERE e.event_id = CAST(:e AS UUID) AND e.tenant_id = CAST(:t AS UUID)"
@@ -84,7 +84,7 @@ def _load_event_row(event_id: str, tenant_id: str) -> dict | None:
     if not rows:
         return None
     r = rows[0]
-    cols = ["event_id","tenant_id","source","kind","severity","title","actor","resource_arn","fired_at","before_state","after_state"]
+    cols = ["event_id","tenant_id","source","kind","severity","title","actor","resource_arn","fired_at","source_ip","before_state","after_state"]
     out: dict = {}
     for col, cell in zip(cols, r):
         if cell.get("isNull"):

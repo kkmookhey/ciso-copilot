@@ -8,5 +8,7 @@ pip3 install --target build -r requirements.txt --quiet --platform manylinux2014
 cp main.py features.py llm.py build/
 # spend_cap is shared with event_router — vendor it in
 cp ../event_router/spend_cap.py build/
+# Slice 1c: vendor the _shared/ TI substrate
+cp ../_shared/ti_lookup.py ../_shared/ioc_extract.py ../_shared/greynoise.py build/
 cd build && zip -qr ../dist/soc_enrichment.zip . && cd ..
 echo "Built $(pwd)/dist/soc_enrichment.zip"

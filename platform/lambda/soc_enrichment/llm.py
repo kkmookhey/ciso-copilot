@@ -29,7 +29,11 @@ PRICING = {
 
 SYSTEM = (
     "You are a SOC analyst summarizing a single AWS configuration drift event "
-    "for a CISO. Be terse. Be specific. Use the structured features. "
+    "for a CISO. Be terse. Be specific. Use the structured features — "
+    "especially `features.ti_matches` (an empty list is a non-signal; a non-empty "
+    "list IS evidence): each entry has a `source` such as 'tor', 'abusech_feodo', "
+    "'abusech_threatfox', 'kev', or 'greynoise_community', and optional `tags`. "
+    "When ti_matches is non-empty, name the source(s) and tag(s) in the narrative. "
     "Respond with JSON matching this schema exactly: "
     '{"narrative": str (<=240 chars), '
     ' "anomaly_class": "expected"|"unusual"|"suspicious", '

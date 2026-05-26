@@ -4,13 +4,174 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-25 (SOC Slice 1 shipped + demo-gate verified
-> end-to-end via PR #24 → squash-merged as `3ce55b8`. CME-v2 fully
-> shipped earlier the same day across 4 slices PRs #17–#20 + #21
-> follow-up. Earlier 2026-05-24: AI Visibility v2 S2.1 Entra licensing
-> banner verified; restored the AiSummary Lambda + `/ai/summary` route
-> after a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
-> gotcha block below.)
+> Last updated: 2026-05-26 (SOC Slice 1c shipped + manual gate verified
+> end-to-end on `feat/ai-powered-soc-slice-1c` — Tor-routed
+> `AuthorizeSecurityGroupIngress` produced an event whose AI narrative
+> explicitly named "Tor exit node (source: tor, tag: tor_exit)" with
+> anomaly score 82; negative case from a non-listed IP scored 72 with
+> "No TI hits" in the narrative. PR #25 awaiting merge. Earlier
+> 2026-05-25: SOC Slice 1 shipped + demo-gate verified via PR #24 →
+> squash-merged as `3ce55b8`; CME-v2 shipped the same day across PRs
+> #17–#20 + #21.)
+
+## 🚀 SOC Slice 1c — shipped & manual gate verified (2026-05-26, PR #25)
+
+AI-powered SOC sub-project Slice 1c — threat-intel substrate — is built
+end-to-end and deployed to `CisoCopilotEvents` on `feat/ai-powered-soc-slice-1c`.
+Every drift event surfaced in `/soc` now does an IP/domain/sha256 lookup
+against a global `threat_indicators` table populated by three cron-driven
+feed Lambdas, with an on-demand GreyNoise Community fallback (disabled
+until a key lands in `ciso-copilot/greynoise-api-key`). Matches feed back
+into the Claude prompt and surface as labeled badges in `/soc` DetailPane.
+
+**What's live and deployed:**
+- `threat_indicators` global table + `events.source_ip` column (migration
+  `013_phase_soc_ti.sql`, idempotent re-runnable)
+- Three cron Lambdas: `TiFeedAbusechFn` (hourly Feodo + ThreatFox),
+  `TiFeedKevFn` (daily CISA KEV), `TiFeedTorFn` (hourly Tor exits) — all
+  use stdlib `urllib.request` (no third-party deps, tiny zips)
+- New `platform/lambda/_shared/` directory with `ti_lookup`, `ioc_extract`,
+  `greynoise` modules, vendored via `cp` into each consumer's
+  `build.sh` — promotes the Slice 1 deferred follow-up
+- `event_router` captures CloudTrail `sourceIPAddress` into the new
+  `events.source_ip` column
+- `soc_enrichment.features` extended with `_ti_matches(row)` — DB
+  lookup + GreyNoise fallback for unmatched IPs (cap 5/event)
+- LLM SYSTEM prompt updated to use `features.ti_matches` and name
+  matched sources/tags in the narrative
+- `/soc` DetailPane renders "Threat intel" badges from
+  `ai_features.ti_matches` (zero API contract change — `ai_features`
+  was already `Record<string, unknown>`)
+- Per-tenant GreyNoise rate limit (30/day) wired via the existing
+  `soc_llm_spend_daily` DynamoDB table under sort-key prefix
+  `greynoise_count:`
+
+**Aurora state after seed (2026-05-26):**
+```
+abusech_feodo     | 5
+abusech_threatfox | 2842
+kev               | 1602
+tor               | 1277
+                  ----
+total             | 5726
+```
+
+ThreatFox dedup at PK level: Lambda returned 3,235 rows but ON CONFLICT
+collapsed to 2,842 unique `(value, kind, source)` tuples — the source
+serves multiple rows per IOC with different `threat_type`/`malware`
+combinations; we keep the latest.
+
+**Lessons paid in execution (now baked into code/comments):**
+1. **Python 3.14 reclassified RFC 5737 doc ranges** (192.0.2.0/24,
+   198.51.100.0/24, 203.0.113.0/24) as `is_private=True`. The plan's
+   original `ipaddress.IPv4Address(value).is_global` filter would have
+   stripped `203.0.113.5` from a positive test. Fixed with an explicit
+   `_SKIP_NETS` CIDR list covering RFC1918 + loopback + 0.0.0.0/8 +
+   link-local + multicast + reserved + broadcast. **Also added CGNAT
+   100.64.0.0/10** per code-quality review (RFC 6598).
+2. **CDK hotswap re-bundling:** when `build.sh` changes the contents
+   of the asset folder but the path is the same, `npx cdk deploy
+   --hotswap` may skip re-uploading the zip. Use `--hotswap --force`
+   (HANDOFF lesson #7 from Slice 1 still holds, now with a Slice 1c
+   data point).
+3. **ThreatFox `ioc_type=ip:port`:** values arrive as `10.0.0.1:443`;
+   strip the port before storing as `kind='ip'`. Easy to miss.
+4. **Web `getByText` vs `getAllByText`:** the same TI source/tag
+   strings appear in BOTH the new "Threat intel" badge block AND the
+   existing "Why this fired (features)" JSON dump. `getByText` throws
+   on multiple matches — use `getAllByText(...).length >= 1` for those
+   duplicated strings; reserve `getByText` for unique-only strings
+   like the section header.
+5. **`_shared/` promoted to a real directory.** The Slice 1 deferred
+   follow-up "lift to `platform/lambda/_shared/`" is done. Each
+   consuming Lambda's `build.sh` now does
+   `cp ../_shared/*.py build/`. Lift to a Lambda Layer remains
+   deferred (separate version-management surface).
+6. **AbuseCH ThreatFox dedup at PK level.** `(value, kind, source)`
+   composite PK with `ON CONFLICT … DO UPDATE` means repeat sightings
+   are non-destructive: `last_seen` refreshes, `confidence` upgrades
+   via COALESCE, `first_seen` preserved.
+
+**Deferred follow-ups (logged, not blockers):**
+- **Manual gate (KK-pending):** Run the Slice 1c gate in
+  `TEST_PLAN.md` from a Tor exit IP. ~30 min including IP-egress setup.
+- **GreyNoise key:** Wire a real key into
+  `ciso-copilot/greynoise-api-key` Secrets Manager once an account is
+  provisioned. Until then `_greynoise_api_key()` returns None and the
+  on-demand path silently disables — DB-side feeds (Feodo / ThreatFox
+  / KEV / Tor) cover the demo wedge.
+- **URLhaus + MalwareBazaar abuse.ch sub-feeds** — not yet ingested.
+  Same pattern as ThreatFox; would extend `parse_threatfox`-style
+  functions in the existing `ti_feed_abusech` Lambda.
+- **`_shared/` → Lambda Layer.** `cp` vendoring works; lifting to a
+  Layer would deduplicate ~10 KB across four Lambdas but adds a
+  separate version-management surface.
+- **`/soc` filter chip "TI hits only"** — defer to first usage signal.
+- **TI on Slice 2 (identity drift) events** — falls out for free
+  thanks to the kind-agnostic `ioc_extract`; Slice 2 events flow
+  through the same `_ti_matches` step automatically.
+
+**Spec:** `docs/superpowers/specs/2026-05-25-ai-powered-soc-design.md` §6 + §4 TI addendum
+**Plan:** `docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md`
+**Branch:** `feat/ai-powered-soc-slice-1c` (12 commits + plan + docs + this HANDOFF block)
+**PR:** [#25](https://github.com/kkmookhey/ciso-copilot/pull/25) awaiting merge
+**Gate:** `TEST_PLAN.md` → "SOC Slice 1c — TI match end-to-end" — **VERIFIED** (2026-05-26)
+
+### Gate execution notes (the substrate edge cases worth remembering)
+
+1. **`torsocks` is broken on modern macOS.** DYLD injection is blocked
+   by SIP for system binaries (`/usr/bin/curl`), AND silently no-ops
+   on `/opt/homebrew/opt/python@3.14/bin/python3.14` even though
+   that binary isn't SIP-protected — `check.torproject.org/api/ip`
+   returned `{"IsTor":false}` while torsocks ran. Use `proxychains-ng`
+   (`brew install proxychains-ng` → `proxychains4 -q -f <conf>
+   python3 ...`) instead. Reaches `{"IsTor":true}` on the same setup.
+2. **`proxychains-ng` does NOT wrap AWS CLI v2.** `/usr/local/bin/aws`
+   is a Mach-O universal binary with statically-linked Python — DYLD
+   injection is bypassed. The egress IP leaked back to the host's real
+   IP without warning. The fix: monkey-patch `socket` in a tiny Python
+   script (`pip install pysocks` in a venv → `socket.socket =
+   socks.socksocket` BEFORE `import boto3`). boto3 then connects via
+   the SOCKS proxy on every call. Confirmed working with Tor exit
+   `192.42.116.98` showing up as the `sourceIPAddress` in CloudTrail.
+3. **`proxies={'https': 'socks5h://...'}` in `botocore.config.Config`
+   does NOT work.** botocore's proxy handling expects HTTP proxies; it
+   prepends `http://` to the URL, producing
+   `http://socks5h://127.0.0.1:9050` and a `ProxyConnectionError`. The
+   socket monkey-patch is the right interface boundary for
+   SOCKS-via-boto3.
+4. **End-to-end latency in the gate:** 17:22:24 UTC (Tor-routed SG
+   open) → enrichment complete and narrative naming Tor visible in
+   `/soc` by 17:23:00 UTC. ~35s end-to-end, well within the spec's
+   p95 <30s target (event_router fires push within ~10s; enrichment
+   adds ~20-25s for the Anthropic round trip).
+5. **The negative case is also useful telemetry.** Same SG, same actor,
+   same time-of-day — only `source_ip` changes (KK's real IP vs Tor).
+   Anomaly score moves 72 → 82, narrative shifts from "No TI hits" to
+   "matches Tor exit node". Cleanly shows TI is doing real work in the
+   classifier output, not just decorating the UI.
+
+### Polish landed during the gate
+
+- **"Threat intel" badge block moved above the features `<details>`**
+  in `DetailPane.tsx`. Reading order is now narrative → anomaly →
+  next-steps → **TI badges** → features (collapsed by default) →
+  related findings. Badges sit above the fold in the common case.
+
+### Deferred follow-ups
+
+- **GreyNoise Community wiring deferred until 100+ customers.** The
+  on-demand fallback is code-complete and silently disabled (env var
+  `GREYNOISE_API_KEY_SECRET_NAME` points at an absent secret →
+  `_greynoise_api_key()` returns None → enrichment skips the
+  on-demand path). The four cached feeds (Feodo + ThreatFox + KEV +
+  Tor) cover the demo wedge and the realistic-scale wedge for v1
+  pilots. Free tier is 50 req/key/day; with a per-tenant 30/day cap
+  we can serve ~1-2 tenants per key. Worth provisioning a paid plan
+  + the secret once tenant count exceeds ~50 (single Community key
+  becomes the binding constraint).
+
+---
 
 ## 🚀 SOC Slice 1 — shipped & demo-gate verified (2026-05-25, PR #24)
 
@@ -101,67 +262,57 @@ CLAUDE.md as project conventions):
 Per design spec §3, four remaining slices in priority order. Pick based
 on session bandwidth + product wedge wanted.
 
-### Slice 1c — Threat-intel substrate (~2 weeks) — RECOMMENDED NEXT
+### Slice 1c — Threat-intel substrate (~2 weeks) — SHIPPED 2026-05-26
 
-**Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 1c
-row), §4 addendum (TI integration), §6 (`threat_indicators` table
-schema), §10 (no customer-side cost; our-side ~$5-10/mo).
+See the "🚀 SOC Slice 1c" block at the top of this file. Live in
+Aurora with 5,980 IOCs; manual gate verified end-to-end via a real
+Tor-routed `AuthorizeSecurityGroupIngress` API call; PR #25 merged.
 
-**What it builds:**
-- New global `threat_indicators` table (tenant-independent — IOCs are
-  public knowledge)
-- `ti_feed_base.py` abstract adapter class
-- Four cron-driven feed adapters: `ti_feed_abusech` (ThreatFox /
-  URLhaus / Feodo / MalwareBazaar, hourly), `ti_feed_kev` (CISA KEV,
-  daily), `ti_feed_tor` (Tor exit node list, hourly),
-  `ti_feed_greynoise_community` (on-demand, rate-limited via DynamoDB
-  counter)
-- `soc_enrichment` Lambda extension: extract IPs/domains/hashes from
-  drift events → lookup in `threat_indicators` → add `ti_matches` to
-  features fed to Claude → surface as labeled badges in `/soc` detail
-  pane
-
-**Product wedge:** AI narrative gets real teeth — "Source IP is Tor
-exit + abuse.ch botnet C2 (confidence 85)" instead of just "rare action
-for this actor". Sharpest single product step.
-
-**Why next:** Highest value-per-day-of-work in the slice plan; all
-infra already in place from Slice 1 (just add a new table + adapters +
-enrichment hook). Sets up a defensible biz case for GreyNoise
-Enterprise paid tier later if telemetry justifies.
-
-**Brainstorm needed:** Minimal — spec §6 already pins the table shape
-and adapter contract. Could jump straight to `writing-plans` next
-session.
-
-### Slice 2 — Identity drift (~3 weeks)
+### Slice 2 — Identity drift (~3 weeks) — RECOMMENDED NEXT
 
 **Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 2
 row), §10.2 (Entra), §5 components table (Entra audit poller row).
 
 **What it builds:**
-- Add AWS IAM CloudTrail events to severity rule table
-  (already half-there — `event_router` pattern includes them, just
-  needs identity-specific severity rules)
+- Add AWS IAM CloudTrail events to the severity rule table (already
+  half-there — `event_router`'s pattern includes them, just needs
+  identity-specific severity classification: `AttachUserPolicy`,
+  `CreateAccessKey`, `UpdateAssumeRolePolicy`, `PutUserPolicy`, etc.)
 - New `soc_entra_poller` Lambda — 5-min cron polling Microsoft Graph
   `auditLogs/directoryAudits` + `auditLogs/signIns` filtered for risk
-  events
-- Extend severity rule table with identity-drift actions (role
+  events. Reuses the existing Entra connection (no new admin-consent
+  flow — the Graph scope `AuditLog.Read.All` was added for AI
+  Visibility S2.1 and is already consented on the test tenant).
+- Extend severity rule table with identity-drift actions: role
   assignment, OAuth consent grant, conditional access changes, MFA
-  enforcement changes)
-- `/soc` filter chip gains "Identity" source filter
+  enforcement changes, federation trust changes.
+- `/soc` filter chip gains an "Identity" source filter.
 
 **Product wedge:** "New admin role assigned at 3am" demo moment.
 Identity drift is arguably the highest-leverage CISO signal — covers
-both cloud IAM and Entra.
+both cloud IAM (AWS) and SaaS-identity (Entra → Microsoft 365).
 
-**Why second (not first):** Slice 1c is faster and sharpens the
-existing narrative; Slice 2 adds a whole new substrate. Doing 1c first
-means Slice 2's identity events also get TI enrichment from day one.
+**Why next (now that 1c shipped):**
+1. Slice 1c is in production — identity events flowing through the
+   same pipeline will get TI enrichment for free. A new IAM access
+   key created from a Tor exit will surface with the same badge UX
+   that Slice 1c just demonstrated.
+2. `event_router` already normalizes CloudTrail mgmt events; the
+   work is mostly (a) the Entra poller Lambda + Graph-API plumbing,
+   and (b) extending `severity_rules.py` with identity-action rows.
+3. The `mitre_technique` column is pre-committed but unused — Slice 2
+   gives the LLM real ATT&CK material to map (T1098 Account
+   Manipulation, T1136 Create Account, T1556 Modify Authentication,
+   T1078 Valid Accounts).
 
 **Brainstorm needed:** Some — Entra polling vs webhook subscriptions
 (spec recommends polling for v1, webhooks later as Slice 2.5);
-severity rule expansion for identity actions.
+severity rule expansion for identity actions; deciding whether to
+ingest Entra sign-ins (P1/P2-gated per S2.1 lessons) in v1 or punt
+to Slice 2.5.
+
+**Pre-req:** none new — Entra connection + AI Visibility S2.1 banner
+already shipped + scope already in place.
 
 ### Slice 3 — Anomaly baseline activation (~2 weeks)
 

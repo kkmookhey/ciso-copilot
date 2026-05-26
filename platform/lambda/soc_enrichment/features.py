@@ -4,6 +4,11 @@ import os
 from datetime import datetime
 import boto3
 
+# Vendored from _shared/ by build.sh
+import ti_lookup
+import ioc_extract
+import greynoise
+
 DB_CLUSTER_ARN = os.environ.get("DB_CLUSTER_ARN", "")
 DB_SECRET_ARN  = os.environ.get("DB_SECRET_ARN", "")
 DB_NAME        = os.environ.get("DB_NAME", "ciso_copilot")
@@ -85,6 +90,75 @@ def _blast_radius_proxy(tenant_id: str, actor: str | None) -> int:
     return rows[0][0].get("longValue", 0) if rows else 0
 
 
+def _greynoise_api_key() -> str | None:
+    """Resolve the GreyNoise key once per cold start from Secrets Manager.
+
+    Returns None when the secret is not configured — disables on-demand fallback.
+    """
+    cached = getattr(_greynoise_api_key, "_cached", "unset")
+    if cached != "unset":
+        return cached  # type: ignore
+    name = os.environ.get("GREYNOISE_API_KEY_SECRET_NAME")
+    if not name:
+        _greynoise_api_key._cached = None  # type: ignore
+        return None
+    try:
+        sm = boto3.client("secretsmanager")
+        secret = sm.get_secret_value(SecretId=name)["SecretString"]
+        try:
+            import json as _json
+            key = _json.loads(secret).get("GREYNOISE_API_KEY", secret)
+        except (TypeError, ValueError):
+            key = secret
+    except Exception as e:
+        print(f"WARN: greynoise key fetch failed: {e!r}")
+        key = None
+    _greynoise_api_key._cached = key  # type: ignore
+    return key
+
+
+def _ti_matches(row: dict) -> list[dict]:
+    """Extract IOCs from the event row, look them up in threat_indicators,
+    optionally fall back to on-demand GreyNoise Community for unmatched IPs.
+
+    Returns a list of {value, kind, source, confidence, tags} dicts — at most
+    a handful per event (callers tolerate empty list).
+    """
+    iocs = ioc_extract.extract_iocs(row)
+    # Collapse to a single dict keyed by kind→list[str] for bulk_lookup
+    db_hits = ti_lookup.bulk_lookup(iocs)
+
+    matches: list[dict] = []
+    for value, rows in db_hits.items():
+        for r in rows:
+            matches.append({
+                "value":      value,
+                "kind":       r["kind"],
+                "source":     r["source"],
+                "confidence": r["confidence"],
+                "tags":       r["tags"],
+            })
+
+    # GreyNoise on-demand fallback: only IPs, only those that missed in DB
+    unmatched_ips = [ip for ip in iocs.get("ip", []) if ip not in db_hits]
+    if unmatched_ips:
+        key = _greynoise_api_key()
+        if key:
+            tenant_id = row.get("tenant_id") or ""
+            for ip in unmatched_ips[:5]:  # cap per-event GreyNoise calls
+                hit = greynoise.lookup_ip(tenant_id, ip, api_key=key)
+                if hit:
+                    matches.append({
+                        "value":      hit["value"],
+                        "kind":       hit["kind"],
+                        "source":     hit["source"],
+                        "confidence": hit["confidence"],
+                        "tags":       [hit.get("classification") or "unknown"] +
+                                       ([hit["name"]] if hit.get("name") else []),
+                    })
+    return matches
+
+
 def compute_features(row: dict) -> dict:
     return {
         "first_time_actor_on_resource": _first_time_actor_on_resource(
@@ -92,4 +166,5 @@ def compute_features(row: dict) -> dict:
         "off_hours":                    _is_off_hours(row["fired_at"]),
         "action_rarity":                _action_rarity(row["tenant_id"], row.get("title")),
         "blast_radius_proxy":           _blast_radius_proxy(row["tenant_id"], row.get("actor")),
+        "ti_matches":                   _ti_matches(row),
     }

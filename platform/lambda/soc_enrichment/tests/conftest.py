@@ -1,6 +1,15 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# also expose _shared so `import ti_lookup` / `ioc_extract` / `greynoise` resolve during tests
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "_shared")))
 import pytest
+
+# Stub litellm if not available in test environment
+try:
+    import litellm
+except ModuleNotFoundError:
+    from unittest.mock import MagicMock
+    sys.modules['litellm'] = MagicMock()
 
 
 @pytest.fixture
