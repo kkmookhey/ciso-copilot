@@ -33,6 +33,17 @@ ALLOWED_KINDS      = {"alert", "drift"}
 
 
 def handler(event: dict, context) -> dict:
+    resource = event.get("resource", "")
+    if resource == "/events":
+        return _list_handler(event, context)
+    if resource == "/events/{event_id}":
+        return _detail_handler(event, context)
+    if resource == "/events/{event_id}/feedback":
+        return _feedback_handler(event, context)
+    return _resp(404, {"error": "not_found"})
+
+
+def _list_handler(event: dict, context) -> dict:
     tenant_id = _resolve_tenant_id(event)
     if not tenant_id:
         return _resp(401, {"error": "no_tenant"})
@@ -47,7 +58,8 @@ def handler(event: dict, context) -> dict:
 
     sql = (
         "SELECT event_id::text, kind, source, severity, title, description, "
-        "       resource_arn, actor, fired_at::text, ingested_at::text "
+        "       resource_arn, actor, fired_at::text, ingested_at::text, "
+        "       ai_narrative, ai_anomaly_class, ai_anomaly_score "
         "FROM events "
         "WHERE tenant_id = CAST(:tid AS UUID) "
         f"  AND severity IN ({_in_clause('sev', severities)}) "
@@ -74,16 +86,19 @@ def handler(event: dict, context) -> dict:
     events_out = []
     for r in rs.get("records", []):
         events_out.append({
-            "event_id":     r[0].get("stringValue"),
-            "kind":         r[1].get("stringValue"),
-            "source":       r[2].get("stringValue"),
-            "severity":     r[3].get("stringValue"),
-            "title":        r[4].get("stringValue"),
-            "description":  r[5].get("stringValue") if not r[5].get("isNull") else None,
-            "resource_arn": r[6].get("stringValue") if not r[6].get("isNull") else None,
-            "actor":        r[7].get("stringValue") if not r[7].get("isNull") else None,
-            "fired_at":     r[8].get("stringValue"),
-            "ingested_at":  r[9].get("stringValue"),
+            "event_id":         r[0].get("stringValue"),
+            "kind":             r[1].get("stringValue"),
+            "source":           r[2].get("stringValue"),
+            "severity":         r[3].get("stringValue"),
+            "title":            r[4].get("stringValue"),
+            "description":      _str_or_none(r[5]),
+            "resource_arn":     _str_or_none(r[6]),
+            "actor":            _str_or_none(r[7]),
+            "fired_at":         r[8].get("stringValue"),
+            "ingested_at":      r[9].get("stringValue"),
+            "ai_narrative":     _str_or_none(r[10]),
+            "ai_anomaly_class": _str_or_none(r[11]),
+            "ai_anomaly_score": _int_or_none(r[12]),
         })
 
     # Total under same filters (without limit/offset) for the home-screen Alerts stat.
@@ -107,6 +122,92 @@ def handler(event: dict, context) -> dict:
         "limit":  limit,
         "offset": offset,
     })
+
+
+def _detail_handler(event: dict, context) -> dict:
+    tenant_id = _resolve_tenant_id(event)
+    if not tenant_id:
+        return _resp(401, {"error": "no_tenant"})
+    event_id = (event.get("pathParameters") or {}).get("event_id")
+    if not event_id:
+        return _resp(400, {"error": "missing_event_id"})
+
+    rows = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=(
+            "SELECT e.event_id::text, e.kind, e.source, e.severity, e.title, e.description, "
+            "       e.resource_arn, e.actor, e.fired_at::text, e.ingested_at::text, "
+            "       e.ai_narrative, e.ai_anomaly_class, e.ai_anomaly_score, "
+            "       e.ai_next_steps::text, e.ai_features::text, e.ai_model_version, "
+            "       e.mitre_technique, d.action, d.after_state::text, d.before_state::text "
+            "FROM events e LEFT JOIN drift_events d USING (event_id) "
+            "WHERE e.event_id = CAST(:e AS UUID) AND e.tenant_id = CAST(:t AS UUID)"
+        ),
+        parameters=[
+            {"name": "e", "value": {"stringValue": event_id}},
+            {"name": "t", "value": {"stringValue": tenant_id}},
+        ],
+    ).get("records", [])
+    if not rows:
+        return _resp(404, {"error": "not_found"})
+    r = rows[0]
+    evt = {
+        "event_id":         r[0]["stringValue"],
+        "kind":             r[1]["stringValue"],
+        "source":           r[2]["stringValue"],
+        "severity":         r[3]["stringValue"],
+        "title":            r[4]["stringValue"],
+        "description":      _str_or_none(r[5]),
+        "resource_arn":     _str_or_none(r[6]),
+        "actor":            _str_or_none(r[7]),
+        "fired_at":         r[8]["stringValue"],
+        "ingested_at":      r[9]["stringValue"],
+        "ai_narrative":     _str_or_none(r[10]),
+        "ai_anomaly_class": _str_or_none(r[11]),
+        "ai_anomaly_score": _int_or_none(r[12]),
+        "ai_next_steps":    json.loads(r[13]["stringValue"]) if not r[13].get("isNull") else None,
+        "ai_features":      json.loads(r[14]["stringValue"]) if not r[14].get("isNull") else None,
+        "ai_model_version": _str_or_none(r[15]),
+        "mitre_technique":  _str_or_none(r[16]),
+        "action":           _str_or_none(r[17]),
+        "after_state":      json.loads(r[18]["stringValue"]) if not r[18].get("isNull") else None,
+        "before_state":     json.loads(r[19]["stringValue"]) if not r[19].get("isNull") else None,
+    }
+
+    related = []
+    if evt["resource_arn"]:
+        rs = rds_data.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=(
+                "SELECT check_id, title, severity FROM findings "
+                "WHERE tenant_id = CAST(:t AS UUID) AND resource_arn = :r "
+                "  AND status = 'fail' ORDER BY severity LIMIT 10"
+            ),
+            parameters=[
+                {"name": "t", "value": {"stringValue": tenant_id}},
+                {"name": "r", "value": {"stringValue": evt["resource_arn"]}},
+            ],
+        )
+        for fr in rs.get("records", []):
+            related.append({
+                "check_id": fr[0]["stringValue"],
+                "title":    fr[1]["stringValue"],
+                "severity": fr[2]["stringValue"],
+            })
+
+    return _resp(200, {"event": evt, "related_findings": related})
+
+
+def _feedback_handler(event: dict, context) -> dict:
+    return _resp(501, {"error": "not_implemented"})
+
+
+def _str_or_none(cell: dict) -> str | None:
+    return cell.get("stringValue") if not cell.get("isNull") else None
+
+
+def _int_or_none(cell: dict) -> int | None:
+    return cell.get("longValue") if not cell.get("isNull") else None
 
 
 def _parse_set(raw: str | None, allowed: set[str]) -> list[str]:

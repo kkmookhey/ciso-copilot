@@ -492,8 +492,10 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
     );
 
-    // GET /findings
-    api.root.addResource('events').addMethod(
+    // GET /events  +  GET /events/{event_id}
+    const eventsRes = api.root.addResource('events');
+    eventsRes.addMethod('GET', new apigw.LambdaIntegration(eventsListFn), authedOpts);
+    eventsRes.addResource('{event_id}').addMethod(
       'GET', new apigw.LambdaIntegration(eventsListFn), authedOpts,
     );
 
