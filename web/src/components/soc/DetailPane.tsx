@@ -80,6 +80,32 @@ export function DetailPane({ eventId, onClose }: { eventId: string; onClose: () 
           </ul>
         </div>
       )}
+      {(() => {
+        const matches = (e.ai_features as { ti_matches?: Array<{
+          value: string; kind: string; source: string; confidence: number | null; tags: string[];
+        }> } | null)?.ti_matches;
+        if (!matches || matches.length === 0) return null;
+        return (
+          <div className="mb-3">
+            <div className="text-xs font-medium text-stone-700 mb-1">Threat intel</div>
+            <ul className="text-xs space-y-1">
+              {matches.map((m, i) => (
+                <li key={`${m.value}-${m.source}-${i}`}
+                    className="flex flex-wrap items-center gap-1 text-stone-700">
+                  <span className="font-mono text-stone-900">{m.value}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">{m.source}</span>
+                  {m.tags.map(t => (
+                    <span key={t} className="px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 border border-stone-200">{t}</span>
+                  ))}
+                  {m.confidence !== null && (
+                    <span className="text-stone-500">conf {m.confidence}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
       <div className="mt-4 pt-3 border-t border-stone-200">
         <FeedbackButtons eventId={e.event_id} />
       </div>
