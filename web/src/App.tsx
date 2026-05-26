@@ -20,6 +20,7 @@ import AISummary from "./routes/AISummary";
 import { ChatShell } from "./chat/Shell";
 import { ContactDeepScan } from "./routes/ContactDeepScan";
 import Scan from "./routes/Scan";
+import Soc from "./routes/Soc";
 
 export default function App() {
   return (
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/questionnaires" element={<Questionnaires />} />
           <Route path="/trust"          element={<TrustAdmin />} />
           <Route path="/admin"     element={<Admin />} />
+          <Route path="/soc"           element={<Soc />} />
           <Route path="/ai"                  element={<AISummary />} />
           <Route path="/ai/install/callback" element={<InstallCallback />} />
           <Route path="/ai/connections/:id/repos" element={<RepoPicker />} />

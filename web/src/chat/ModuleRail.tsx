@@ -13,6 +13,7 @@ const BASE_ITEMS: Array<{ to: string; label: string }> = [
   { to: "/ai/inventory",   label: "AI inventory" },
   { to: "/connect",        label: "Connect clouds" },
   { to: "/scan",           label: "Scan" },
+  { to: "/soc",            label: "SOC" },
 ];
 
 const ADMIN_ITEM = { to: "/admin", label: "Admin" };

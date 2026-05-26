@@ -68,6 +68,22 @@ export interface AlertEvent {
   actor:        string | null;
   fired_at:     string;
   ingested_at:  string;
+  ai_narrative:     string | null;
+  ai_anomaly_class: "expected" | "unusual" | "suspicious" | null;
+  ai_anomaly_score: number | null;
+}
+
+export interface EventDetail {
+  event: AlertEvent & {
+    ai_next_steps: Array<{ step: string; command: string | null }> | null;
+    ai_features: Record<string, unknown> | null;
+    ai_model_version: string | null;
+    mitre_technique: string | null;
+    action: string | null;
+    after_state: unknown;
+    before_state: unknown;
+  };
+  related_findings: Array<{ check_id: string; title: string; severity: string }>;
 }
 
 export interface FindingGroup {
@@ -490,6 +506,13 @@ export const api = {
       `/events${qs ? "?" + qs : ""}`,
     );
   },
+  getEventDetail: (eventId: string) =>
+    call<EventDetail>(`/events/${eventId}`),
+  postEventFeedback: (eventId: string, body: { sentiment: "up" | "down"; reason?: string }) =>
+    call<{ ok: boolean }>(`/events/${eventId}/feedback`, {
+      method: "POST",
+      body:   JSON.stringify(body),
+    }),
   listFindings: (params?: { severity?: string; cloud?: string; check_id?: string; status?: string; framework?: string; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.severity)  q.set("severity", params.severity);
