@@ -199,8 +199,23 @@ def _detail_handler(event: dict, context) -> dict:
 
 
 def _resolve_user_id(event: dict) -> str | None:
+    """Resolve users.user_id (the FK target) from the Cognito sub claim.
+
+    Per project convention (see voice_session._resolve_user_context):
+    there is NO custom:user_id claim. The Cognito 'sub' is users.sso_subject;
+    we JOIN to get the actual users.user_id UUID.
+    """
     claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims", {})
-    return claims.get("custom:user_id") or claims.get("sub")
+    sso_subject = claims.get("sub")
+    if not sso_subject:
+        return None
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql="SELECT user_id::text FROM users WHERE sso_subject = :s LIMIT 1",
+        parameters=[{"name": "s", "value": {"stringValue": sso_subject}}],
+    )
+    rows = rs.get("records", [])
+    return rows[0][0].get("stringValue") if rows else None
 
 
 def _feedback_handler(event: dict, context) -> dict:
