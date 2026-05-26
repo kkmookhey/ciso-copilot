@@ -60,21 +60,28 @@ def handler(event: dict, context) -> dict:
         kind       = _classify_kind(source, detail_type, event.get("detail", {}))
         severity   = _severity(source, event.get("detail", {}))
 
-        _insert_event(
-            event_id      = event_id,
-            tenant_id     = conn["tenant_id"],
-            conn_id       = conn["conn_id"],
-            kind          = kind,
-            source        = source,
-            severity      = severity,
-            title         = normalized.get("title", detail_type or source),
-            description   = normalized.get("description"),
-            resource_arn  = normalized.get("resource_arn"),
-            actor         = normalized.get("actor"),
-            raw_s3_key    = raw_s3_key,
-            normalized    = normalized,
-            fired_at      = fired_at,
+        source_event_id = _source_event_id(event)
+
+        inserted = _insert_event(
+            event_id        = event_id,
+            tenant_id       = conn["tenant_id"],
+            conn_id         = conn["conn_id"],
+            kind            = kind,
+            source          = source,
+            severity        = severity,
+            title           = normalized.get("title", detail_type or source),
+            description     = normalized.get("description"),
+            resource_arn    = normalized.get("resource_arn"),
+            actor           = normalized.get("actor"),
+            raw_s3_key      = raw_s3_key,
+            normalized      = normalized,
+            fired_at        = fired_at,
+            source_event_id = source_event_id,
         )
+
+        if not inserted:
+            print(f"DROP: duplicate (tenant={conn['tenant_id']}, source={source}, sei={source_event_id})")
+            return {"ok": True, "deduped": True}
 
         # 4. Drift extension if applicable
         if kind == "drift":
@@ -218,6 +225,28 @@ def _classify_kind(source: str, detail_type: str, detail: dict) -> str:
     return "alert"
 
 
+def _source_event_id(event: dict) -> str | None:
+    """Return a stable per-source idempotency key, or None for unknown sources."""
+    source = event.get("source", "")
+    detail = event.get("detail", {}) or {}
+
+    if source == "aws.cloudtrail":
+        return detail.get("eventID")
+    if source == "aws.config":
+        ci = detail.get("configurationItem", {}) or {}
+        capture = ci.get("configurationItemCaptureTime")
+        rid     = ci.get("resourceId")
+        return f"{capture}:{rid}" if capture and rid else None
+    if source == "aws.guardduty":
+        return detail.get("id")
+    if source == "aws.inspector2":
+        return (detail.get("findingArn") or "").split("/")[-1] or None
+    if source == "aws.securityhub":
+        first = (detail.get("findings") or [{}])[0]
+        return first.get("Id")
+    return None
+
+
 def _severity(source: str, detail: dict) -> str:
     """Normalize source-specific severities to {critical, high, medium, low, info}."""
     if source == "aws.guardduty":
@@ -261,19 +290,23 @@ def _insert_event(
     raw_s3_key: str,
     normalized: dict,
     fired_at: str,
-) -> None:
-    rds_data.execute_statement(
+    source_event_id: str | None,
+) -> bool:
+    """INSERT into events with ON CONFLICT DO NOTHING. Returns True if inserted, False if dup."""
+    result = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN,
         secretArn=DB_SECRET_ARN,
         database=DB_NAME,
         sql=(
             "INSERT INTO events (event_id, tenant_id, conn_id, kind, source, severity, "
             "                    title, description, resource_arn, actor, raw_s3_key, "
-            "                    normalized, fired_at) "
+            "                    normalized, fired_at, source_event_id) "
             "VALUES (CAST(:eid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
             "        :kind, :source, :severity, :title, :description, :resource_arn, "
             "        :actor, :raw_s3_key, CAST(:normalized AS JSONB), "
-            "        CAST(:fired_at AS TIMESTAMPTZ))"
+            "        CAST(:fired_at AS TIMESTAMPTZ), :sei) "
+            "ON CONFLICT (tenant_id, source, source_event_id) DO NOTHING "
+            "RETURNING event_id"
         ),
         parameters=[
             {"name": "eid",          "value": {"stringValue": event_id}},
@@ -289,8 +322,10 @@ def _insert_event(
             {"name": "raw_s3_key",   "value": {"stringValue": raw_s3_key}},
             {"name": "normalized",   "value": {"stringValue": json.dumps(normalized)}},
             {"name": "fired_at",     "value": {"stringValue": fired_at}},
+            {"name": "sei",          "value": ({"stringValue": source_event_id} if source_event_id else {"isNull": True})},
         ],
     )
+    return len(result.get("records", [])) > 0
 
 
 def _insert_drift(event_id: str, normalized: dict) -> None:
