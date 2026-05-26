@@ -44,7 +44,7 @@ def handler(event: dict, context: Any) -> dict:
             ai       = call_llm(row, features)
         except Exception as e:
             print(f"WARN: enrichment failed for {event_id}: {e}")
-            _update_event_ai(event_id=event_id,
+            _update_event_ai(event_id=event_id, tenant_id=tenant_id,
                              narrative=None, anomaly_class=None, anomaly_score=None,
                              next_steps=None, features=features,
                              model_version="unavailable", mitre_technique=None)
@@ -52,6 +52,7 @@ def handler(event: dict, context: Any) -> dict:
 
         _update_event_ai(
             event_id        = event_id,
+            tenant_id       = tenant_id,
             narrative       = ai.get("narrative"),
             anomaly_class   = ai.get("anomaly_class"),
             anomaly_score   = ai.get("anomaly_score"),
@@ -97,7 +98,7 @@ def _load_event_row(event_id: str, tenant_id: str) -> dict | None:
     return out
 
 
-def _update_event_ai(*, event_id: str, narrative: str | None, anomaly_class: str | None,
+def _update_event_ai(*, event_id: str, tenant_id: str, narrative: str | None, anomaly_class: str | None,
                      anomaly_score: int | None, next_steps: list | None,
                      features: dict, model_version: str, mitre_technique: str | None) -> None:
     rds_data.execute_statement(
@@ -112,10 +113,11 @@ def _update_event_ai(*, event_id: str, narrative: str | None, anomaly_class: str
             "  ai_model_version  = :model_version, "
             "  ai_enriched_at    = now(), "
             "  mitre_technique   = :mitre "
-            "WHERE event_id = CAST(:e AS UUID)"
+            "WHERE event_id = CAST(:e AS UUID) AND tenant_id = CAST(:t AS UUID)"
         ),
         parameters=[
             {"name": "e",             "value": {"stringValue": event_id}},
+            {"name": "t",             "value": {"stringValue": tenant_id}},
             {"name": "narrative",     "value": ({"stringValue": narrative}      if narrative      else {"isNull": True})},
             {"name": "anomaly_class", "value": ({"stringValue": anomaly_class}  if anomaly_class  else {"isNull": True})},
             {"name": "anomaly_score", "value": ({"longValue":   anomaly_score} if anomaly_score is not None else {"isNull": True})},

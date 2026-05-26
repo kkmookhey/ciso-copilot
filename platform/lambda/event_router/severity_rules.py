@@ -22,7 +22,13 @@ def _ipranges_include_world(after: dict) -> bool:
 def _has_db_port(after: dict) -> bool:
     DB_PORTS = {1433, 1521, 3306, 5432, 5984, 6379, 9200, 27017}
     for perm in after.get("ipPermissions", []) or []:
-        for p in range(perm.get("fromPort", 0), perm.get("toPort", -1) + 1):
+        fp, tp = perm.get("fromPort", 0), perm.get("toPort", -1)
+        # AWS uses -1/-1 for "all ports" — that covers every DB port too.
+        if fp == -1 and tp == -1:
+            return True
+        if tp < fp:
+            continue
+        for p in range(fp, tp + 1):
             if p in DB_PORTS:
                 return True
     return False

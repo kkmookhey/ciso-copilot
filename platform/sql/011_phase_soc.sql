@@ -1,4 +1,4 @@
--- 005_phase_soc.sql — AI-powered SOC sub-project Slice 1 schema migration
+-- 011_phase_soc.sql — AI-powered SOC sub-project Slice 1 schema migration
 -- Refs: docs/superpowers/specs/2026-05-25-ai-powered-soc-design.md §6
 
 -- AI enrichment fields on events (populated async by soc_enrichment Lambda)

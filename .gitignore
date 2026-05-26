@@ -57,3 +57,6 @@ scratch/
 # Superpowers brainstorm scratch + local test venv
 .superpowers/
 .venv-test/
+
+# Claude Code local state
+.claude/

@@ -4,11 +4,26 @@ import type { EventDetail } from '../../lib/api';
 import { FeedbackButtons } from './FeedbackButtons';
 
 export function DetailPane({ eventId, onClose }: { eventId: string; onClose: () => void }) {
-  const [data, setData] = useState<EventDetail | null>(null);
+  const [data, setData]   = useState<EventDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setData(null);
-    api.getEventDetail(eventId).then(setData);
+    setError(null);
+    api.getEventDetail(eventId)
+      .then(setData)
+      .catch((e: Error) => setError(e.message || "Failed to load event detail"));
   }, [eventId]);
+  if (error) {
+    return (
+      <aside className="w-96 border-l border-stone-200 bg-white p-4">
+        <div className="flex justify-between items-start mb-3">
+          <h3 className="font-medium text-stone-900">Failed to load</h3>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700">✕</button>
+        </div>
+        <div className="text-sm text-red-700">{error}</div>
+      </aside>
+    );
+  }
   if (!data) return <div className="p-6 text-stone-500">Loading…</div>;
   const { event: e, related_findings } = data;
   return (
