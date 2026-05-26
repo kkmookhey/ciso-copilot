@@ -5,6 +5,9 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as sqsEventSource from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
@@ -25,6 +28,9 @@ export class EventsStack extends cdk.Stack {
   public readonly eventBus: events.EventBus;
   public readonly rawEventsBucket: s3.Bucket;
   public readonly routerFn: lambda.Function;
+  public readonly enrichmentQueue: sqs.Queue;
+  public readonly enrichmentDlq:   sqs.Queue;
+  public readonly spendCapTable:   dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: EventsStackProps) {
     super(scope, id, props);
@@ -83,6 +89,37 @@ export class EventsStack extends cdk.Stack {
     }));
 
     // ============================================================
+    // SOC enrichment queue (DLQ + main) — router enqueues, soc_enrichment consumes
+    // ============================================================
+    this.enrichmentDlq = new sqs.Queue(this, 'SocEnrichmentDlq', {
+      queueName:       'soc-enrichment-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+    this.enrichmentQueue = new sqs.Queue(this, 'SocEnrichmentQueue', {
+      queueName:         'soc-enrichment-queue',
+      visibilityTimeout: cdk.Duration.seconds(120),
+      deadLetterQueue:   { queue: this.enrichmentDlq, maxReceiveCount: 3 },
+    });
+
+    // ============================================================
+    // Per-tenant daily LLM spend counter (cents) — also used for push rate-limit (different sort-key prefix)
+    // ============================================================
+    this.spendCapTable = new dynamodb.Table(this, 'SocLlmSpendDaily', {
+      tableName: 'soc_llm_spend_daily',
+      partitionKey: { name: 'tenant_id', type: dynamodb.AttributeType.STRING },
+      sortKey:      { name: 'day',       type: dynamodb.AttributeType.STRING },
+      billingMode:  dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expires_at',
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // Grant router permission to enqueue + read/write spend counters
+    this.enrichmentQueue.grantSendMessages(this.routerFn);
+    this.routerFn.addEnvironment('ENRICHMENT_QUEUE_URL', this.enrichmentQueue.queueUrl);
+    this.routerFn.addEnvironment('SPEND_CAP_TABLE_NAME', this.spendCapTable.tableName);
+    this.spendCapTable.grantReadWriteData(this.routerFn);
+
+    // ============================================================
     // Fan every event from the central bus into the router Lambda
     // ============================================================
     new events.Rule(this, 'FanToRouter', {
@@ -100,5 +137,8 @@ export class EventsStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'EventBusName',         { value: this.eventBus.eventBusName });
     new cdk.CfnOutput(this, 'RawEventsBucketName',  { value: this.rawEventsBucket.bucketName });
     new cdk.CfnOutput(this, 'EventRouterFnName',    { value: this.routerFn.functionName });
+    new cdk.CfnOutput(this, 'EnrichmentQueueUrl',  { value: this.enrichmentQueue.queueUrl });
+    new cdk.CfnOutput(this, 'EnrichmentDlqUrl',    { value: this.enrichmentDlq.queueUrl });
+    new cdk.CfnOutput(this, 'SpendCapTableName',   { value: this.spendCapTable.tableName });
   }
 }
