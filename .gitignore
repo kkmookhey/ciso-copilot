@@ -45,6 +45,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# Local-dev symlinks — vendored into Lambda zip by build.sh, not committed
+platform/lambda/soc_enrichment/spend_cap.py
+
 # Logs / scratch
 *.log
 .cache/

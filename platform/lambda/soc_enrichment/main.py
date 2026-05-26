@@ -24,13 +24,7 @@ rds_data = boto3.client("rds-data")
 
 
 from features import compute_features  # noqa: F401  (re-exported for tests to monkeypatch via main.compute_features)
-
-
-# Stub — replaced in Task 10 (call_llm).
-def call_llm(row: dict, features: dict) -> dict:
-    return {"narrative": None, "anomaly_class": None, "anomaly_score": None,
-            "next_steps": None, "mitre_technique": None,
-            "model_version": "stub"}
+from llm import call_llm  # noqa: F401
 
 
 def handler(event: dict, context: Any) -> dict:
