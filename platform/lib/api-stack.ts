@@ -492,12 +492,15 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(connectionsListFn), authedOpts,
     );
 
-    // GET /events  +  GET /events/{event_id}
-    const eventsRes = api.root.addResource('events');
+    // GET /events  +  GET /events/{event_id}  +  POST /events/{event_id}/feedback
+    const eventsRes    = api.root.addResource('events');
+    const eventIdResource = eventsRes.addResource('{event_id}');
     eventsRes.addMethod('GET', new apigw.LambdaIntegration(eventsListFn), authedOpts);
-    eventsRes.addResource('{event_id}').addMethod(
-      'GET', new apigw.LambdaIntegration(eventsListFn), authedOpts,
-    );
+    eventIdResource.addMethod('GET', new apigw.LambdaIntegration(eventsListFn), authedOpts);
+    const feedbackResource = eventIdResource.addResource('feedback');
+    feedbackResource.addMethod('POST',
+      new apigw.LambdaIntegration(eventsListFn),
+      { authorizer: cognitoAuth, authorizationType: apigw.AuthorizationType.COGNITO });
 
     api.root.addResource('compliance').addResource('summary').addMethod(
       'GET', new apigw.LambdaIntegration(complianceSummaryFn), authedOpts,

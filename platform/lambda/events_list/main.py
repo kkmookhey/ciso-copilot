@@ -198,8 +198,43 @@ def _detail_handler(event: dict, context) -> dict:
     return _resp(200, {"event": evt, "related_findings": related})
 
 
+def _resolve_user_id(event: dict) -> str | None:
+    claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims", {})
+    return claims.get("custom:user_id") or claims.get("sub")
+
+
 def _feedback_handler(event: dict, context) -> dict:
-    return _resp(501, {"error": "not_implemented"})
+    if event.get("httpMethod") != "POST":
+        return _resp(405, {"error": "method_not_allowed"})
+    tenant_id = _resolve_tenant_id(event)
+    user_id   = _resolve_user_id(event)
+    if not tenant_id or not user_id:
+        return _resp(401, {"error": "no_tenant_or_user"})
+
+    event_id = (event.get("pathParameters") or {}).get("event_id")
+    body     = json.loads(event.get("body") or "{}")
+    sentiment = body.get("sentiment")
+    reason    = body.get("reason")
+
+    if sentiment not in ("up", "down"):
+        return _resp(400, {"error": "invalid_sentiment"})
+
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=(
+            "INSERT INTO feedback (feedback_id, tenant_id, user_id, target_kind, target_id, sentiment, reason) "
+            "VALUES (gen_random_uuid(), CAST(:t AS UUID), CAST(:u AS UUID), 'event', "
+            "        CAST(:id AS UUID), :s, :r)"
+        ),
+        parameters=[
+            {"name": "t",  "value": {"stringValue": tenant_id}},
+            {"name": "u",  "value": {"stringValue": user_id}},
+            {"name": "id", "value": {"stringValue": event_id}},
+            {"name": "s",  "value": {"stringValue": sentiment}},
+            {"name": "r",  "value": ({"stringValue": reason} if reason else {"isNull": True})},
+        ],
+    )
+    return _resp(200, {"ok": True})
 
 
 def _str_or_none(cell: dict) -> str | None:
