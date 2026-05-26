@@ -4,38 +4,195 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-25 (Compliance Mapping Engine v2 fully shipped
-> across 4 slices — PRs #17–#20; plus tasks #53 + #54 follow-up PR #21:
-> canonical `NIST.AI.600-1:2.N` IDs replace Shasta `GAI-N` shorthand,
-> MITRE ATLAS control_descriptions now carry canonical v4 technique
-> names, §2.1 CBRN + §2.10 Intellectual Property entries added.
-> Earlier 2026-05-24: AI Visibility v2 S2.1 Entra licensing banner
-> verified; restored the AiSummary Lambda + `/ai/summary` route after
-> a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
+> Last updated: 2026-05-25 (SOC Slice 1 shipped + demo-gate verified
+> end-to-end via PR #24 → squash-merged as `3ce55b8`. CME-v2 fully
+> shipped earlier the same day across 4 slices PRs #17–#20 + #21
+> follow-up. Earlier 2026-05-24: AI Visibility v2 S2.1 Entra licensing
+> banner verified; restored the AiSummary Lambda + `/ai/summary` route
+> after a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
 > gotcha block below.)
 
-## 🚀 SOC Slice 1 — shipped (2026-05-25)
+## 🚀 SOC Slice 1 — shipped & demo-gate verified (2026-05-25, PR #24)
 
-AI-powered SOC sub-project Slice 1 live end-to-end. AWS Config drift
-flows: customer EventBridge rule → central bus → event_router (with new
-source_event_id dedupe + Config severity rule table + push +
-SQS enqueue) → soc-enrichment-queue → soc_enrichment Lambda
-(features + LiteLLM `claude-sonnet-4-6` + UPDATE) → /soc web page +
-APNs push.
+AI-powered SOC sub-project Slice 1 live end-to-end and **verified** with
+a real `AuthorizeSecurityGroupIngress` on the test AWS account. ~25s
+from API call → enriched event in `/soc` with AI-written narrative,
+anomaly classification (suspicious, score 88 on RDP-open-to-world),
+3 suggested next-step CLI commands, and feedback buttons.
 
-**What's live:**
-- New `/soc` page (web) — timeline + filter chips + detail pane + feedback
-- New `soc_enrichment` Lambda with LiteLLM abstraction (env-driven model)
+**Pipeline:** customer EventBridge rule → central bus
+`ciso-copilot-events` → `event_router` (source_event_id dedupe + Config
+severity rule table over before/after state + push rule with per-tenant
+rate limit + SQS enqueue) → `soc-enrichment-queue` → `soc_enrichment`
+Lambda (statistical features + LiteLLM → claude-sonnet-4-6 + UPDATE
+events row) → `/soc` web page + APNs push.
+
+**What's live and verified:**
+- `/soc` web page — timeline + filter chips (severity/source) + detail
+  pane (AI narrative + anomaly score + 3 next-step CLI commands +
+  features disclosure + related findings + 👍/👎 feedback)
+- `soc_enrichment` Lambda with LiteLLM abstraction
+  (`SOC_ENRICHMENT_LLM_MODEL` env, defaults `claude-sonnet-4-6`,
+  swappable to any LiteLLM-supported provider)
 - Per-tenant daily LLM spend cap ($10 default) in DynamoDB
-- Per-tenant push rate limit (10/hr default, criticals bypass)
-- Schema migration 011 — AI fields + source_event_id + indices + drift target_resource_arn
-- AWS Config essentials recording profile (~$30-80/mo customer cost vs $200+ for all-resources)
-- APNs sandbox SNS Platform Application provisioned with the .p8 at repo root
+  `soc_llm_spend_daily`
+- Per-tenant push rate limit (10/hr default; criticals bypass)
+- Schema migrations 011 (AI fields + source_event_id partial unique
+  index + mitre_technique + nullable incident_id + drift target_arn)
+  + 012 (users.device_token)
+- AWS Config essentials recording profile (~$30-80/mo customer cost
+  vs $200+ for all-resources)
+- APNs sandbox SNS Platform Application provisioned with the .p8 at
+  repo root
 
-**Next slice:** 1c — pluggable threat-intel substrate (free feeds: abuse.ch, CISA KEV, Tor list, GreyNoise Community). Then Slice 2 — identity drift (AWS IAM via CloudTrail + Entra audit).
+**Lessons paid in debugging during the gate** (now baked into
+CLAUDE.md as project conventions):
+1. **Cognito subject extraction:** always use `identities[0].userId`
+   first, fall back to `claims.sub`. For federated logins the Cognito
+   pool's `sub` is NOT the upstream IdP sub — JOINing
+   `users.sso_subject = sub` silently 401s every federated user.
+   Mirror `voice_session._subject_from_claims`.
+2. **EventBridge rules for "AWS API Call via CloudTrail" events: never
+   filter on `source`.** Real management API events arrive with
+   `source: aws.<service>` (aws.ec2, aws.iam, …), never aws.cloudtrail.
+   The original `aws-onboard.yaml` had `source: [aws.cloudtrail, …]`
+   which silently dropped every customer's management event.
+3. **CloudTrail wraps lists as `{"items": [...]}`** while Config gives
+   raw lists. Predicates over after_state must unwrap (helper
+   `_unwrap_items` in `severity_rules.py`).
+4. **LiteLLM's Anthropic provider rejects `response_format` param.**
+   Set `litellm.drop_params = True` at module load; rely on the SYSTEM
+   prompt to enforce JSON.
+5. **Claude wraps JSON in markdown fences** when not given a strict
+   response format. Defensive parser strips ` ```json ` ... ` ``` `
+   before `json.loads`.
+6. **Postgres `ON CONFLICT` against a partial unique index** must
+   include the WHERE clause matching the index predicate; without it
+   you get `42P10 no matching constraint`.
+7. **CDK hotswap "no changes detected" lies** when only the Lambda
+   code inside the asset folder changed; use `--force` to re-bundle.
+
+**Deferred follow-ups (logged, not blockers):**
+- **iOS device registration end-to-end** (~half day) — closes the
+  "iPhone vibrates in 60s" demo line. Needs (a) iOS app calls
+  `registerForRemoteNotifications()` + handles
+  `didRegisterForRemote...` callback, (b) new `POST /me/device-token`
+  endpoint, (c) iOS POSTs the token after capture. Until this ships,
+  push code in event_router gracefully no-ops on null
+  `users.device_token`.
+- LLM spend cap is read-then-add (race window bounded ~5-10× per-call
+  cost near cap)
+- CDK doesn't auto-bundle `soc_enrichment` zip — manual `./build.sh`
+  required before each deploy
+- APNs Platform Application ARN hardcoded as literal in
+  `events-stack.ts` (should move to env / SSM Parameter)
+- `spend_cap.py` symlinked between event_router and soc_enrichment for
+  tests; vendored at build time (lift to `platform/lambda/_shared/`)
 
 **Spec:** `docs/superpowers/specs/2026-05-25-ai-powered-soc-design.md`
 **Plan:** `docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1.md`
+**PR:** [#24](https://github.com/kkmookhey/ciso-copilot/pull/24) merged as `3ce55b8`
+**Gate:** documented in `TEST_PLAN.md` → "SOC Slice 1 — AWS Config drift end-to-end"
+
+---
+
+## ▶ NEXT: SOC sub-project roadmap
+
+Per design spec §3, four remaining slices in priority order. Pick based
+on session bandwidth + product wedge wanted.
+
+### Slice 1c — Threat-intel substrate (~2 weeks) — RECOMMENDED NEXT
+
+**Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 1c
+row), §4 addendum (TI integration), §6 (`threat_indicators` table
+schema), §10 (no customer-side cost; our-side ~$5-10/mo).
+
+**What it builds:**
+- New global `threat_indicators` table (tenant-independent — IOCs are
+  public knowledge)
+- `ti_feed_base.py` abstract adapter class
+- Four cron-driven feed adapters: `ti_feed_abusech` (ThreatFox /
+  URLhaus / Feodo / MalwareBazaar, hourly), `ti_feed_kev` (CISA KEV,
+  daily), `ti_feed_tor` (Tor exit node list, hourly),
+  `ti_feed_greynoise_community` (on-demand, rate-limited via DynamoDB
+  counter)
+- `soc_enrichment` Lambda extension: extract IPs/domains/hashes from
+  drift events → lookup in `threat_indicators` → add `ti_matches` to
+  features fed to Claude → surface as labeled badges in `/soc` detail
+  pane
+
+**Product wedge:** AI narrative gets real teeth — "Source IP is Tor
+exit + abuse.ch botnet C2 (confidence 85)" instead of just "rare action
+for this actor". Sharpest single product step.
+
+**Why next:** Highest value-per-day-of-work in the slice plan; all
+infra already in place from Slice 1 (just add a new table + adapters +
+enrichment hook). Sets up a defensible biz case for GreyNoise
+Enterprise paid tier later if telemetry justifies.
+
+**Brainstorm needed:** Minimal — spec §6 already pins the table shape
+and adapter contract. Could jump straight to `writing-plans` next
+session.
+
+### Slice 2 — Identity drift (~3 weeks)
+
+**Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 2
+row), §10.2 (Entra), §5 components table (Entra audit poller row).
+
+**What it builds:**
+- Add AWS IAM CloudTrail events to severity rule table
+  (already half-there — `event_router` pattern includes them, just
+  needs identity-specific severity rules)
+- New `soc_entra_poller` Lambda — 5-min cron polling Microsoft Graph
+  `auditLogs/directoryAudits` + `auditLogs/signIns` filtered for risk
+  events
+- Extend severity rule table with identity-drift actions (role
+  assignment, OAuth consent grant, conditional access changes, MFA
+  enforcement changes)
+- `/soc` filter chip gains "Identity" source filter
+
+**Product wedge:** "New admin role assigned at 3am" demo moment.
+Identity drift is arguably the highest-leverage CISO signal — covers
+both cloud IAM and Entra.
+
+**Why second (not first):** Slice 1c is faster and sharpens the
+existing narrative; Slice 2 adds a whole new substrate. Doing 1c first
+means Slice 2's identity events also get TI enrichment from day one.
+
+**Brainstorm needed:** Some — Entra polling vs webhook subscriptions
+(spec recommends polling for v1, webhooks later as Slice 2.5);
+severity rule expansion for identity actions.
+
+### Slice 3 — Anomaly baseline activation (~2 weeks)
+
+**Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 3
+row), §5.1 (baseline computation).
+
+**What it builds:** Activates the statistical features that today fire
+on a 30d rolling window from `events`. After ~7d of per-tenant
+observation, AI prompt gets richer baseline summaries (per-actor
+typical hours, typical resources touched, typical action set). "First
+time anyone has touched IAM at 3am" callout becomes possible.
+
+**Why third:** Needs Slice 1c + Slice 2 worth of event volume in
+`events` table to actually have a baseline. Building it before then
+gives an empty prompt.
+
+### Slice 4 — Azure (no Sentinel) + GCP (~4 weeks parallel)
+
+**Spec section:** `2026-05-25-ai-powered-soc-design.md` §10.3, §10.4.
+**NEVER Sentinel** (see `feedback_no_azure_sentinel.md` memory).
+
+**What it builds:** Azure path (Activity Log → Diagnostic Settings →
+Event Hub → Lambda consumer + Azure Policy + Resource Graph change
+feed + Defender-if-on). GCP path (Cloud Asset Inventory feed → Pub/Sub
++ Cloud Audit Logs → log sink → Pub/Sub + SCC findings-if-on).
+
+**Why last:** Requires Azure + GCP scanner uplift to be solid first
+(per `project_aws_scanner_uplift.md` memory — Azure uplift was next
+after AWS uplift wrapped). Highest engineering surface, parallel work.
+
+---
 
 ## 🚀 Compliance Mapping Engine v2 — shipped end-to-end (2026-05-25)
 
