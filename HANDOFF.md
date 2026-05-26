@@ -4,13 +4,118 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-25 (SOC Slice 1 shipped + demo-gate verified
-> end-to-end via PR #24 → squash-merged as `3ce55b8`. CME-v2 fully
-> shipped earlier the same day across 4 slices PRs #17–#20 + #21
-> follow-up. Earlier 2026-05-24: AI Visibility v2 S2.1 Entra licensing
-> banner verified; restored the AiSummary Lambda + `/ai/summary` route
-> after a stale-tree CDK deploy on 2026-05-23 silently wiped them. See
-> gotcha block below.)
+> Last updated: 2026-05-26 (SOC Slice 1c shipped on
+> `feat/ai-powered-soc-slice-1c` — threat-intel substrate live in
+> Aurora with 5,726 IOCs across abuse.ch Feodo + ThreatFox + CISA KEV +
+> Tor; soc_enrichment rebuilt with vendored `_shared/` + GreyNoise
+> on-demand fallback wired but disabled pending key. Manual gate
+> KK-pending. Earlier 2026-05-25: SOC Slice 1 shipped + demo-gate
+> verified via PR #24 → squash-merged as `3ce55b8`; CME-v2 shipped
+> the same day across PRs #17–#20 + #21.)
+
+## 🚀 SOC Slice 1c — shipped, deploy verified, manual gate KK-pending (2026-05-26)
+
+AI-powered SOC sub-project Slice 1c — threat-intel substrate — is built
+end-to-end and deployed to `CisoCopilotEvents` on `feat/ai-powered-soc-slice-1c`.
+Every drift event surfaced in `/soc` now does an IP/domain/sha256 lookup
+against a global `threat_indicators` table populated by three cron-driven
+feed Lambdas, with an on-demand GreyNoise Community fallback (disabled
+until a key lands in `ciso-copilot/greynoise-api-key`). Matches feed back
+into the Claude prompt and surface as labeled badges in `/soc` DetailPane.
+
+**What's live and deployed:**
+- `threat_indicators` global table + `events.source_ip` column (migration
+  `013_phase_soc_ti.sql`, idempotent re-runnable)
+- Three cron Lambdas: `TiFeedAbusechFn` (hourly Feodo + ThreatFox),
+  `TiFeedKevFn` (daily CISA KEV), `TiFeedTorFn` (hourly Tor exits) — all
+  use stdlib `urllib.request` (no third-party deps, tiny zips)
+- New `platform/lambda/_shared/` directory with `ti_lookup`, `ioc_extract`,
+  `greynoise` modules, vendored via `cp` into each consumer's
+  `build.sh` — promotes the Slice 1 deferred follow-up
+- `event_router` captures CloudTrail `sourceIPAddress` into the new
+  `events.source_ip` column
+- `soc_enrichment.features` extended with `_ti_matches(row)` — DB
+  lookup + GreyNoise fallback for unmatched IPs (cap 5/event)
+- LLM SYSTEM prompt updated to use `features.ti_matches` and name
+  matched sources/tags in the narrative
+- `/soc` DetailPane renders "Threat intel" badges from
+  `ai_features.ti_matches` (zero API contract change — `ai_features`
+  was already `Record<string, unknown>`)
+- Per-tenant GreyNoise rate limit (30/day) wired via the existing
+  `soc_llm_spend_daily` DynamoDB table under sort-key prefix
+  `greynoise_count:`
+
+**Aurora state after seed (2026-05-26):**
+```
+abusech_feodo     | 5
+abusech_threatfox | 2842
+kev               | 1602
+tor               | 1277
+                  ----
+total             | 5726
+```
+
+ThreatFox dedup at PK level: Lambda returned 3,235 rows but ON CONFLICT
+collapsed to 2,842 unique `(value, kind, source)` tuples — the source
+serves multiple rows per IOC with different `threat_type`/`malware`
+combinations; we keep the latest.
+
+**Lessons paid in execution (now baked into code/comments):**
+1. **Python 3.14 reclassified RFC 5737 doc ranges** (192.0.2.0/24,
+   198.51.100.0/24, 203.0.113.0/24) as `is_private=True`. The plan's
+   original `ipaddress.IPv4Address(value).is_global` filter would have
+   stripped `203.0.113.5` from a positive test. Fixed with an explicit
+   `_SKIP_NETS` CIDR list covering RFC1918 + loopback + 0.0.0.0/8 +
+   link-local + multicast + reserved + broadcast. **Also added CGNAT
+   100.64.0.0/10** per code-quality review (RFC 6598).
+2. **CDK hotswap re-bundling:** when `build.sh` changes the contents
+   of the asset folder but the path is the same, `npx cdk deploy
+   --hotswap` may skip re-uploading the zip. Use `--hotswap --force`
+   (HANDOFF lesson #7 from Slice 1 still holds, now with a Slice 1c
+   data point).
+3. **ThreatFox `ioc_type=ip:port`:** values arrive as `10.0.0.1:443`;
+   strip the port before storing as `kind='ip'`. Easy to miss.
+4. **Web `getByText` vs `getAllByText`:** the same TI source/tag
+   strings appear in BOTH the new "Threat intel" badge block AND the
+   existing "Why this fired (features)" JSON dump. `getByText` throws
+   on multiple matches — use `getAllByText(...).length >= 1` for those
+   duplicated strings; reserve `getByText` for unique-only strings
+   like the section header.
+5. **`_shared/` promoted to a real directory.** The Slice 1 deferred
+   follow-up "lift to `platform/lambda/_shared/`" is done. Each
+   consuming Lambda's `build.sh` now does
+   `cp ../_shared/*.py build/`. Lift to a Lambda Layer remains
+   deferred (separate version-management surface).
+6. **AbuseCH ThreatFox dedup at PK level.** `(value, kind, source)`
+   composite PK with `ON CONFLICT … DO UPDATE` means repeat sightings
+   are non-destructive: `last_seen` refreshes, `confidence` upgrades
+   via COALESCE, `first_seen` preserved.
+
+**Deferred follow-ups (logged, not blockers):**
+- **Manual gate (KK-pending):** Run the Slice 1c gate in
+  `TEST_PLAN.md` from a Tor exit IP. ~30 min including IP-egress setup.
+- **GreyNoise key:** Wire a real key into
+  `ciso-copilot/greynoise-api-key` Secrets Manager once an account is
+  provisioned. Until then `_greynoise_api_key()` returns None and the
+  on-demand path silently disables — DB-side feeds (Feodo / ThreatFox
+  / KEV / Tor) cover the demo wedge.
+- **URLhaus + MalwareBazaar abuse.ch sub-feeds** — not yet ingested.
+  Same pattern as ThreatFox; would extend `parse_threatfox`-style
+  functions in the existing `ti_feed_abusech` Lambda.
+- **`_shared/` → Lambda Layer.** `cp` vendoring works; lifting to a
+  Layer would deduplicate ~10 KB across four Lambdas but adds a
+  separate version-management surface.
+- **`/soc` filter chip "TI hits only"** — defer to first usage signal.
+- **TI on Slice 2 (identity drift) events** — falls out for free
+  thanks to the kind-agnostic `ioc_extract`; Slice 2 events flow
+  through the same `_ti_matches` step automatically.
+
+**Spec:** `docs/superpowers/specs/2026-05-25-ai-powered-soc-design.md` §6 + §4 TI addendum
+**Plan:** `docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md`
+**Branch:** `feat/ai-powered-soc-slice-1c` (12 commits + plan + docs + this HANDOFF block)
+**Gate:** `TEST_PLAN.md` → "SOC Slice 1c — TI match end-to-end"
+
+---
 
 ## 🚀 SOC Slice 1 — shipped & demo-gate verified (2026-05-25, PR #24)
 
