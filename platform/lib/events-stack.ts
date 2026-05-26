@@ -88,6 +88,17 @@ export class EventsStack extends cdk.Stack {
       resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/*`],
     }));
 
+    this.routerFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['sns:CreatePlatformEndpoint', 'sns:Publish'],
+      resources: ['*'],
+    }));
+
+    // APNs Platform Application ARN — provisioned once via CLI (requires .p8 contents that
+    // cannot safely live in CDK source). The ARN is stable; it's safe to inline here as a
+    // non-secret identifier.
+    const APNS_PLATFORM_APP_ARN = 'arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox';
+    this.routerFn.addEnvironment('APNS_PLATFORM_APPLICATION_ARN', APNS_PLATFORM_APP_ARN);
+
     // ============================================================
     // SOC enrichment queue (DLQ + main) — router enqueues, soc_enrichment consumes
     // ============================================================

@@ -21,11 +21,14 @@ from typing import Any
 
 import boto3
 from severity_rules import drift_severity
+import push
+import spend_cap
 
 DB_CLUSTER_ARN    = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN     = os.environ["DB_SECRET_ARN"]
 DB_NAME           = os.environ["DB_NAME"]
 RAW_EVENTS_BUCKET = os.environ["RAW_EVENTS_BUCKET"]
+APNS_PLATFORM_APP_ARN = os.environ.get("APNS_PLATFORM_APPLICATION_ARN", "")
 
 rds_data = boto3.client("rds-data")
 s3       = boto3.client("s3")
@@ -91,8 +94,29 @@ def handler(event: dict, context) -> dict:
                      (event.get("detail", {}).get("configurationItem") or {}).get("resourceType", "drift")
             _insert_drift(event_id, action, before_state, after_state, normalized.get("resource_arn"))
 
-        # 5. Push-rules evaluation — implemented in the follow-up
-        # if _should_push(source, severity, event): _send_push(...)
+        # 5. Push-rule evaluation
+        try:
+            current = spend_cap.push_count_current(conn["tenant_id"])
+            if push.should_push(severity, current) and APNS_PLATFORM_APP_ARN:
+                tokens = _device_tokens_for_tenant(conn["tenant_id"])
+                if tokens:
+                    body = push.format_push_body(
+                        kind=kind, severity=severity,
+                        title=normalized.get("title", ""),
+                        resource_arn=normalized.get("resource_arn"),
+                        actor=normalized.get("actor"),
+                    )
+                    push.send_push(device_tokens=tokens,
+                                   platform_app_arn=APNS_PLATFORM_APP_ARN,
+                                   body=body)
+                    spend_cap.push_count_increment(conn["tenant_id"])
+                    rds_data.execute_statement(
+                        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+                        sql="UPDATE events SET push_sent = true WHERE event_id = CAST(:e AS UUID)",
+                        parameters=[{"name": "e", "value": {"stringValue": event_id}}],
+                    )
+        except Exception as e:
+            print(f"WARN: push failed (non-fatal): {e}")
 
         return {"ok": True, "event_id": event_id, "tenant_id": conn["tenant_id"]}
 
@@ -124,6 +148,17 @@ def _find_connection_by_account(account_id: str) -> dict[str, Any] | None:
         return None
     r = rows[0]
     return {"conn_id": r[0].get("stringValue"), "tenant_id": r[1].get("stringValue")}
+
+
+def _device_tokens_for_tenant(tenant_id: str) -> list[str]:
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql="SELECT device_token FROM users WHERE tenant_id = CAST(:t AS UUID) AND device_token IS NOT NULL",
+        parameters=[{"name": "t", "value": {"stringValue": tenant_id}}],
+    )
+    return [r[0].get("stringValue", "") for r in rs.get("records", []) if r[0].get("stringValue")]
 
 
 # ============================================================================
