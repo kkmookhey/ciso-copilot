@@ -1,18 +1,81 @@
-# CISO Copilot v2 — Handoff & State
+# Shasta by Transilience — Handoff & State
 
-> Source of truth for the *current* state of the v2 build. Reload this at the
-> top of every session. The PRD is `CISOBrief-v2.md`; this document records
-> what's actually built, what was broken and fixed, and what still hurts.
+> Source of truth for the *current* state of the build. Reload this at the
+> top of every session. The PRD is `CISOBrief-v2.md`; this document
+> records what's actually built, what was broken and fixed, and what
+> still hurts. Product docs sit at the repo root: README → ARCHITECTURE
+> → ROADMAP.
 >
-> Last updated: 2026-05-26 (SOC Slice 1c shipped + manual gate verified
-> end-to-end on `feat/ai-powered-soc-slice-1c` — Tor-routed
-> `AuthorizeSecurityGroupIngress` produced an event whose AI narrative
-> explicitly named "Tor exit node (source: tor, tag: tor_exit)" with
-> anomaly score 82; negative case from a non-listed IP scored 72 with
-> "No TI hits" in the narrative. PR #25 awaiting merge. Earlier
-> 2026-05-25: SOC Slice 1 shipped + demo-gate verified via PR #24 →
-> squash-merged as `3ce55b8`; CME-v2 shipped the same day across PRs
-> #17–#20 + #21.)
+> Last updated: 2026-05-26 (docs trio + branding pass shipped + MIT
+> license switch — see "Phase 1 team-ready" block immediately below.
+> Earlier same day: SOC Slice 1c shipped + manual gate verified
+> end-to-end on `feat/ai-powered-soc-slice-1c`. The 2026-05-25 batch
+> shipped SOC Slice 1, CME-v2 across PRs #17–#21.)
+
+## 🚀 Phase 1 team-ready — shipped (2026-05-26)
+
+Branding + product docs + MIT license all shipped end-to-end in one
+session. The repo is now invitation-ready for the Transilience team.
+
+**What's live and deployed to `shasta.transilience.cloud`:**
+- Brand pass — every web surface now reads "Shasta by Transilience"
+  (no mobius mark — text-only lockup); sign-in / callback / pending
+  routes use a `<HeroLockup>` with persimmon-underlined chapter
+  headings ("Sign in.", "Pending review."); the `ModuleRail` sidebar
+  has the brand block at the top
+- Browser title flipped from "web" to "Shasta by Transilience"
+- Quiet Paper palette retained; no Tailwind token changes; no SVG
+  asset work shipped (mid-flight pivot from a hand-rolled mobius —
+  see memory `feedback_branding_typography_over_marks`)
+
+**Product docs (repo-root, committed in `a575805`):**
+- `README.md` — lead magnet: "Full Stack Security OS" thesis,
+  four-quadrant capability map, four surfaces, shipped-modules
+  timeline (13 rows back to 2026-05-16), light "how this was built"
+  section, honest run-locally pointer
+- `ARCHITECTURE.md` — system diagram + unified findings model + CME-v2
+  pipeline + SOC pipeline + identity-auth gotchas + 15 ADRs +
+  operational concerns
+- `ROADMAP.md` — Phase 1–4 plan (team-ready → commerce-ready → SOC
+  depth + cross-cloud parity → GA-ready), M1–M7 heavy lifts with
+  phase-based sequencing, future arenas (DSPM / CTEM / MDR / privacy
+  / safety), and the anti-roadmap
+
+**License + AI memory:**
+- `LICENSE` flipped from proprietary to MIT (`Copyright (c) 2026
+  Transilience.ai`). Repo stays private until secrets audit (Phase 2);
+  MIT terms apply from day one for anyone running their own copy.
+- `CLAUDE.md` — project name flipped to "Shasta by Transilience";
+  session-start reading list now 6 docs (HANDOFF → README →
+  ARCHITECTURE → ROADMAP → CISOBrief-v2 → CISOBrief). Read in that
+  order at the top of every session.
+
+**Commits:**
+- `a575805` docs(shasta): product docs trio + MIT license + CLAUDE.md
+  session-start refs (7 files, +1796 / -38)
+- `d25df9d` feat(branding): apply "Shasta by Transilience" lockup
+  across web (7 files, +318 / -36)
+
+Both pushed to `origin/main`.
+
+**Specs written this session** (under `docs/superpowers/specs/`):
+- `2026-05-26-shasta-docs-trio-design.md` — the brainstorm that locked
+  the README + ARCHITECTURE + ROADMAP structure
+- `2026-05-26-shasta-branding-design.md` — the branding brainstorm
+  (updated post-pivot to reflect text-only lockup as shipped)
+
+**Deferred from this session:**
+- Screenshots of the branded UI in the README (was a Phase 1 task;
+  punted until KK takes them after team play-through)
+- iOS branding (app icon + splash + nav) — its own sprint, post-team
+  feedback
+- Team email + GitHub `About` update — KK to execute manually with
+  drafts handed off in-session
+
+**▶ NEXT** — Phase 2 (commerce-ready): capability gating, the billing
+module sub-phases (usage tracking → customer dashboard → caps →
+Stripe), and then SOC Slice 2 (identity drift) after billing. See
+`ROADMAP.md` for the phase plan.
 
 ## 🚀 SOC Slice 1c — shipped & manual gate verified (2026-05-26, PR #25)
 
