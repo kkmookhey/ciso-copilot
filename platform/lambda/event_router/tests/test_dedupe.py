@@ -42,6 +42,7 @@ def test_insert_event_emits_on_conflict_do_nothing(monkeypatch):
         raw_s3_key="raw/2026/05/25/t1/aws.cloudtrail/e1.json",
         normalized={"x": 1}, fired_at="2026-05-25T18:42:10Z",
         source_event_id="ct-eventid-7f3a9c",
+        source_ip=None,
     )
 
     assert "ON CONFLICT" in captured["sql"]
