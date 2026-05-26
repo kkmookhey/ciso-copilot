@@ -199,14 +199,26 @@ def _detail_handler(event: dict, context) -> dict:
 
 
 def _resolve_user_id(event: dict) -> str | None:
-    """Resolve users.user_id (the FK target) from the Cognito sub claim.
+    """Resolve users.user_id (the FK target) from Cognito claims.
 
-    Per project convention (see voice_session._resolve_user_context):
-    there is NO custom:user_id claim. The Cognito 'sub' is users.sso_subject;
-    we JOIN to get the actual users.user_id UUID.
+    For federated logins (Microsoft/Google), Cognito's 'sub' is the
+    Cognito-user-pool sub, NOT the upstream IdP sub. users.sso_subject
+    stores the upstream IdP sub (from identities[0].userId). Falls back
+    to 'sub' for non-federated paths. Mirrors voice_session.
     """
     claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims", {})
-    sso_subject = claims.get("sub")
+    raw = claims.get("identities")
+    sso_subject = None
+    if raw:
+        try:
+            ids = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(ids, dict):
+                ids = [ids]
+            if ids:
+                sso_subject = ids[0].get("userId")
+        except (TypeError, ValueError):
+            pass
+    sso_subject = sso_subject or claims.get("sub")
     if not sso_subject:
         return None
     rs = rds_data.execute_statement(
@@ -224,6 +236,8 @@ def _feedback_handler(event: dict, context) -> dict:
     tenant_id = _resolve_tenant_id(event)
     user_id   = _resolve_user_id(event)
     if not tenant_id or not user_id:
+        print(f"feedback 401: tenant_id={'present' if tenant_id else 'MISSING'}, "
+              f"user_id={'present' if user_id else 'MISSING'}")
         return _resp(401, {"error": "no_tenant_or_user"})
 
     event_id = (event.get("pathParameters") or {}).get("event_id")
