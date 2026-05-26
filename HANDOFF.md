@@ -4,16 +4,17 @@
 > top of every session. The PRD is `CISOBrief-v2.md`; this document records
 > what's actually built, what was broken and fixed, and what still hurts.
 >
-> Last updated: 2026-05-26 (SOC Slice 1c shipped on
-> `feat/ai-powered-soc-slice-1c` — threat-intel substrate live in
-> Aurora with 5,726 IOCs across abuse.ch Feodo + ThreatFox + CISA KEV +
-> Tor; soc_enrichment rebuilt with vendored `_shared/` + GreyNoise
-> on-demand fallback wired but disabled pending key. Manual gate
-> KK-pending. Earlier 2026-05-25: SOC Slice 1 shipped + demo-gate
-> verified via PR #24 → squash-merged as `3ce55b8`; CME-v2 shipped
-> the same day across PRs #17–#20 + #21.)
+> Last updated: 2026-05-26 (SOC Slice 1c shipped + manual gate verified
+> end-to-end on `feat/ai-powered-soc-slice-1c` — Tor-routed
+> `AuthorizeSecurityGroupIngress` produced an event whose AI narrative
+> explicitly named "Tor exit node (source: tor, tag: tor_exit)" with
+> anomaly score 82; negative case from a non-listed IP scored 72 with
+> "No TI hits" in the narrative. PR #25 awaiting merge. Earlier
+> 2026-05-25: SOC Slice 1 shipped + demo-gate verified via PR #24 →
+> squash-merged as `3ce55b8`; CME-v2 shipped the same day across PRs
+> #17–#20 + #21.)
 
-## 🚀 SOC Slice 1c — shipped, deploy verified, manual gate KK-pending (2026-05-26)
+## 🚀 SOC Slice 1c — shipped & manual gate verified (2026-05-26, PR #25)
 
 AI-powered SOC sub-project Slice 1c — threat-intel substrate — is built
 end-to-end and deployed to `CisoCopilotEvents` on `feat/ai-powered-soc-slice-1c`.
@@ -113,7 +114,50 @@ combinations; we keep the latest.
 **Spec:** `docs/superpowers/specs/2026-05-25-ai-powered-soc-design.md` §6 + §4 TI addendum
 **Plan:** `docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md`
 **Branch:** `feat/ai-powered-soc-slice-1c` (12 commits + plan + docs + this HANDOFF block)
-**Gate:** `TEST_PLAN.md` → "SOC Slice 1c — TI match end-to-end"
+**PR:** [#25](https://github.com/kkmookhey/ciso-copilot/pull/25) awaiting merge
+**Gate:** `TEST_PLAN.md` → "SOC Slice 1c — TI match end-to-end" — **VERIFIED** (2026-05-26)
+
+### Gate execution notes (the substrate edge cases worth remembering)
+
+1. **`torsocks` is broken on modern macOS.** DYLD injection is blocked
+   by SIP for system binaries (`/usr/bin/curl`), AND silently no-ops
+   on `/opt/homebrew/opt/python@3.14/bin/python3.14` even though
+   that binary isn't SIP-protected — `check.torproject.org/api/ip`
+   returned `{"IsTor":false}` while torsocks ran. Use `proxychains-ng`
+   (`brew install proxychains-ng` → `proxychains4 -q -f <conf>
+   python3 ...`) instead. Reaches `{"IsTor":true}` on the same setup.
+2. **`proxychains-ng` does NOT wrap AWS CLI v2.** `/usr/local/bin/aws`
+   is a Mach-O universal binary with statically-linked Python — DYLD
+   injection is bypassed. The egress IP leaked back to the host's real
+   IP without warning. The fix: monkey-patch `socket` in a tiny Python
+   script (`pip install pysocks` in a venv → `socket.socket =
+   socks.socksocket` BEFORE `import boto3`). boto3 then connects via
+   the SOCKS proxy on every call. Confirmed working with Tor exit
+   `192.42.116.98` showing up as the `sourceIPAddress` in CloudTrail.
+3. **`proxies={'https': 'socks5h://...'}` in `botocore.config.Config`
+   does NOT work.** botocore's proxy handling expects HTTP proxies; it
+   prepends `http://` to the URL, producing
+   `http://socks5h://127.0.0.1:9050` and a `ProxyConnectionError`. The
+   socket monkey-patch is the right interface boundary for
+   SOCKS-via-boto3.
+4. **End-to-end latency in the gate:** 17:22:24 UTC (Tor-routed SG
+   open) → enrichment complete and narrative naming Tor visible in
+   `/soc` by 17:23:00 UTC. ~35s end-to-end, well within the spec's
+   p95 <30s target (event_router fires push within ~10s; enrichment
+   adds ~20-25s for the Anthropic round trip).
+5. **The negative case is also useful telemetry.** Same SG, same actor,
+   same time-of-day — only `source_ip` changes (KK's real IP vs Tor).
+   Anomaly score moves 72 → 82, narrative shifts from "No TI hits" to
+   "matches Tor exit node". Cleanly shows TI is doing real work in the
+   classifier output, not just decorating the UI.
+
+### Deferred UX polish observed during the gate
+
+- **"Threat intel" badge block sits below "Why this fired (features)"
+  in the DetailPane scroll.** The features collapsible takes vertical
+  real estate so the badges aren't visible above the fold. Move the
+  TI block ABOVE the features dump (right under the next-steps list)
+  in a follow-up; pure CSS-order tweak, ~5 min.
 
 ---
 
