@@ -131,6 +131,37 @@ export class EventsStack extends cdk.Stack {
     this.spendCapTable.grantReadWriteData(this.routerFn);
 
     // ============================================================
+    // SOC enrichment Lambda — consumes the queue
+    // ============================================================
+    const enrichmentFn = new lambda.Function(this, 'SocEnrichmentFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'soc_enrichment', 'dist', 'soc_enrichment.zip')),
+      timeout:    cdk.Duration.seconds(90),
+      memorySize: 1024,
+      environment: {
+        DB_CLUSTER_ARN:            props.dbCluster.clusterArn,
+        DB_SECRET_ARN:             props.dbCluster.secret!.secretArn,
+        DB_NAME:                   'ciso_copilot',
+        SPEND_CAP_TABLE_NAME:      this.spendCapTable.tableName,
+        SOC_ENRICHMENT_LLM_MODEL:  'claude-sonnet-4-6',
+        ANTHROPIC_API_KEY_SECRET_NAME: 'ciso-copilot/anthropic-api-key',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(enrichmentFn);
+    this.spendCapTable.grantReadWriteData(enrichmentFn);
+    enrichmentFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/anthropic-api-key*`],
+    }));
+    enrichmentFn.addEventSource(new sqsEventSource.SqsEventSource(this.enrichmentQueue, {
+      batchSize: 5,
+      maxBatchingWindow: cdk.Duration.seconds(2),
+      reportBatchItemFailures: true,
+    }));
+    new cdk.CfnOutput(this, 'SocEnrichmentFnName', { value: enrichmentFn.functionName });
+
+    // ============================================================
     // Fan every event from the central bus into the router Lambda
     // ============================================================
     new events.Rule(this, 'FanToRouter', {

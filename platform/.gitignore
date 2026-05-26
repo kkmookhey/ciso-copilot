@@ -1,5 +1,6 @@
 node_modules/
 dist/
+build/
 cdk.out/
 *.d.ts
 *.js.map
