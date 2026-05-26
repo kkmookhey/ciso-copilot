@@ -223,3 +223,97 @@ Skip Section 2 unless we register a new tenant on purpose.
 - Push doesn't arrive → check `users.device_token` populated; check `events.push_sent=true` for the row; check CloudWatch logs for SNS publish errors.
 - Duplicate event row → check `source_event_id` is populated; the ON CONFLICT should have deduped.
 - 42P10 SQL error → indicates partial unique index ON CONFLICT WHERE clause missing in router INSERT (was a real bug fixed in commit `aeb28bc`).
+
+---
+
+## SOC Slice 1c — TI match end-to-end (2026-05-26)
+
+Verifies the threat-intel substrate (Slice 1c): `/soc` shows a "Threat
+intel" section in the detail pane when the drift event's `sourceIPAddress`
+or any IP/domain/sha256 in the event payload matches an entry in the
+`threat_indicators` table, and the AI narrative names the source.
+
+### Pre-requisites
+
+- Slice 1 demo gate passes (drift end-to-end working).
+- Migration `013_phase_soc_ti.sql` applied (Task 1 of Slice 1c, commit `7e611af`).
+- All three `ti_feed_*` Lambdas invoked at least once. Verify with:
+  ```bash
+  aws rds-data execute-statement \
+    --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
+    --secret-arn  arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+    --database ciso_copilot \
+    --sql "SELECT source, COUNT(*) FROM threat_indicators GROUP BY source ORDER BY source"
+  ```
+  Expected: four rows — `abusech_feodo`, `abusech_threatfox`, `kev`, `tor` — each with count ≥ 1.
+- `soc_enrichment` Lambda redeployed with `_shared` modules vendored (Task 13 step 6, hotswap deploy of `CisoCopilotEvents`).
+- `events.source_ip` column populated by `event_router` on new CloudTrail events (verify with `SELECT source_ip FROM events WHERE source_ip IS NOT NULL ORDER BY fired_at DESC LIMIT 5`).
+
+### Gate
+
+1. Pick a Tor exit IP from the seeded table:
+   ```bash
+   aws rds-data execute-statement \
+     --resource-arn ... --secret-arn ... --database ciso_copilot \
+     --sql "SELECT indicator_value FROM threat_indicators WHERE source='tor' LIMIT 5"
+   ```
+   Authenticate to the test AWS account via that IP (e.g., spin up an
+   EC2 in a region whose default egress is in the Tor list, OR use a
+   VPN whose egress is a known Tor exit). Verify your egress matches:
+   `curl https://api.ipify.org` should return one of the IPs above.
+
+2. From that source IP, open a security group to the world:
+   ```bash
+   aws ec2 authorize-security-group-ingress \
+     --group-id sg-TESTGROUP \
+     --protocol tcp --port 22 --cidr 0.0.0.0/0
+   ```
+
+3. Within ~25s, refresh https://shasta.transilience.cloud/soc. The event
+   appears at the top of the timeline with severity `high`.
+
+4. Click the event row. The detail pane shows:
+   - AI narrative explicitly naming **Tor** (e.g., "Source IP X.X.X.X is
+     a Tor exit; ingress :22 opened to internet by user/x").
+   - A "Threat intel" section listing one badge per match: the egress
+     IP labeled `tor` with tag `tor_exit`. If the IP also appears in
+     `abusech_feodo` or `abusech_threatfox`, additional badges show.
+   - Anomaly classification likely `suspicious`, score ≥ 70.
+
+5. Verify in Aurora:
+   ```sql
+   SELECT source_ip,
+          ai_features::jsonb -> 'ti_matches'
+   FROM events
+   WHERE event_id = '<event_id>';
+   ```
+   The `ti_matches` array is non-empty and contains a `tor`-sourced
+   entry keyed on the source IP.
+
+### Negative case
+
+Repeat the same SG-open from a non-listed IP (your home ISP, or a
+fresh cloud VM in an account whose egress isn't in the Tor list). The
+event should still fire and enrich, but:
+
+- "Threat intel" section is HIDDEN in the detail pane.
+- `ai_features.ti_matches` is `[]` in Aurora.
+- AI narrative does NOT mention any TI source.
+
+### Failure modes to watch
+
+- "Threat intel" section never appears on a known-Tor IP → check that
+  the source IP is in `threat_indicators` (the table is global, so any
+  tenant sees all IOCs). Then check `soc_enrichment` CloudWatch logs
+  for `_ti_matches` errors or missing vendored modules
+  (`ModuleNotFoundError: ti_lookup`).
+- `events.source_ip` is NULL on CloudTrail events → confirm
+  `event_router` was redeployed with the source_ip patch (Task 8,
+  commit `ee05afe`). Run `aws lambda get-function-configuration
+  --function-name CisoCopilotEvents-EventRouter*` and check the code
+  SHA matches what's currently on `feat/ai-powered-soc-slice-1c`.
+- `ti_matches` populated but UI shows no badges → check the browser
+  console for the JSON shape; the UI narrows
+  `ai_features.ti_matches` and is strict on `Array<{ value, kind,
+  source, confidence, tags }>` shape.
+
