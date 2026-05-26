@@ -133,12 +133,12 @@ Resources:
       EventBusName: default
       State: ENABLED
       EventPattern:
-        source:
-          - aws.guardduty
-          - aws.inspector2
-          - aws.securityhub
-          - aws.config
-          - aws.cloudtrail
+        # NOTE: do NOT filter by `source`. CloudTrail "AWS API Call via
+        # CloudTrail" events arrive with source=aws.<service> (aws.ec2,
+        # aws.iam, aws.s3, etc.) — NOT aws.cloudtrail. Filtering on
+        # `source: [aws.cloudtrail]` silently drops every management
+        # API event. The detail-type + eventName filters below are
+        # narrow enough on their own.
         detail-type:
           - GuardDuty Finding
           - Inspector2 Finding

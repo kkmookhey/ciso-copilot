@@ -10,6 +10,17 @@ def test_sg_open_to_world_is_high():
     ) == "high"
 
 
+def test_sg_open_to_world_cloudtrail_items_shape_is_high():
+    """CloudTrail wraps lists as {'items': [...]}; the predicate must unwrap."""
+    assert severity_rules.drift_severity(
+        action="AuthorizeSecurityGroupIngress",
+        after={"ipPermissions": {"items": [
+            {"fromPort": 22, "toPort": 22,
+             "ipRanges": {"items": [{"cidrIp": "0.0.0.0/0"}]}},
+        ]}},
+    ) == "high"
+
+
 def test_sg_open_db_port_to_world_is_critical():
     assert severity_rules.drift_severity(
         action="AuthorizeSecurityGroupIngress",

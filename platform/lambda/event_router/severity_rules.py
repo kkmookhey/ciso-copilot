@@ -11,9 +11,19 @@ from typing import Callable
 
 # === Predicates over the `after_state` JSON ===
 
+def _unwrap_items(v):
+    """CloudTrail wraps lists as {"items": [...]}. Config gives raw lists.
+    This helper accepts either and always returns a list."""
+    if isinstance(v, dict) and "items" in v:
+        return v.get("items") or []
+    if isinstance(v, list):
+        return v
+    return []
+
+
 def _ipranges_include_world(after: dict) -> bool:
-    for perm in after.get("ipPermissions", []) or []:
-        for r in perm.get("ipRanges", []) or []:
+    for perm in _unwrap_items(after.get("ipPermissions")):
+        for r in _unwrap_items(perm.get("ipRanges")):
             if r.get("cidrIp") in ("0.0.0.0/0", "::/0"):
                 return True
     return False
@@ -21,7 +31,7 @@ def _ipranges_include_world(after: dict) -> bool:
 
 def _has_db_port(after: dict) -> bool:
     DB_PORTS = {1433, 1521, 3306, 5432, 5984, 6379, 9200, 27017}
-    for perm in after.get("ipPermissions", []) or []:
+    for perm in _unwrap_items(after.get("ipPermissions")):
         fp, tp = perm.get("fromPort", 0), perm.get("toPort", -1)
         # AWS uses -1/-1 for "all ports" — that covers every DB port too.
         if fp == -1 and tp == -1:
