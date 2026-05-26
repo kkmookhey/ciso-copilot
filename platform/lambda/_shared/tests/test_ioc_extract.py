@@ -53,3 +53,10 @@ def test_extract_dedupes_across_keys():
 def test_extract_returns_empty_dict_for_dry_row():
     iocs = ioc_extract.extract_iocs({"source_ip": None, "after_state": None, "before_state": None})
     assert iocs == {"ip": [], "domain": [], "sha256": []}
+
+
+def test_extract_filters_cgnat_100_64_range():
+    """100.64.0.0/10 is RFC 6598 CGNAT — reserved, not worth a TI lookup."""
+    row = {"source_ip": "100.64.1.1", "before_state": None, "after_state": None}
+    iocs = ioc_extract.extract_iocs(row)
+    assert "100.64.1.1" not in iocs["ip"]

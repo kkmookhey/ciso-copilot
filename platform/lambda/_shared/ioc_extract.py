@@ -25,6 +25,7 @@ _SHA256_RE = re.compile(r"\b[a-f0-9]{64}\b", re.IGNORECASE)
 # but those can appear legitimately in security group rules and are worth checking.
 _SKIP_NETS = [
     ipaddress.IPv4Network("10.0.0.0/8"),        # RFC1918
+    ipaddress.IPv4Network("100.64.0.0/10"),     # RFC6598 CGNAT
     ipaddress.IPv4Network("172.16.0.0/12"),      # RFC1918
     ipaddress.IPv4Network("192.168.0.0/16"),     # RFC1918
     ipaddress.IPv4Network("127.0.0.0/8"),        # loopback
