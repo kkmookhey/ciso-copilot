@@ -151,13 +151,25 @@ combinations; we keep the latest.
    "matches Tor exit node". Cleanly shows TI is doing real work in the
    classifier output, not just decorating the UI.
 
-### Deferred UX polish observed during the gate
+### Polish landed during the gate
 
-- **"Threat intel" badge block sits below "Why this fired (features)"
-  in the DetailPane scroll.** The features collapsible takes vertical
-  real estate so the badges aren't visible above the fold. Move the
-  TI block ABOVE the features dump (right under the next-steps list)
-  in a follow-up; pure CSS-order tweak, ~5 min.
+- **"Threat intel" badge block moved above the features `<details>`**
+  in `DetailPane.tsx`. Reading order is now narrative → anomaly →
+  next-steps → **TI badges** → features (collapsed by default) →
+  related findings. Badges sit above the fold in the common case.
+
+### Deferred follow-ups
+
+- **GreyNoise Community wiring deferred until 100+ customers.** The
+  on-demand fallback is code-complete and silently disabled (env var
+  `GREYNOISE_API_KEY_SECRET_NAME` points at an absent secret →
+  `_greynoise_api_key()` returns None → enrichment skips the
+  on-demand path). The four cached feeds (Feodo + ThreatFox + KEV +
+  Tor) cover the demo wedge and the realistic-scale wedge for v1
+  pilots. Free tier is 50 req/key/day; with a per-tenant 30/day cap
+  we can serve ~1-2 tenants per key. Worth provisioning a paid plan
+  + the secret once tenant count exceeds ~50 (single Community key
+  becomes the binding constraint).
 
 ---
 
@@ -250,67 +262,57 @@ CLAUDE.md as project conventions):
 Per design spec §3, four remaining slices in priority order. Pick based
 on session bandwidth + product wedge wanted.
 
-### Slice 1c — Threat-intel substrate (~2 weeks) — RECOMMENDED NEXT
+### Slice 1c — Threat-intel substrate (~2 weeks) — SHIPPED 2026-05-26
 
-**Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 1c
-row), §4 addendum (TI integration), §6 (`threat_indicators` table
-schema), §10 (no customer-side cost; our-side ~$5-10/mo).
+See the "🚀 SOC Slice 1c" block at the top of this file. Live in
+Aurora with 5,980 IOCs; manual gate verified end-to-end via a real
+Tor-routed `AuthorizeSecurityGroupIngress` API call; PR #25 merged.
 
-**What it builds:**
-- New global `threat_indicators` table (tenant-independent — IOCs are
-  public knowledge)
-- `ti_feed_base.py` abstract adapter class
-- Four cron-driven feed adapters: `ti_feed_abusech` (ThreatFox /
-  URLhaus / Feodo / MalwareBazaar, hourly), `ti_feed_kev` (CISA KEV,
-  daily), `ti_feed_tor` (Tor exit node list, hourly),
-  `ti_feed_greynoise_community` (on-demand, rate-limited via DynamoDB
-  counter)
-- `soc_enrichment` Lambda extension: extract IPs/domains/hashes from
-  drift events → lookup in `threat_indicators` → add `ti_matches` to
-  features fed to Claude → surface as labeled badges in `/soc` detail
-  pane
-
-**Product wedge:** AI narrative gets real teeth — "Source IP is Tor
-exit + abuse.ch botnet C2 (confidence 85)" instead of just "rare action
-for this actor". Sharpest single product step.
-
-**Why next:** Highest value-per-day-of-work in the slice plan; all
-infra already in place from Slice 1 (just add a new table + adapters +
-enrichment hook). Sets up a defensible biz case for GreyNoise
-Enterprise paid tier later if telemetry justifies.
-
-**Brainstorm needed:** Minimal — spec §6 already pins the table shape
-and adapter contract. Could jump straight to `writing-plans` next
-session.
-
-### Slice 2 — Identity drift (~3 weeks)
+### Slice 2 — Identity drift (~3 weeks) — RECOMMENDED NEXT
 
 **Spec section:** `2026-05-25-ai-powered-soc-design.md` §3 (Slice 2
 row), §10.2 (Entra), §5 components table (Entra audit poller row).
 
 **What it builds:**
-- Add AWS IAM CloudTrail events to severity rule table
-  (already half-there — `event_router` pattern includes them, just
-  needs identity-specific severity rules)
+- Add AWS IAM CloudTrail events to the severity rule table (already
+  half-there — `event_router`'s pattern includes them, just needs
+  identity-specific severity classification: `AttachUserPolicy`,
+  `CreateAccessKey`, `UpdateAssumeRolePolicy`, `PutUserPolicy`, etc.)
 - New `soc_entra_poller` Lambda — 5-min cron polling Microsoft Graph
   `auditLogs/directoryAudits` + `auditLogs/signIns` filtered for risk
-  events
-- Extend severity rule table with identity-drift actions (role
+  events. Reuses the existing Entra connection (no new admin-consent
+  flow — the Graph scope `AuditLog.Read.All` was added for AI
+  Visibility S2.1 and is already consented on the test tenant).
+- Extend severity rule table with identity-drift actions: role
   assignment, OAuth consent grant, conditional access changes, MFA
-  enforcement changes)
-- `/soc` filter chip gains "Identity" source filter
+  enforcement changes, federation trust changes.
+- `/soc` filter chip gains an "Identity" source filter.
 
 **Product wedge:** "New admin role assigned at 3am" demo moment.
 Identity drift is arguably the highest-leverage CISO signal — covers
-both cloud IAM and Entra.
+both cloud IAM (AWS) and SaaS-identity (Entra → Microsoft 365).
 
-**Why second (not first):** Slice 1c is faster and sharpens the
-existing narrative; Slice 2 adds a whole new substrate. Doing 1c first
-means Slice 2's identity events also get TI enrichment from day one.
+**Why next (now that 1c shipped):**
+1. Slice 1c is in production — identity events flowing through the
+   same pipeline will get TI enrichment for free. A new IAM access
+   key created from a Tor exit will surface with the same badge UX
+   that Slice 1c just demonstrated.
+2. `event_router` already normalizes CloudTrail mgmt events; the
+   work is mostly (a) the Entra poller Lambda + Graph-API plumbing,
+   and (b) extending `severity_rules.py` with identity-action rows.
+3. The `mitre_technique` column is pre-committed but unused — Slice 2
+   gives the LLM real ATT&CK material to map (T1098 Account
+   Manipulation, T1136 Create Account, T1556 Modify Authentication,
+   T1078 Valid Accounts).
 
 **Brainstorm needed:** Some — Entra polling vs webhook subscriptions
 (spec recommends polling for v1, webhooks later as Slice 2.5);
-severity rule expansion for identity actions.
+severity rule expansion for identity actions; deciding whether to
+ingest Entra sign-ins (P1/P2-gated per S2.1 lessons) in v1 or punt
+to Slice 2.5.
+
+**Pre-req:** none new — Entra connection + AI Visibility S2.1 banner
+already shipped + scope already in place.
 
 ### Slice 3 — Anomaly baseline activation (~2 weeks)
 
