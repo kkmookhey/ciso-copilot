@@ -1,0 +1,31 @@
+{
+  "1716638400": [
+    {
+      "ioc_value": "evil.example.com",
+      "ioc_type": "domain",
+      "threat_type": "botnet_cc",
+      "malware": "Cobalt Strike",
+      "confidence_level": 80,
+      "first_seen": "2026-05-24 12:00:00 UTC",
+      "tags": ["c2", "beacon"]
+    },
+    {
+      "ioc_value": "185.220.101.99",
+      "ioc_type": "ip:port",
+      "threat_type": "botnet_cc",
+      "malware": "Emotet",
+      "confidence_level": 75,
+      "first_seen": "2026-05-24 12:00:00 UTC",
+      "tags": ["loader"]
+    },
+    {
+      "ioc_value": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "ioc_type": "sha256_hash",
+      "threat_type": "payload",
+      "malware": "AsyncRAT",
+      "confidence_level": 100,
+      "first_seen": "2026-05-25 09:30:00 UTC",
+      "tags": []
+    }
+  ]
+}
