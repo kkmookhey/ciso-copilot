@@ -1,31 +1,57 @@
-# CISO Copilot
+# Shasta by Transilience
 
-A multi-tenant CISO platform — connects to AWS, Azure, Entra, GCP, runs
-posture scans, ingests real-time alerts and config drift, surfaces it all
-through an iOS app, a web app, and a voice interface.
+**The Full Stack Security OS** — one platform for cloud security, AI
+security, SOC, and compliance, accessible from web, iOS, voice, and
+chat. Multi-tenant. Connects to AWS, Azure, Entra, GCP. Runs posture
+scans, ingests real-time alerts and config drift, AI-enriches
+everything.
 
-## Three documents — read in this order each session
+Repo internal name is still `CISOBrief` (rename pending). Product
+brand on every UI surface is **"Shasta by Transilience"**.
 
-1. **`HANDOFF.md`** — current build state, live URLs, what works, what's
-   wired but untested, known gotchas paid in debugging time. Source of
-   truth for *what exists right now*. **Read first every session.**
-2. **`CISOBrief-v2.md`** — the executable spec / PRD for v2. The build
-   contract. Read when starting new feature work.
-3. **`CISOBrief.md`** — v1 spec (Cloudflare-only KEV brief). v1 was
+## Documents — read in this order at session start
+
+These six documents survive `/clear` and carry the load-bearing
+context. Read them at the top of every session so you and the user
+have aligned mental models before touching code.
+
+1. **`HANDOFF.md`** — current build state, live URLs, what works,
+   what's wired but untested, known gotchas paid in debugging time.
+   Source of truth for *what exists right now*. **Read first every
+   session.**
+2. **`README.md`** — what Shasta is, the four surfaces, the shipped
+   capabilities, the shipped-modules timeline, the product story.
+   The lead magnet.
+3. **`ARCHITECTURE.md`** — load-bearing design decisions and ADRs.
+   *Why* we built it the way we did. Read before touching a load-bearing
+   subsystem.
+4. **`ROADMAP.md`** — where the OS extends next, the M1–M7 heavy
+   lifts, future arenas (DSPM / CTEM / MDR / privacy / safety), and
+   the anti-roadmap (what we deliberately won't build). Read before
+   proposing new sub-projects.
+5. **`CISOBrief-v2.md`** — the v2 PRD / executable spec. The build
+   contract for v2 work. Read when starting feature work that maps
+   back to the PRD.
+6. **`CISOBrief.md`** — v1 spec (Cloudflare-only KEV brief). v1 was
    deployed at `ciso-copilot.kkmookhey.workers.dev` and is *sunset*.
    Reference only; do not build against this.
 
-Where any two disagree: **HANDOFF.md wins for state, v2 wins for spec**,
-v1 / this file lose.
+Where any two disagree: **HANDOFF wins for current state**,
+**ARCHITECTURE wins for design rationale**, **ROADMAP wins for
+sequencing and anti-roadmap**, **README wins for the product story**,
+**v2 wins for the spec contract**. v1 / this file lose.
 
-## Status (2026-05-20)
+Also useful: **`BACKLOG.md`** for triaged open items and decisions
+pending.
+
+## Status (2026-05-26)
 
 - **v1** — deployed at `ciso-copilot.kkmookhey.workers.dev`, sunset.
-- **v2** — live. The SP4 chat-first front door, the AI-discovery cloud-AI
-  connector, and the findings overhaul (Fail/Partial/Pass tiles + the
-  Status/Category/Cloud/Framework grouping) are all deployed. Next:
-  AI-discovery plan 2 — OpenAI/Anthropic provider connectors. Read
-  **HANDOFF.md** first every session.
+- **v2** — live. CME-v2 + AI Visibility v2 (Slices 1+2+2.1) + SOC
+  Slices 1+1c all shipped end-to-end. Next: docs + branding pass
+  (this session), then capability gating + billing module, then SOC
+  Slice 2 (identity drift). See **ROADMAP.md** for the full phase
+  plan.
 
 ## Repo layout
 
