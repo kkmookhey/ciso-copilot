@@ -68,3 +68,26 @@ def test_call_llm_returns_parsed_response(monkeypatch):
     assert out["narrative"] == "n"
     assert out["anomaly_class"] == "unusual"
     assert out["mitre_technique"] == "T1098"
+
+
+def test_build_messages_includes_ti_matches():
+    row = {"source": "aws.cloudtrail", "kind": "drift", "severity": "high",
+           "title": "AuthorizeSecurityGroupIngress",
+           "actor": "arn:aws:iam::1:user/x",
+           "resource_arn": "sg-abc", "fired_at": "2026-05-25T14:00:00Z",
+           "source_ip": "185.220.101.12",
+           "before_state": None, "after_state": None}
+    features = {
+        "first_time_actor_on_resource": True, "off_hours": True,
+        "action_rarity": "rare", "blast_radius_proxy": 4,
+        "ti_matches": [
+            {"value": "185.220.101.12", "kind": "ip", "source": "tor",
+             "confidence": None, "tags": ["tor_exit"]},
+        ],
+    }
+    msgs = llm.build_messages(row, features)
+    user = msgs[-1]["content"]
+    assert "ti_matches" in user
+    assert "tor" in user
+    # SYSTEM prompt mentions threat-intel guidance
+    assert "threat" in msgs[0]["content"].lower() or "ti_matches" in msgs[0]["content"]
