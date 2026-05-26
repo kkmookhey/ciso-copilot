@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { handleCallback } from "../lib/cognito";
+import { BrandLockup } from "../components/BrandLockup";
 
 export function Callback() {
   const [params] = useSearchParams();
@@ -25,8 +26,12 @@ export function Callback() {
   }, [params, nav]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center text-slate-600">
-      {error ? <span className="text-red-600">{error}</span> : <span>Completing sign-in…</span>}
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-slate-50 text-center">
+      <BrandLockup className="text-[22px] font-semibold text-slate-900 tracking-tight mb-3" />
+      <p className="text-base text-slate-600 mb-8">The Full Stack Security OS</p>
+      {error
+        ? <span className="text-red-600">{error}</span>
+        : <span className="text-slate-500">Completing sign-in…</span>}
     </div>
   );
 }

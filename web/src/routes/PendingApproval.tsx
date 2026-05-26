@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { signOut } from "../lib/cognito";
+import { HeroLockup } from "../components/BrandLockup";
 
 export function PendingApproval() {
   const nav = useNavigate();
@@ -23,19 +24,18 @@ export function PendingApproval() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-slate-50">
-      <div className="max-w-md w-full text-center">
-        <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-2xl">
-          ⏳
-        </div>
-        <h1 className="text-2xl font-bold">Access request pending</h1>
-        <p className="text-slate-600 mt-2">
+      <HeroLockup chapter="Pending review.">
+        <p className="text-slate-600 max-w-md mx-auto leading-relaxed">
           We're reviewing your access request. You'll get an email when it's
           approved — typically within 24 hours.
         </p>
-        <button onClick={signOut} className="mt-10 text-sm text-slate-500 hover:underline">
+        <button
+          onClick={signOut}
+          className="mt-10 text-sm text-slate-500 hover:text-blue-600 hover:underline transition"
+        >
           Sign out
         </button>
-      </div>
+      </HeroLockup>
     </div>
   );
 }

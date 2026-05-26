@@ -28,19 +28,38 @@ export function ModuleRail({ email, isAdmin }: ModuleRailProps) {
 
   return (
     <nav style={{ width: 200, background: "#3A342B", color: "#FAF8F3",
-                  display: "flex", flexDirection: "column", padding: "16px 0",
+                  display: "flex", flexDirection: "column", padding: 0,
                   flexShrink: 0 }}>
-      {items.map((it) => (
-        <NavLink key={it.to} to={it.to} end={it.to === "/"}
-          style={({ isActive }) => ({
-            padding: "9px 18px", color: isActive ? "#FFFCF6" : "#A89B89",
-            textDecoration: "none", fontSize: 14,
-            borderLeft: isActive ? "3px solid #D85F3B" : "3px solid transparent",
-          })}>
-          {it.label}
-        </NavLink>
-      ))}
-      <div style={{ marginTop: "auto", padding: "12px 18px", fontSize: 12,
+
+      {/* Brand block — "Shasta by Transilience" + uppercase tagline */}
+      <div style={{ padding: "18px 18px 16px",
+                    borderBottom: "1px solid #4A4238" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#FFFCF6",
+                      letterSpacing: "-0.005em", marginBottom: 4 }}>
+          Shasta by Transilience
+        </div>
+        <div style={{ fontSize: 10, textTransform: "uppercase",
+                      letterSpacing: "0.12em", color: "#A89B89",
+                      fontWeight: 600 }}>
+          Full Stack Security OS
+        </div>
+      </div>
+
+      <div style={{ padding: "8px 0", flex: 1 }}>
+        {items.map((it) => (
+          <NavLink key={it.to} to={it.to} end={it.to === "/"}
+            style={({ isActive }) => ({
+              display: "block",
+              padding: "9px 18px", color: isActive ? "#FFFCF6" : "#A89B89",
+              textDecoration: "none", fontSize: 14,
+              borderLeft: isActive ? "3px solid #D85F3B" : "3px solid transparent",
+            })}>
+            {it.label}
+          </NavLink>
+        ))}
+      </div>
+
+      <div style={{ padding: "12px 18px", fontSize: 12,
                     color: "#7A7268", borderTop: "1px solid #4A4238" }}>
         <div style={{ marginBottom: 6 }}>{email}</div>
         <button
