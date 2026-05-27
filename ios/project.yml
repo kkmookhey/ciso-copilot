@@ -29,6 +29,9 @@ targets:
   CISOCopilot:
     type: application
     platform: iOS
+    configFiles:
+      Debug:   Local.xcconfig
+      Release: Local.xcconfig
     sources:
       - path: CISOCopilot
     dependencies:
@@ -42,3 +45,4 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.transilience.cisocopilot
         TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_API_BASE_URL: "$(API_BASE_URL)"
