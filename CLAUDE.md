@@ -44,24 +44,21 @@ sequencing and anti-roadmap**, **README wins for the product story**,
 Also useful: **`BACKLOG.md`** for triaged open items and decisions
 pending.
 
-## Status (2026-05-26)
+## Status (2026-05-27)
 
 - **v1** — sunset (Cloudflare Workers; the `workers/` directory was
   deleted in Phase 2 Slice A).
-- **v2** — live. CME-v2 + AI Visibility v2 (Slices 1+2+2.1) + SOC
-  Slices 1+1c all shipped. **Phase 2 Slice A** (secrets / hardcoded-
-  identifier extraction) shipped 2026-05-26 — every per-deployment
-  identifier now reads from env-var configuration (`platform/.env`,
-  `web/.env.production`, `ios/Local.xcconfig`). MIT-public **code-side**
-  gate is closed; only Tier 2 (doc sanitization in `HANDOFF.md`,
-  `TEST_PLAN.md`, `docs/superpowers/specs/*.md`,
-  `docs/superpowers/plans/*.md`) remains before the repo can flip
-  public.
+- **v2** — live and **public** (MIT). CME-v2 + AI Visibility v2
+  (Slices 1+2+2.1) + SOC Slices 1+1c all shipped. **Phase 2 Tiers
+  1-3** complete: secrets extraction (PR #26), doc sanitization
+  (PR #30), gitleaks history audit (PR #31). Repo flipped to public
+  on 2026-05-27.
+- **iOS** — Slice A5 build installed on KK iPhone 16 Pro Max; APNs
+  push delivery verified end-to-end (2026-05-27).
 - **Next** — Phase 2 commerce-ready: capability gating, then the
-  billing module sub-phases, then SOC Slice 2 (identity drift). See
-  **ROADMAP.md** for the full phase plan. **iOS device install of the
-  Slice A5 build is pending KK-manual** — see HANDOFF for the unlock-
-  the-phone + one-command step.
+  billing module sub-phases (usage tracking → customer dashboard →
+  caps → Stripe), then SOC Slice 2 (identity drift). See
+  **ROADMAP.md** for the full phase plan.
 
 ## Repo layout
 

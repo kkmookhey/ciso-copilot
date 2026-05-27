@@ -57,12 +57,14 @@ findings. After triage: **zero real credential leaks**.
 - Post-allowlist re-scan: `no leaks found`. Future scans (manual or CI)
   return clean unless a genuinely new credential lands.
 
-**MIT-public flip is now unblocked.** Open items before flip:
-- KK to flip the GitHub repo visibility (Settings → General → Danger
-  Zone → Change visibility → Make public)
-- Optionally: add a `.github/workflows/gitleaks.yml` CI gate so future
-  PRs can't introduce real secrets undetected (Tier 3 "belt-and-
-  suspenders" option, deferred per scope decision)
+**MIT-public flip — DONE (2026-05-27).** Repo visibility flipped to
+public by KK. Repository now lives at
+`github.com/kkmookhey/ciso-copilot` under MIT license.
+
+**Optional follow-up (deferred):**
+- `.github/workflows/gitleaks.yml` CI gate so future PRs can't introduce
+  real secrets undetected (Tier 3 "belt-and-suspenders" option,
+  deferred per scope decision)
 
 **PR:** [#31](https://github.com/kkmookhey/ciso-copilot/pull/31)
 
@@ -243,10 +245,11 @@ reads from `Bundle.main`) is installed on KK iPhone 16 Pro Max
 the doc tokens shifted). Bundle ID `ai.transilience.cisocopilot`, signed with
 provisioning profile `iOS Team Provisioning Profile: ai.transilience.cisocopilot`.
 
-**Smoke test (KK-pending):** open app on phone → Google sign-in → confirm
-APNs push lands within ~60s after triggering any drift event (e.g.
-`aws ec2 authorize-security-group-ingress` on the test AWS account) with the
-expected body (`drift · <severity> · <resource> · <eventName> · by <user>`).
+**Smoke test — VERIFIED (2026-05-27, KK):** opened app on phone, Google
+sign-in worked, APNs push landed within ~60s after triggering a drift
+event with the expected body
+(`drift · <severity> · <resource> · <eventName> · by <user>`). End-to-end
+device-install + push-delivery path is now confirmed working.
 
 If a future iOS rebuild is needed, the canonical command lives in
 `CLAUDE.md` → Common commands → iOS build (device) block.
