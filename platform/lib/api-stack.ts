@@ -12,6 +12,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
 import * as path from 'path';
+import { config } from './config';
 
 interface ApiStackProps extends cdk.StackProps {
   userPool:           cognito.UserPool;
@@ -344,8 +345,8 @@ export class ApiStack extends cdk.Stack {
       memorySize: 512,
       environment: {
         ...dbEnv,
-        ADMIN_EMAILS: 'kkmookhey@gmail.com,kkmookhey@transilience.ai,kkmookhey@networkintelligence.ai',
-        DOMAIN:       'settlingforless.com',
+        ADMIN_EMAILS: config.adminEmails,
+        DOMAIN:       config.domain,
       },
     });
     props.dbCluster.grantDataApiAccess(adminTenantsFn);
