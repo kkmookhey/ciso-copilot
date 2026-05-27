@@ -7,11 +7,76 @@
 > → ROADMAP.
 >
 > Last updated: 2026-05-26 (Secrets extraction shipped — Phase 2 Slice A
-> complete; see "Phase 2 Slice A" block immediately below. Earlier same
-> day: docs trio + branding pass + MIT license switch shipped; SOC Slice
+> complete, PR #26 merged on `main` as `f853e36`. AI page UX polish
+> shipped, PR #27 merged as `d569fc5` — `/ai` now has a nav item and
+> the score/source tiles drill into `/findings`. iOS device install
+> still pending KK-manual (build complete, app blocked on locked
+> device — see "iOS install — pending" note below). Earlier same day:
+> docs trio + branding pass + MIT license switch shipped; SOC Slice
 > 1c shipped + manual gate verified end-to-end on
 > `feat/ai-powered-soc-slice-1c`. The 2026-05-25 batch shipped SOC
 > Slice 1, CME-v2 across PRs #17–#21.)
+
+## 🚀 AI page UX polish — shipped (2026-05-26, PR #27)
+
+Small UX layer on top of Slice A. Two changes:
+
+1. **`/ai` is now in the left nav** — `ModuleRail.tsx` gets an "AI" item
+   pointing at `/ai`, alongside the existing "AI inventory" item.
+   (KK's longer-term proposal of folding `/ai/inventory` into `/ai`
+   as panels is deferred to a separate brainstorm.)
+2. **Score + source tiles on `/ai` are clickable.** The Fail/Partial/Pass
+   score tiles drill into `/findings?status=<key>`; the
+   AWS/Azure/Code/Entra source tiles drill into `/findings?cloud=<key>`.
+   Hover transitions added so the affordance reads correctly.
+
+Files: `web/src/chat/ModuleRail.tsx`, `web/src/routes/AISummary.tsx`.
+Commit `d569fc5` (squashed from `c36ddbe` on `feat/ai-nav-quick-win`).
+Deployed: S3 sync + CloudFront invalidation in-flight at merge time.
+
+**Deferred** (the bigger move from the same KK ask):
+- Fold AIInventory into `/ai` as panels (inventory + findings side-by-side
+  with the score/source tiles). Needs its own brainstorm — trade-off is
+  one busy page vs two focused pages.
+
+---
+
+## ⏸ iOS device install — pending KK manual step (2026-05-26)
+
+Slice A5's iOS code changes shipped (xcconfig wiring + source Info.plist +
+`APIClient.baseURL` reads from `Bundle.main`). The `.app` was successfully
+built and signed at:
+
+```
+/Users/kkmookhey/Projects/CISOBrief/ios/build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
+```
+
+`plutil` confirmed `API_BASE_URL` substituted correctly into Info.plist.
+
+Install was blocked with `kAMDMobileImageMounterDeviceLocked: The device
+is locked.` — Apple requires the device be unlocked before the Developer
+Disk Image can mount for install. **KK to manually run:**
+
+```bash
+# After unlocking the iPhone with face ID / passcode while plugged in:
+xcrun devicectl device install app \
+  --device EB16CFA4-2DE9-5E5A-BE8D-838399AD230F \
+  /Users/kkmookhey/Projects/CISOBrief/ios/build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
+```
+
+Then smoke-test: sign-in flow + trigger an APNs push (any drift event)
+to confirm the new env-driven `baseURL` round-trips correctly on device.
+
+If the build artifact has aged (>1 day), rebuild first with:
+
+```bash
+cd /Users/kkmookhey/Projects/CISOBrief/ios && \
+xcodebuild build -project CISOCopilot.xcodeproj -scheme CISOCopilot \
+  -destination "id=00008140-001E104E3A9B001C" \
+  -derivedDataPath build-device -allowProvisioningUpdates
+```
+
+---
 
 ## 🚀 Phase 1 team-ready — shipped (2026-05-26)
 
