@@ -627,9 +627,9 @@ export class ApiStack extends cdk.Stack {
     // Phase C — Entra onboarding (admin-consent flow)
     // ========================================================================
 
-    // Self-referential URL for the consent callback. Hardcoded API ID matches
-    // the existing API Gateway; if we ever rotate it, update here.
-    const entraCallbackUrl = `https://xoljryrb7i.execute-api.${this.region}.amazonaws.com/v1/onboarding/entra/callback`;
+    // Self-referential URL for the Entra consent callback. Read from config so
+    // the repo stays operator-agnostic.
+    const entraCallbackUrl = `${config.apiBaseUrl}/onboarding/entra/callback`;
 
     const onboardingEntraInitiateFn = new lambda.Function(this, 'OnboardingEntraInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
