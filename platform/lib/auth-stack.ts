@@ -144,12 +144,12 @@ export class AuthStack extends cdk.Stack {
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [
           `${config.appDomain}/callback`,                    // canonical domain
-          ...(config.legacyAppDomain ? [`https://app.${config.domain}/callback`] : []),
+          ...(config.legacyAppDomain ? [`https://${config.legacyAppDomain}/callback`] : []),
           'http://localhost:5173/callback',                  // Vite dev server
         ],
         logoutUrls: [
           `${config.appDomain}/`,
-          ...(config.legacyAppDomain ? [`https://app.${config.domain}/`] : []),
+          ...(config.legacyAppDomain ? [`https://${config.legacyAppDomain}/`] : []),
           'http://localhost:5173/',
         ],
       },
