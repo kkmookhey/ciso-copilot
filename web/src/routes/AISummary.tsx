@@ -33,9 +33,9 @@ export default function AISummary() {
 
       {/* Score tiles */}
       <section className="grid grid-cols-3 gap-4">
-        <ScoreTile label="Fail"    value={data.score.fail}    tone="red"   />
-        <ScoreTile label="Partial" value={data.score.partial} tone="amber" />
-        <ScoreTile label="Pass"    value={data.score.pass}    tone="green" />
+        <ScoreTile label="Fail"    value={data.score.fail}    tone="red"   to="/findings?status=fail"    />
+        <ScoreTile label="Partial" value={data.score.partial} tone="amber" to="/findings?status=partial" />
+        <ScoreTile label="Pass"    value={data.score.pass}    tone="green" to="/findings?status=pass"    />
       </section>
 
       {/* By-source */}
@@ -47,6 +47,7 @@ export default function AISummary() {
               key={s}
               label={SOURCE_LABELS[s]}
               value={data.by_source[s]}
+              to={`/findings?cloud=${s}`}
             />
           ))}
         </div>
@@ -115,29 +116,29 @@ export default function AISummary() {
   );
 }
 
-function ScoreTile({ label, value, tone }: {
-  label: string; value: number; tone: "red" | "amber" | "green";
+function ScoreTile({ label, value, tone, to }: {
+  label: string; value: number; tone: "red" | "amber" | "green"; to: string;
 }) {
-  const colour = tone === "red"   ? "bg-red-50 text-red-800"
-              : tone === "amber" ? "bg-amber-50 text-amber-800"
-              :                    "bg-green-50 text-green-800";
+  const colour = tone === "red"   ? "bg-red-50 text-red-800 hover:bg-red-100"
+              : tone === "amber" ? "bg-amber-50 text-amber-800 hover:bg-amber-100"
+              :                    "bg-green-50 text-green-800 hover:bg-green-100";
   return (
-    <div className={`rounded-lg p-4 ${colour}`}>
+    <Link to={to} className={`rounded-lg p-4 transition-colors ${colour}`}>
       <div className="text-3xl font-bold">{value}</div>
       <div className="text-sm uppercase tracking-wide">{label}</div>
-    </div>
+    </Link>
   );
 }
 
-function SourceTile({ label, value, note }: {
-  label: string; value: number; note?: string;
+function SourceTile({ label, value, to, note }: {
+  label: string; value: number; to: string; note?: string;
 }) {
   return (
-    <div className="rounded-lg border p-3">
+    <Link to={to} className="rounded-lg border p-3 block hover:bg-slate-50 transition-colors">
       <div className="text-xl font-semibold">{value}</div>
       <div className="text-sm">{label}</div>
       {note && <div className="text-xs text-slate-500">{note}</div>}
-    </div>
+    </Link>
   );
 }
 

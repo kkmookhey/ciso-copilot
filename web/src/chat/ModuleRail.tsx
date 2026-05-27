@@ -10,6 +10,7 @@ const BASE_ITEMS: Array<{ to: string; label: string }> = [
   { to: "/policies",       label: "Policies" },
   { to: "/questionnaires", label: "Questionnaires" },
   { to: "/trust",          label: "Trust center" },
+  { to: "/ai",             label: "AI" },
   { to: "/ai/inventory",   label: "AI inventory" },
   { to: "/connect",        label: "Connect clouds" },
   { to: "/scan",           label: "Scan" },
