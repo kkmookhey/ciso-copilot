@@ -10,6 +10,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::470226123496:role/GitHubActionsDeployRole
+          role-to-assume: arn:aws:iam::999999999999:role/GitHubActionsDeployRole
           aws-region: us-east-1
       - run: aws s3 cp dist/ s3://my-bucket/ --recursive

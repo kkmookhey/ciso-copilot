@@ -120,7 +120,7 @@ def test_cross_scan_edge_creates_stub_entity(monkeypatch):
         tenant_id="t1",
         source_kind="github_repo", source_natural_key="github.com/kk/foo",
         target_kind="aws_iam_role",
-        target_natural_key="arn:aws:iam::470226123496:role/Deploy",
+        target_natural_key="arn:aws:iam::999999999999:role/Deploy",
         kind="deploys_to", attributes={}, evidence_packet={"version": "0.1"},
         detector_id="ai.detectors.crossdomain", detector_version="0.1.0",
     )
