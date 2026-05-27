@@ -5,7 +5,15 @@ import Observation
 /// ID token (refreshed lazily by AuthManager when within 60s of expiry).
 @Observable
 final class APIClient {
-    static let baseURL = URL(string: "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1")!
+    static let baseURL: URL = {
+        guard let s = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
+              !s.isEmpty,
+              let u = URL(string: s) else {
+            fatalError("API_BASE_URL missing or invalid in Info.plist. " +
+                       "Copy ios/Local.xcconfig.example to ios/Local.xcconfig and rebuild.")
+        }
+        return u
+    }()
 
     private let session = URLSession.shared
     private let decoder = JSONDecoder()
