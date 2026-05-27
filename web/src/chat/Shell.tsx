@@ -18,7 +18,6 @@ import { executeTool } from "./tools";
 import { VoiceClient } from "./voiceClient";
 import type { VoiceState } from "./voiceClient";
 
-
 export function ChatShell() {
   const nav = useNavigate();
   const [me, setMe]         = useState<MeResponse | null>(null);

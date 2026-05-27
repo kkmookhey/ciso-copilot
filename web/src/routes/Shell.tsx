@@ -36,7 +36,6 @@ export function Shell() {
   );
 }
 
-
 function FullPageSpinner() {
   return (
     <div style={{ minHeight: "100vh", display: "flex",
