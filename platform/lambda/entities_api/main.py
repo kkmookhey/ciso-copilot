@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import traceback
 import uuid
 
 import boto3
@@ -57,6 +58,7 @@ def handler(event: dict, context) -> dict:
             return _get_entity(event)
         return helpers.resp(404, {"error": "not_found", "path": path, "method": method})
     except Exception as e:  # noqa: BLE001
+        print(f"entities_api {method} {path} FAILED: {e}\n{traceback.format_exc()}")
         return helpers.resp(500, {"error": "internal", "detail": str(e)})
 
 
@@ -84,7 +86,7 @@ def _start_scan(event: dict) -> dict:
     if installation_id is None:
         return helpers.resp(404, {"error": "connection_not_found"})
 
-    repo_entity_id = _upsert_repo_entity(tenant_id, conn_id, repo_full_name)
+    repo_entity_id = _upsert_repo_entity(tenant_id, repo_full_name)
     scan_id = str(uuid.uuid4())
 
     helpers.rds_data.execute_statement(
@@ -142,9 +144,13 @@ def _installation_id_for_connection(tenant_id: str, conn_id: str) -> int | None:
     return rows[0][0].get("longValue")
 
 
-def _upsert_repo_entity(tenant_id: str, conn_id: str, repo_full_name: str) -> str:
+def _upsert_repo_entity(tenant_id: str, repo_full_name: str) -> str:
     """Upsert a github_repo entity. Returns the PERSISTED id (existing row
-    on conflict, new row on insert). Mirrors unified_writer's pattern."""
+    on conflict, new row on insert). Mirrors unified_writer's pattern.
+
+    The connection linkage lives on ai_scans.connection_id — the entities
+    table itself has no connection_id column (see migration 005).
+    """
     natural_key = f"github.com/{repo_full_name}"
     new_id = str(uuid.uuid4())
     attrs = {"_stub": False}
@@ -159,12 +165,11 @@ def _upsert_repo_entity(tenant_id: str, conn_id: str, repo_full_name: str) -> st
         sql=(
             "INSERT INTO entities "
             "  (id, tenant_id, kind, natural_key, display_name, domain, "
-            "   attributes, evidence_packet, detector_id, detector_version, "
-            "   connection_id) "
+            "   attributes, evidence_packet, detector_id, detector_version) "
             "VALUES (CAST(:id AS UUID), CAST(:tid AS UUID), 'github_repo', "
             "        :nk, :name, 'repo', "
             "        CAST(:attrs AS JSONB), CAST(:ev AS JSONB), "
-            "        'manual.repo_attach', '0.1.0', CAST(:cid AS UUID)) "
+            "        'manual.repo_attach', '0.1.0') "
             "ON CONFLICT (tenant_id, kind, natural_key) "
             "  DO UPDATE SET last_seen_at=NOW(), "
             "                attributes=COALESCE(EXCLUDED.attributes - '_stub', entities.attributes), "
@@ -178,7 +183,6 @@ def _upsert_repo_entity(tenant_id: str, conn_id: str, repo_full_name: str) -> st
             {"name": "name",  "value": {"stringValue": repo_full_name}},
             {"name": "attrs", "value": {"stringValue": json.dumps(attrs)}},
             {"name": "ev",    "value": {"stringValue": json.dumps(evidence)}},
-            {"name": "cid",   "value": {"stringValue": conn_id}},
         ],
     )
     rows = rs.get("records", [])
