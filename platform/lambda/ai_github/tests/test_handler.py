@@ -74,9 +74,10 @@ def test_complete_inserts_row_and_returns_connection_id(monkeypatch):
     monkeypatch.setattr(github_app, "mint_app_jwt", lambda: "stub.jwt")
 
     inserts: list[dict] = []
+    persisted_id = "11111111-1111-1111-1111-111111111111"
     def fake_execute(**kw):
         inserts.append(kw)
-        return {"records": []}
+        return {"records": [[{"stringValue": persisted_id}]]}
     # rds_data is the boto3 client mock from the env fixture
     helpers.rds_data.execute_statement = fake_execute
 
@@ -88,6 +89,31 @@ def test_complete_inserts_row_and_returns_connection_id(monkeypatch):
     uuid.UUID(body["connection_id"])  # is a valid UUID
     # one INSERT happened
     assert any("INSERT INTO ai_connections" in c["sql"] for c in inserts)
+
+
+def test_complete_returns_persisted_id_on_conflict(monkeypatch):
+    """Regression: when ON CONFLICT fires (re-install of the same GitHub App),
+    the handler must return the EXISTING row's id from the RETURNING clause,
+    not the freshly-generated UUID. Returning the local UUID was the cause of
+    the /ai/connections/<id>/repos 404 caught on 2026-05-27."""
+    import main, helpers, state_jwt, github_app
+    monkeypatch.setattr(helpers, "resolve_tenant_id", lambda e: "tenant-1")
+    monkeypatch.setattr(state_jwt, "verify",
+                        lambda token: {"tenant_id": "tenant-1", "user_sub": "u1"})
+    monkeypatch.setattr(github_app, "_http_get",
+                        lambda url, headers: (200, {"account": {"login": "kkmookhey", "type": "User"}}, {}))
+    monkeypatch.setattr(github_app, "mint_app_jwt", lambda: "stub.jwt")
+
+    # Simulate ON CONFLICT — RETURNING gives an EXISTING row id (from a prior install),
+    # NOT the freshly-generated UUID the handler creates locally.
+    existing_id = "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb"
+    helpers.rds_data.execute_statement = lambda **kw: {"records": [[{"stringValue": existing_id}]]}
+
+    event = _event_authed("tenant-1", path="/ai/connections/github/complete",
+                          body={"installation_id": 99999, "state": "stub.state"})
+    out = main.handler(event, None)
+    assert out["statusCode"] == 200
+    assert json.loads(out["body"])["connection_id"] == existing_id
 
 
 def test_complete_rejects_state_for_other_tenant(monkeypatch):

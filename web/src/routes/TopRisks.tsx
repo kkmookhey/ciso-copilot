@@ -12,6 +12,14 @@ import { mostRecentCompletedScan } from "../scan/scanLabels";
 type GroupDim = "status" | "category" | "cloud" | "framework";
 type Status   = "fail" | "partial" | "pass";
 
+const CLOUD_FILTERS: { key: string | undefined; label: string }[] = [
+  { key: undefined, label: "All clouds" },
+  { key: "aws",     label: "AWS" },
+  { key: "azure",   label: "Azure" },
+  { key: "entra",   label: "Entra" },
+  { key: "gcp",     label: "GCP" },
+];
+
 const GROUP_DIMS: { key: GroupDim; label: string }[] = [
   { key: "status",    label: "Status" },
   { key: "category",  label: "Category" },
@@ -53,13 +61,16 @@ interface CheckGroup {
   findings:   Finding[];
 }
 
-/** Single-cloud today; derive from the ARN so this still works once
- *  Azure/GCP are connected. */
+/** Cloud classifier. ARN-first for cloud findings; falls back to
+ *  domain/resource_type for findings that don't carry a resource ARN
+ *  (e.g. Entra sign-in events which set resource_arn=''). */
 function cloudOf(f: Finding): string {
   const arn = f.resource_arn ?? "";
   if (arn.startsWith("arn:aws:")) return "AWS";
   if (/azure|microsoft\./i.test(arn)) return "Azure";
   if (/googleapis|cloudresourcemanager/i.test(arn)) return "GCP";
+  // No ARN — identity-domain findings (Entra sign-ins, MFA checks, etc.)
+  if (f.domain === "identity") return "Entra";
   return "AWS";
 }
 
@@ -164,17 +175,26 @@ export function TopRisks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  // Fetch findings — server filters by framework so LIMIT 200 applies after the framework selector.
+  // Fetch findings — pass URL filters to the server so LIMIT 200 applies
+  // AFTER filtering (otherwise low-severity findings in narrow filters get
+  // truncated out of the response, e.g. a single low-sev Entra finding among
+  // hundreds of AWS criticals).
   useEffect(() => {
     setFindings(null);
-    api.listFindings({ status: "fail,partial,pass", limit: 200, framework })
+    api.listFindings({
+      status:   "fail,partial,pass",
+      limit:    200,
+      framework,
+      cloud:    cloud    || undefined,
+      severity: severity || undefined,
+    })
       .then((r) => setFindings(r.findings))
       .catch(() => setFindings([]));
     api.listConnections()
       .then((r) => setLatestScan(mostRecentCompletedScan(r.connections)))
       .catch(() => setLatestScan(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [framework]);
+  }, [framework, cloud, severity]);
 
   const q = params.get("q")?.toLowerCase() ?? "";
 
@@ -201,6 +221,11 @@ export function TopRisks() {
   function clearFilter(key: string) {
     const p = new URLSearchParams(params);
     p.delete(key);
+    setParams(p, { replace: true });
+  }
+  function setCloud(next: string | undefined) {
+    const p = new URLSearchParams(params);
+    if (next) p.set("cloud", next); else p.delete("cloud");
     setParams(p, { replace: true });
   }
 
@@ -251,6 +276,27 @@ export function TopRisks() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Cloud selector — discoverable filter for the most common cut */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-slate-500 uppercase tracking-wide mr-1">Cloud</span>
+        {CLOUD_FILTERS.map((c) => {
+          const active = (cloud ?? "") === (c.key ?? "");
+          return (
+            <button
+              key={c.key ?? "all"}
+              onClick={() => setCloud(c.key)}
+              className={`text-xs px-3 py-1 rounded-full transition ${
+                active
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              {c.label}
+            </button>
+          );
+        })}
       </div>
 
       {filterChips.length > 0 && (

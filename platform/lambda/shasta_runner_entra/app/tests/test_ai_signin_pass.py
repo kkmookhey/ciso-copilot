@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 
 from ai_signin_pass import load_catalog, match_app, signin_to_params
 
@@ -132,6 +133,31 @@ def test_signin_to_params_includes_entra_upn_in_evidence():
     assert ev["entra_upn"] == "carol@acme.com"
     assert ev["is_ai"] == "true"
     assert ev["app"] == "OpenAI"
+
+
+def test_signin_to_params_handles_datetime_createdDateTime():
+    """Regression: Microsoft Graph SDK returns createdDateTime as a real
+    datetime object, NOT a string. The evidence_packet must remain JSON-
+    serializable. Discovered 2026-05-27 during ICICI demo prep — the entire
+    AI sign-in pass was silently failing on P1/P2 tenants because the catch
+    block in main.py swallowed the resulting TypeError."""
+    event = {
+        "appDisplayName": "ChatGPT",
+        "appId": "x",
+        "userPrincipalName": "dora@acme.com",
+        "createdDateTime": datetime(2026, 5, 27, 10, 0, 0, tzinfo=timezone.utc),
+        "id": "evt-dt",
+    }
+    params = signin_to_params(
+        event, name="OpenAI", tier="unknown", catalog_severity="high",
+        tenant_id="TEN", conn_id="CONN", scan_id="SCAN", entra_tenant_id="ETEN",
+    )
+    by_name = {p["name"]: p["value"]["stringValue"] for p in params}
+    ev = json.loads(by_name["evidence_packet"])
+    # ISO-8601 string in the persisted evidence
+    assert ev["created_at"] == "2026-05-27T10:00:00+00:00"
+    # And it makes it into the human-readable description
+    assert "2026-05-27" in by_name["description"]
 
 
 def test_fetch_signins_returns_premium_required_on_specific_403():

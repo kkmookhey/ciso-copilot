@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import AISummary from "./AISummary";
+import AISummary, { computeExposureScore, verdictForScore } from "./AISummary";
 
 // AISummary now uses <Link> (drill-down + connect cross-link), so tests need
 // a router. Helper to wrap inline at each render site.
@@ -77,6 +77,15 @@ describe("AISummary", () => {
     expect(tiles.length).toBeGreaterThanOrEqual(8);
   });
 
+  it("renders the AI Exposure Score with a number and verdict band", async () => {
+    renderWithRouter(<AISummary />);
+    await waitFor(() => expect(screen.getByText("12")).toBeTruthy());
+    // 12 fail, 5 partial, 21 pass → weighted_fail=41, total=62, score=round((1-41/62)*100)=34
+    expect(screen.getByText("34")).toBeTruthy();
+    expect(screen.getByText(/critical exposure/i)).toBeTruthy();
+    expect(screen.getByText(/unresolved/i)).toBeTruthy();
+  });
+
   it("shows the empty-state copy when no people are returned", async () => {
     const { api } = await import("../lib/api");
     (api.aiSummary as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -99,5 +108,44 @@ describe("AISummary", () => {
     await waitFor(() =>
       expect(screen.getByText(/No identifiable AI users yet/i)).toBeTruthy(),
     );
+    // And: ExposureScore renders the "No data yet" empty state.
+    expect(screen.getByText(/No data yet/i)).toBeTruthy();
+  });
+});
+
+describe("computeExposureScore", () => {
+  it("returns null when there are no findings at all", () => {
+    expect(computeExposureScore({ fail: 0, partial: 0, pass: 0 })).toBeNull();
+  });
+
+  it("returns 100 when everything passes", () => {
+    expect(computeExposureScore({ fail: 0, partial: 0, pass: 10 })).toBe(100);
+  });
+
+  it("returns 0 when everything fails", () => {
+    expect(computeExposureScore({ fail: 10, partial: 0, pass: 0 })).toBe(0);
+  });
+
+  it("weights fails 3x heavier than partials", () => {
+    // 1 fail (3w) + 1 partial (1w) + 4 pass (4w) → 1 - 4/8 = 0.5 → 50
+    expect(computeExposureScore({ fail: 1, partial: 1, pass: 4 })).toBe(50);
+  });
+
+  it("matches the worked example from the headline test (12/5/21 → 34)", () => {
+    // weighted_fail = 12*3 + 5*1 = 41; total = 41 + 21 = 62; score = round((1-41/62)*100) = 34
+    expect(computeExposureScore({ fail: 12, partial: 5, pass: 21 })).toBe(34);
+  });
+});
+
+describe("verdictForScore", () => {
+  it("classifies bands at their boundaries", () => {
+    expect(verdictForScore(100).label).toMatch(/strong/i);
+    expect(verdictForScore(90).label).toMatch(/strong/i);
+    expect(verdictForScore(89).label).toMatch(/healthy/i);
+    expect(verdictForScore(70).label).toMatch(/healthy/i);
+    expect(verdictForScore(69).label).toMatch(/attention/i);
+    expect(verdictForScore(50).label).toMatch(/attention/i);
+    expect(verdictForScore(49).label).toMatch(/critical/i);
+    expect(verdictForScore(0).label).toMatch(/critical/i);
   });
 });
