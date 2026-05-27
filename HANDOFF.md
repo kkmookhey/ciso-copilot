@@ -13,7 +13,8 @@
 > (`d569fc5`). Docs trio + branding pass + MIT license switch shipped.
 > SOC Slice 1c shipped + manual gate verified. 2026-05-25 batch
 > shipped SOC Slice 1 + CME-v2 across PRs #17–#21. iOS device
-> install + Tier 2 doc sanitization both shipped end-of-session.)
+> install + Tier 2 doc sanitization + Tier 3 gitleaks audit all
+> shipped end-of-session. Repo unblocked for MIT-public flip.)
 
 > **Configuration note.** Commands in this doc use `$VAR` references
 > for per-deployment identifiers (account ID, ARNs, domains). Source
@@ -23,6 +24,49 @@
 > `aws cloudformation describe-stacks --stack-name <Stack> --query
 > 'Stacks[0].Outputs'`. See `platform/.env.example` for the full key
 > list.
+
+## 🚀 Phase 2 Tier 3 — gitleaks history audit clean (2026-05-27)
+
+Final gate before the MIT-public flip. Ran `gitleaks git --redact`
+across 547 commits / 6.23 MB of repo history. Initial scan: 75
+findings. After triage: **zero real credential leaks**.
+
+**Triage summary:**
+- **73 `generic-api-key` hits** — all match the literal Aurora Secrets
+  Manager **resource name** (`AuroraPgSecretF5CEE99C-niqW1iheRsGP-
+  BgwkPp`). Gitleaks's entropy heuristic flagged the CDK-generated
+  suffix. The name is the resource identifier, not the secret value;
+  reading the actual value requires `secretsmanager:GetSecretValue`
+  IAM. Accepted per Phase 2 Slice A spec §3 non-goals (AWS resource
+  identifiers are information disclosure, not credential leak). Tier 2
+  PR #30 replaced these with `$DB_SECRET_ARN` in the current tree;
+  historical commits still carry the literal name and that's fine.
+- **2 `private-key` hits** — both are synthetic 2048-bit RSA test
+  fixtures for the GitHub-App JWT-minting code path. One is the
+  inlined `TEST_PRIVATE_KEY` in `platform/lambda/ai_github/tests/
+  test_github_app.py` (current tree, with a comment marking it as
+  hermetic-test-only); the other is the same key quoted in the
+  Slice 1a planning doc as a code example. Generated via `openssl
+  genrsa`. Never used for real signing.
+
+**What's live:**
+- `.gitleaksignore` allowlists all 75 fingerprints with a header
+  documenting the triage rationale for each rule group. Any future
+  contributor adding a fingerprint should pair it with a triage note
+  in the PR.
+- Post-allowlist re-scan: `no leaks found`. Future scans (manual or CI)
+  return clean unless a genuinely new credential lands.
+
+**MIT-public flip is now unblocked.** Open items before flip:
+- KK to flip the GitHub repo visibility (Settings → General → Danger
+  Zone → Change visibility → Make public)
+- Optionally: add a `.github/workflows/gitleaks.yml` CI gate so future
+  PRs can't introduce real secrets undetected (Tier 3 "belt-and-
+  suspenders" option, deferred per scope decision)
+
+**PR:** [#31](https://github.com/kkmookhey/ciso-copilot/pull/31)
+
+---
 
 ## 🚀 ICICI demo prep — 2 features + 4 bugs fixed (2026-05-27, PR #29)
 
