@@ -17,13 +17,8 @@ settings:
     SWIFT_VERSION: "5.10"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     CODE_SIGN_STYLE: Automatic
-    GENERATE_INFOPLIST_FILE: YES
-    INFOPLIST_KEY_UILaunchScreen_Generation: YES
-    INFOPLIST_KEY_CFBundleDisplayName: CISO Copilot
-    INFOPLIST_KEY_UIRequiredDeviceCapabilities: arm64
-    INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-    INFOPLIST_KEY_UIBackgroundModes: remote-notification
-    INFOPLIST_KEY_NSMicrophoneUsageDescription: "CISO Copilot uses the microphone for voice chat with the security assistant."
+    GENERATE_INFOPLIST_FILE: NO
+    INFOPLIST_FILE: CISOCopilot/Info.plist
 
 targets:
   CISOCopilot:
@@ -45,4 +40,3 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.transilience.cisocopilot
         TARGETED_DEVICE_FAMILY: "1"
-        INFOPLIST_KEY_API_BASE_URL: "$(API_BASE_URL)"
