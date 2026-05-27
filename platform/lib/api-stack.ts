@@ -572,7 +572,8 @@ export class ApiStack extends cdk.Stack {
     // Phase B — Azure onboarding
     // ========================================================================
 
-    const azureScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/azure/onboard.sh`;
+    const azureScriptUrl    = `https://${props.cdnDistribution.distributionDomainName}/cfn/azure/onboard.sh`;
+    const azureCompleteUrl  = `${config.apiBaseUrl}/onboarding/azure/complete`;
 
     const onboardingAzureInitiateFn = new lambda.Function(this, 'OnboardingAzureInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -581,8 +582,9 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       environment: {
         ...dbEnv,
-        AZURE_SCRIPT_URL: azureScriptUrl,
-        OUR_ACCOUNT_ID:   this.account,
+        AZURE_SCRIPT_URL:    azureScriptUrl,
+        AZURE_COMPLETE_URL:  azureCompleteUrl,
+        OUR_ACCOUNT_ID:      this.account,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingAzureInitiateFn);
@@ -678,7 +680,8 @@ export class ApiStack extends cdk.Stack {
     // Phase D — GCP onboarding (Workload Identity Federation)
     // ========================================================================
 
-    const gcpScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/gcp/onboard.sh`;
+    const gcpScriptUrl    = `https://${props.cdnDistribution.distributionDomainName}/cfn/gcp/onboard.sh`;
+    const gcpCompleteUrl  = `${config.apiBaseUrl}/onboarding/gcp/complete`;
 
     const onboardingGcpInitiateFn = new lambda.Function(this, 'OnboardingGcpInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -687,8 +690,9 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       environment: {
         ...dbEnv,
-        GCP_SCRIPT_URL: gcpScriptUrl,
-        OUR_ACCOUNT_ID: this.account,
+        GCP_SCRIPT_URL:    gcpScriptUrl,
+        GCP_COMPLETE_URL:  gcpCompleteUrl,
+        OUR_ACCOUNT_ID:    this.account,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingGcpInitiateFn);

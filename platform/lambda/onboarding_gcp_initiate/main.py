@@ -1,7 +1,12 @@
 """POST /onboarding/gcp/initiate
 
 JWT-authed. Creates a pending cloud_connection (cloud_type='gcp'), returns
-the gcloud command the customer runs in Google Cloud Shell.
+the curl-pipe command the customer runs in Google Cloud Shell.
+
+The run_command prefixes CISO_COMPLETE_URL and CISO_AWS_ACCOUNT_ID so the
+onboard.sh script receives both values without any hardcoded fallbacks.
+GCP_COMPLETE_URL and OUR_ACCOUNT_ID are set by CDK from config.apiBaseUrl
+and the deploying account ID respectively.
 """
 from __future__ import annotations
 
@@ -15,8 +20,9 @@ import boto3
 DB_CLUSTER_ARN  = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN   = os.environ["DB_SECRET_ARN"]
 DB_NAME         = os.environ["DB_NAME"]
-SCRIPT_URL      = os.environ["GCP_SCRIPT_URL"]
-OUR_ACCOUNT_ID  = os.environ["OUR_ACCOUNT_ID"]
+SCRIPT_URL       = os.environ["GCP_SCRIPT_URL"]
+GCP_COMPLETE_URL = os.environ["GCP_COMPLETE_URL"]
+OUR_ACCOUNT_ID   = os.environ["OUR_ACCOUNT_ID"]
 
 rds_data = boto3.client("rds-data")
 
@@ -63,7 +69,7 @@ def handler(event: dict, context) -> dict:
         "connection_id": conn_id,
         "external_id":   external_id,
         "script_url":    SCRIPT_URL,
-        "run_command":   f"curl -fsSL {SCRIPT_URL} | bash -s -- {external_id}",
+        "run_command":   f"curl -fsSL {SCRIPT_URL} | CISO_COMPLETE_URL={GCP_COMPLETE_URL} CISO_AWS_ACCOUNT_ID={OUR_ACCOUNT_ID} bash -s -- {external_id}",
     })
 
 
