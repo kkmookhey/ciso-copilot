@@ -10,6 +10,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as sqsEventSource from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import * as path from 'path';
+import { config } from './config';
 
 interface EventsStackProps extends cdk.StackProps {
   dbCluster: rds.DatabaseCluster;
@@ -94,10 +95,9 @@ export class EventsStack extends cdk.Stack {
     }));
 
     // APNs Platform Application ARN — provisioned once via CLI (requires .p8 contents that
-    // cannot safely live in CDK source). The ARN is stable; it's safe to inline here as a
-    // non-secret identifier.
-    const APNS_PLATFORM_APP_ARN = 'arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox';
-    this.routerFn.addEnvironment('APNS_PLATFORM_APPLICATION_ARN', APNS_PLATFORM_APP_ARN);
+    // cannot safely live in CDK source). The ARN is stable and non-secret; read from
+    // platform/.env so the repo stays operator-agnostic.
+    this.routerFn.addEnvironment('APNS_PLATFORM_APPLICATION_ARN', config.apnsPlatformAppArn);
 
     // ============================================================
     // SOC enrichment queue (DLQ + main) — router enqueues, soc_enrichment consumes
