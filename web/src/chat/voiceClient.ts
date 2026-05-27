@@ -42,8 +42,9 @@ import { TOOLS, toRealtimeTools, executeTool } from "./tools";
 import type { ArtifactHint, ToolResult } from "./tools";
 import { TurnQueue } from "./turnQueue";
 import type { SealedTurn, SealedTurnToolResult } from "./turnQueue";
+import { env } from "../lib/env";
 
-const REST_BASE     = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const REST_BASE     = env.apiBaseUrl;
 const REALTIME_BASE = "https://api.openai.com/v1/realtime/calls";
 
 // ---------------------------------------------------------------------------
