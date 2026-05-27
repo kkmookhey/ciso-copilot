@@ -12,6 +12,15 @@
 secrets/
 **/wrangler.toml.local
 
+# Web app per-environment Vite vars (template lives at web/.env.example)
+web/.env
+web/.env.local
+web/.env.development
+web/.env.production
+
+# iOS local build config (template lives at ios/Local.xcconfig.example)
+ios/Local.xcconfig
+
 # Cloudflare Workers
 .wrangler/
 node_modules/
