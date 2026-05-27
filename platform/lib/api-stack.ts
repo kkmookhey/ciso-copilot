@@ -12,6 +12,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import { Construct } from 'constructs';
 import * as path from 'path';
+import { config } from './config';
 
 interface ApiStackProps extends cdk.StackProps {
   userPool:           cognito.UserPool;
@@ -59,7 +60,10 @@ export class ApiStack extends cdk.Stack {
       handler: 'main.handler',
       code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'me')),
       timeout: cdk.Duration.seconds(10),
-      environment: dbEnv,
+      environment: {
+        ...dbEnv,
+        ADMIN_EMAILS: config.adminEmails,
+      },
     });
     props.dbCluster.grantDataApiAccess(meFn);
 
@@ -74,6 +78,7 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         APPROVAL_TOKEN_SECRET_NAME: 'ciso-copilot/approval-signing-key',
+        DOMAIN:                     config.domain,
       },
     });
     props.dbCluster.grantDataApiAccess(adminDecisionFn);
@@ -98,7 +103,7 @@ export class ApiStack extends cdk.Stack {
     // Built using the v1 prefix from the existing API stage. We use a self-referential
     // string for the complete-webhook because we don't have the API URL until after
     // synth — accepting the indirection.
-    const completeWebhookUrl = `https://xoljryrb7i.execute-api.${this.region}.amazonaws.com/v1/onboarding/aws/complete`;
+    const completeWebhookUrl = `${config.apiBaseUrl}/onboarding/aws/complete`;
 
     const onboardingInitiateFn = new lambda.Function(this, 'OnboardingAwsInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -344,8 +349,8 @@ export class ApiStack extends cdk.Stack {
       memorySize: 512,
       environment: {
         ...dbEnv,
-        ADMIN_EMAILS: 'kkmookhey@gmail.com,kkmookhey@transilience.ai,kkmookhey@networkintelligence.ai',
-        DOMAIN:       'settlingforless.com',
+        ADMIN_EMAILS: config.adminEmails,
+        DOMAIN:       config.domain,
       },
     });
     props.dbCluster.grantDataApiAccess(adminTenantsFn);
@@ -388,7 +393,7 @@ export class ApiStack extends cdk.Stack {
         GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
         STATE_JWT_SECRET_ARN:  `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key`,
         GITHUB_APP_SLUG:       'ciso-copilot',
-        WEB_CALLBACK_URL:      'https://shasta.transilience.cloud/ai/install/callback',
+        WEB_CALLBACK_URL:      `${config.appDomain}/ai/install/callback`,
       },
     });
     props.dbCluster.grantDataApiAccess(aiGithubFn);
@@ -568,7 +573,8 @@ export class ApiStack extends cdk.Stack {
     // Phase B — Azure onboarding
     // ========================================================================
 
-    const azureScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/azure/onboard.sh`;
+    const azureScriptUrl    = `https://${props.cdnDistribution.distributionDomainName}/cfn/azure/onboard.sh`;
+    const azureCompleteUrl  = `${config.apiBaseUrl}/onboarding/azure/complete`;
 
     const onboardingAzureInitiateFn = new lambda.Function(this, 'OnboardingAzureInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -577,8 +583,9 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       environment: {
         ...dbEnv,
-        AZURE_SCRIPT_URL: azureScriptUrl,
-        OUR_ACCOUNT_ID:   this.account,
+        AZURE_SCRIPT_URL:    azureScriptUrl,
+        AZURE_COMPLETE_URL:  azureCompleteUrl,
+        OUR_ACCOUNT_ID:      this.account,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingAzureInitiateFn);
@@ -626,9 +633,9 @@ export class ApiStack extends cdk.Stack {
     // Phase C — Entra onboarding (admin-consent flow)
     // ========================================================================
 
-    // Self-referential URL for the consent callback. Hardcoded API ID matches
-    // the existing API Gateway; if we ever rotate it, update here.
-    const entraCallbackUrl = `https://xoljryrb7i.execute-api.${this.region}.amazonaws.com/v1/onboarding/entra/callback`;
+    // Self-referential URL for the Entra consent callback. Read from config so
+    // the repo stays operator-agnostic.
+    const entraCallbackUrl = `${config.apiBaseUrl}/onboarding/entra/callback`;
 
     const onboardingEntraInitiateFn = new lambda.Function(this, 'OnboardingEntraInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -653,9 +660,9 @@ export class ApiStack extends cdk.Stack {
         ...dbEnv,
         ENTRA_RUNNER_FN: props.shastaRunnerEntra.functionName,
         // Canonical web app domain — the success-page link sends the user
-        // here, NOT to the cdn.* asset CloudFront. Hardcoded to avoid
-        // wiring another prop through the stack just for the lookup.
-        APP_DOMAIN:      'https://shasta.transilience.cloud',
+        // here, NOT to the cdn.* asset CloudFront. Read from config so the
+        // repo stays operator-agnostic.
+        APP_DOMAIN:      config.appDomain,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingEntraCallbackFn);
@@ -674,7 +681,8 @@ export class ApiStack extends cdk.Stack {
     // Phase D — GCP onboarding (Workload Identity Federation)
     // ========================================================================
 
-    const gcpScriptUrl = `https://${props.cdnDistribution.distributionDomainName}/cfn/gcp/onboard.sh`;
+    const gcpScriptUrl    = `https://${props.cdnDistribution.distributionDomainName}/cfn/gcp/onboard.sh`;
+    const gcpCompleteUrl  = `${config.apiBaseUrl}/onboarding/gcp/complete`;
 
     const onboardingGcpInitiateFn = new lambda.Function(this, 'OnboardingGcpInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -683,8 +691,9 @@ export class ApiStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(10),
       environment: {
         ...dbEnv,
-        GCP_SCRIPT_URL: gcpScriptUrl,
-        OUR_ACCOUNT_ID: this.account,
+        GCP_SCRIPT_URL:    gcpScriptUrl,
+        GCP_COMPLETE_URL:  gcpCompleteUrl,
+        OUR_ACCOUNT_ID:    this.account,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingGcpInitiateFn);

@@ -34,7 +34,7 @@ export class AuthStack extends cdk.Stack {
         // Approve/Reject email links target the API Gateway invoke URL until
         // DNS for api.<DOMAIN> resolves. Flip to https://api.<DOMAIN>/v1 once
         // DNS lands.
-        API_BASE_URL:       'https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1',
+        API_BASE_URL:       config.apiBaseUrl,
         // Token signing key referenced from Secrets Manager once provisioned.
         // For now, default to a fixed name; create the secret separately.
         APPROVAL_TOKEN_SECRET_NAME: 'ciso-copilot/approval-signing-key',
@@ -143,15 +143,13 @@ export class AuthStack extends cdk.Stack {
         flows:  { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [
-          'https://shasta.transilience.cloud/callback',      // canonical domain
-          `https://app.${config.domain}/callback`,           // legacy stop-gap domain
-          'https://dil1ztnjosz43.cloudfront.net/callback',   // CloudFront default (kept as backup)
+          `${config.appDomain}/callback`,                    // canonical domain
+          ...(config.legacyAppDomain ? [`https://${config.legacyAppDomain}/callback`] : []),
           'http://localhost:5173/callback',                  // Vite dev server
         ],
         logoutUrls: [
-          'https://shasta.transilience.cloud/',
-          `https://app.${config.domain}/`,
-          'https://dil1ztnjosz43.cloudfront.net/',
+          `${config.appDomain}/`,
+          ...(config.legacyAppDomain ? [`https://${config.legacyAppDomain}/`] : []),
           'http://localhost:5173/',
         ],
       },

@@ -1,0 +1,11 @@
+// CISO Copilot — local build configuration.
+//
+// Copy to ios/Local.xcconfig (which is gitignored) and fill in real values.
+// The xcconfig substitutes into Info.plist via $(API_BASE_URL); the app
+// reads it at runtime from Bundle.main.infoDictionary.
+//
+// xcconfig syntax note: // is a line comment in xcconfig, so a URL with //
+// must escape the double slash as /$()/ — that's an empty variable expansion
+// between the slashes, telling Xcode not to treat them as a comment.
+
+API_BASE_URL = https:/$()/YOUR-API-ID.execute-api.us-east-1.amazonaws.com/v1

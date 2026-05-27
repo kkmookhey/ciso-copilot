@@ -3,6 +3,8 @@
 // localStorage (yes, XSS-vulnerable — see CISOBrief-v2.md §15 for the
 // "harden to httpOnly cookies via backend session" follow-up).
 
+import { env } from "./env";
+
 export const cognito = {
   domain:      "ciso-copilot.auth.us-east-1.amazoncognito.com",
   clientId:    "5vroudnp54n7fdqvjj49ff53br",
@@ -126,7 +128,7 @@ export async function discoverTenantAndSignIn(email: string): Promise<void> {
   window.location.href = j.authorize_url;
 }
 
-const API_BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const API_BASE_URL = env.apiBaseUrl;
 
 /** Called by the /callback route — exchanges code for tokens, persists, returns. */
 export async function handleCallback(code: string): Promise<void> {

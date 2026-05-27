@@ -10,11 +10,11 @@
 #   2. Enables required APIs (Cloud Resource Manager, IAM, Compute, Storage,
 #      Cloud Asset, Logging, Cloud Run, KMS).
 #   3. Creates a Workload Identity Pool ('ciso-copilot-pool') trusting our
-#      AWS account (470226123496) via an AWS provider.
+#      AWS account (via the CISO_AWS_ACCOUNT_ID env var) via an AWS provider.
 #   4. Creates a Service Account 'ciso-copilot-reader' with read-only
 #      security roles: securityReviewer + cloudasset.viewer + logging.viewer.
-#   5. Allows our scanner role (arn:aws:sts::470226123496:assumed-role/
-#      ciso-copilot-gcp-scanner) to impersonate the SA via WIF.
+#   5. Allows our scanner role (assumed-role/ciso-copilot-gcp-scanner in
+#      the account from CISO_AWS_ACCOUNT_ID) to impersonate the SA via WIF.
 #   6. POSTs project ID, project number, SA email, pool/provider IDs to
 #      our /onboarding/gcp/complete webhook.
 #
@@ -61,8 +61,8 @@ if [[ -n "$ORG_ID" ]]; then
   MODE="org"
 fi
 
-COMPLETE_URL="${CISO_COMPLETE_URL:-https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/onboarding/gcp/complete}"
-AWS_ACCOUNT_ID="470226123496"
+COMPLETE_URL="${CISO_COMPLETE_URL:?CISO_COMPLETE_URL must be set — the onboarding flow passes this automatically}"
+AWS_ACCOUNT_ID="${CISO_AWS_ACCOUNT_ID:?CISO_AWS_ACCOUNT_ID must be set — the onboarding flow passes this automatically}"
 AWS_SCANNER_ROLE="ciso-copilot-gcp-scanner"
 POOL_ID="ciso-copilot-pool"
 PROVIDER_ID="ciso-copilot-aws-provider"

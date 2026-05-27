@@ -18,19 +18,32 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import sys
 import time
 
 import boto3
+from dotenv import load_dotenv
+
+# Load platform/.env if present (script lives in repo root scripts/ but reads CDK env)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "platform", ".env"))
+
+
+def _required(name: str) -> str:
+    v = os.environ.get(name)
+    if not v:
+        raise SystemExit(f"Missing env var: {name}. Set in platform/.env or export it.")
+    return v
+
 
 REGION              = "us-east-1"
-DB_CLUSTER_ARN      = "arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh"
-DB_SECRET_ARN       = "arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp"
+DB_CLUSTER_ARN      = _required("DB_CLUSTER_ARN")
+DB_SECRET_ARN       = _required("DB_SECRET_ARN")
 DB_NAME             = "ciso_copilot"
-APPROVAL_RECIPIENT  = "kkmookhey@gmail.com"
+APPROVAL_RECIPIENT  = _required("APPROVAL_RECIPIENT")
 SENDER              = "CISO Copilot <no-reply@settlingforless.com>"
-API_BASE_URL        = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1"
+API_BASE_URL        = _required("API_BASE_URL")
 SIGNING_KEY_SECRET  = "ciso-copilot/approval-signing-key"
 
 

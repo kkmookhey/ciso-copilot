@@ -6,11 +6,12 @@
 > still hurts. Product docs sit at the repo root: README → ARCHITECTURE
 > → ROADMAP.
 >
-> Last updated: 2026-05-26 (docs trio + branding pass shipped + MIT
-> license switch — see "Phase 1 team-ready" block immediately below.
-> Earlier same day: SOC Slice 1c shipped + manual gate verified
-> end-to-end on `feat/ai-powered-soc-slice-1c`. The 2026-05-25 batch
-> shipped SOC Slice 1, CME-v2 across PRs #17–#21.)
+> Last updated: 2026-05-26 (Secrets extraction shipped — Phase 2 Slice A
+> complete; see "Phase 2 Slice A" block immediately below. Earlier same
+> day: docs trio + branding pass + MIT license switch shipped; SOC Slice
+> 1c shipped + manual gate verified end-to-end on
+> `feat/ai-powered-soc-slice-1c`. The 2026-05-25 batch shipped SOC
+> Slice 1, CME-v2 across PRs #17–#21.)
 
 ## 🚀 Phase 1 team-ready — shipped (2026-05-26)
 
@@ -76,6 +77,56 @@ Both pushed to `origin/main`.
 module sub-phases (usage tracking → customer dashboard → caps →
 Stripe), and then SOC Slice 2 (identity drift) after billing. See
 `ROADMAP.md` for the phase plan.
+
+## 🚀 Phase 2 Slice A — Secrets / hardcoded-identifier extraction (2026-05-26)
+
+Last code-side gate before the MIT-public flip. Every hardcoded AWS account ID,
+API Gateway URL, ARN, personal email, and redirect URI in `platform/lib/`,
+`platform/bin/`, `platform/lambda/onboarding_*/`, `web/src/`, `ios/`, and
+`scripts/` now reads from env-var configuration. A new operator copies
+`.env.example` → real, `cdk deploy`, gets a working deployment with their
+own AWS account.
+
+**What's live and deployed:**
+- `platform/.env` augmented with `AWS_ACCOUNT_ID`, `SHASTA_DOMAIN`,
+  `API_BASE_URL`, `WEB_REDIRECT_URI`, `APP_DOMAIN`, `ADMIN_EMAILS`,
+  `APNS_PLATFORM_APP_ARN`, `APP_CERT_ARN`, `LEGACY_APP_DOMAIN`,
+  `DB_CLUSTER_ARN`, `DB_SECRET_ARN`. `platform/lib/config.ts` exposes
+  them via the existing `required()` helper.
+- `web/.env.production` (gitignored) + `web/src/lib/env.ts` Vite boundary.
+- `ios/Local.xcconfig` (gitignored) + Info.plist substitution; `APIClient.baseURL`
+  reads from `Bundle.main.infoDictionary`.
+- `/me` now emits `is_admin: bool` computed server-side from `ADMIN_EMAILS`.
+  Both `web/src/{chat,routes}/Shell.tsx` drop their local allowlist
+  constants and consume `me.user.is_admin`. Personal emails are out of the
+  production JS bundle.
+- `platform/cfn/aws-onboard.yaml` drops the three hardcoded `Default:`
+  values; the onboarding deep-link in `onboarding_aws_initiate` always
+  passed them explicitly, so customer onboarding is unchanged.
+  Azure + GCP onboard scripts now require `CISO_COMPLETE_URL` / `AWS_ACCOUNT_ID`
+  (the initiate Lambdas already inject them).
+- Test fixtures use `999999999999` instead of the real account ID across
+  `ai_scanner/`, `soc_enrichment/`, `event_router/` test suites.
+- Loose `.p8`/`.pem`/`.env` files relocated from repo root to
+  `~/.shasta/secrets/`. `workers/` directory deleted (v1 sunset).
+
+**Final grep audit:** zero hits for `470226123496`, `xoljryrb7i`, or
+`kkmookhey@` in any source file under `platform/lib/ platform/bin/
+platform/lambda/ platform/cfn/ web/src/ ios/CISOCopilot/ scripts/`. The
+only remaining account-ID leak is `platform/cdk.context.json` (standard
+CDK practice; accepted per spec §3 non-goals) and `docs/superpowers/`
+historical specs/plans (Tier 2 doc sanitization is a separate session
+before the MIT flip).
+
+**Deferred to a later session:**
+- Tier 2 — sanitize `HANDOFF.md`, `TEST_PLAN.md`, `CLAUDE.md`,
+  `docs/superpowers/specs/*.md`, `docs/superpowers/plans/*.md`.
+  Line-by-line redaction across ~30 files.
+
+**Spec:** `docs/superpowers/specs/2026-05-26-secrets-extraction-design.md`
+**Plan:** `docs/superpowers/plans/2026-05-26-secrets-extraction-plan.md`
+**Branch:** `feat/secrets-extraction`
+**Verify:** `TEST_PLAN.md` post-A7 grep gate verified
 
 ## 🚀 SOC Slice 1c — shipped & manual gate verified (2026-05-26, PR #25)
 
@@ -490,10 +541,15 @@ CME-v2 spec. After the next AWS Medium rescan:
 
 ### Known UX gaps logged (not blockers)
 
-- Framework tiles on `/ai` link to source docs but don't drill into
-  `/findings?framework=<key>`. ~10 min web tweak.
-- Redundant Entra ID P1/P2 hint copy in `AISummary.tsx:87` now overlaps
-  with the Slice 2.1 connect-page banner — trim or cross-link.
+- ~~Framework tiles on `/ai` link to source docs but don't drill into
+  `/findings?framework=<key>`.~~ **Done in PR #22 (`f62c3f4`)** —
+  `AISummary.tsx:157` is the drill-down `<Link>`; the ↗ source-doc `<a>`
+  carries `stopPropagation`.
+- ~~Redundant Entra ID P1/P2 hint copy in `AISummary.tsx:87` now overlaps
+  with the Slice 2.1 connect-page banner~~ **Done in PR #22 (`f62c3f4`)** —
+  empty-state copy is now "Connect Entra (see Connect for any licensing
+  notes) to populate this", a cross-link rather than a redundant P1/P2
+  hint. Test file uses `MemoryRouter` per the `<Link>` switch.
 
 ## 🛠 `/ai` endpoint restored (2026-05-24)
 

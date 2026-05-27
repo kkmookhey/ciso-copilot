@@ -9,8 +9,12 @@ Response:
     "connection_id": "uuid",
     "external_id":   "<one-time>",
     "script_url":    "https://cdn.settlingforless.com/azure/onboard.sh",
-    "run_command":   "curl -fsSL https://cdn.settlingforless.com/azure/onboard.sh | bash -s -- <ext_id>"
+    "run_command":   "curl -fsSL https://.../azure/onboard.sh | CISO_COMPLETE_URL=<url> bash -s -- <ext_id>"
   }
+
+The CISO_COMPLETE_URL env var is prefixed into the run_command so the
+onboard.sh script receives the correct API endpoint without any hardcoded
+fallback — AZURE_COMPLETE_URL is set by CDK from config.apiBaseUrl.
 """
 from __future__ import annotations
 
@@ -24,8 +28,9 @@ import boto3
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
-SCRIPT_URL     = os.environ["AZURE_SCRIPT_URL"]
-OUR_ACCOUNT_ID = os.environ["OUR_ACCOUNT_ID"]
+SCRIPT_URL        = os.environ["AZURE_SCRIPT_URL"]
+AZURE_COMPLETE_URL = os.environ["AZURE_COMPLETE_URL"]
+OUR_ACCOUNT_ID    = os.environ["OUR_ACCOUNT_ID"]
 
 rds_data = boto3.client("rds-data")
 
@@ -74,7 +79,7 @@ def handler(event: dict, context) -> dict:
         "connection_id": conn_id,
         "external_id":   external_id,
         "script_url":    SCRIPT_URL,
-        "run_command":   f"curl -fsSL {SCRIPT_URL} | bash -s -- {external_id}",
+        "run_command":   f"curl -fsSL {SCRIPT_URL} | CISO_COMPLETE_URL={AZURE_COMPLETE_URL} bash -s -- {external_id}",
     })
 
 

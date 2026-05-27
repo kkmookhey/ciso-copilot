@@ -2,8 +2,9 @@
 // Auto-attaches Bearer <id_token> to every request via validIdToken().
 
 import { validIdToken, signOut } from "./cognito";
+import { env } from "./env";
 
-const BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const BASE_URL = env.apiBaseUrl;
 
 export type ScanTier   = "quick" | "medium" | "deep";
 export type ScanPhase  = "region_discovery" | "first_signal" | "crown_jewel" | "full" | "done";
@@ -35,7 +36,7 @@ export interface ScanStatus {
 }
 
 export interface MeResponse {
-  user:   { email: string | null; role: string | null } | null;
+  user:   { email: string | null; role: string | null; is_admin?: boolean } | null;
   tenant: { tenant_id: string; display_name: string;
             status: "pending" | "approved" | "rejected" | "suspended" } | null;
 }

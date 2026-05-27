@@ -31,7 +31,7 @@ if [[ -z "$EXTERNAL_ID" ]]; then
   exit 1
 fi
 
-COMPLETE_URL="${CISO_COMPLETE_URL:-https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/onboarding/azure/complete}"
+COMPLETE_URL="${CISO_COMPLETE_URL:?CISO_COMPLETE_URL must be set — the onboarding flow passes this automatically}"
 SP_NAME="${CISO_SP_NAME:-CISO Copilot Reader}"
 
 # ---------- preflight ----------

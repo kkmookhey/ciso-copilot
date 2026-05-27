@@ -26,7 +26,7 @@ export function Shell() {
     <div style={{ display: "flex", height: "100vh" }}>
       <ModuleRail
         email={me?.user?.email ?? ""}
-        isAdmin={isAdmin(me?.user?.email)}
+        isAdmin={me?.user?.is_admin === true}
       />
       <main style={{ flex: 1, overflowY: "auto", background: "#FAF8F3",
                      padding: "32px 40px" }}>
@@ -34,15 +34,6 @@ export function Shell() {
       </main>
     </div>
   );
-}
-
-const ADMIN_EMAILS = new Set([
-  "kkmookhey@gmail.com",
-  "kkmookhey@transilience.ai",
-  "kkmookhey@networkintelligence.ai",
-]);
-function isAdmin(email: string | null | undefined): boolean {
-  return !!email && ADMIN_EMAILS.has(email.toLowerCase());
 }
 
 function FullPageSpinner() {

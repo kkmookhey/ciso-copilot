@@ -4,9 +4,10 @@
 
 import { validIdToken, signOut } from "../lib/cognito";
 import type { ArtifactHint, Source } from "./tools";
+import { env } from "../lib/env";
 
-const REST_BASE  = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
-const STREAM_BASE = "https://otc43ep2sidkuyv5uaxpclljsu0rkvbr.lambda-url.us-east-1.on.aws";
+const REST_BASE  = env.apiBaseUrl;
+const STREAM_BASE = env.streamBaseUrl;
 
 export type Role = "user" | "assistant" | "tool" | "system";
 

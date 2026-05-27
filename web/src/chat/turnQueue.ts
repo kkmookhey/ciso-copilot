@@ -16,8 +16,9 @@
 //     want to stop it permanently.
 
 import { validIdToken, signOut } from "../lib/cognito";
+import { env } from "../lib/env";
 
-const REST_BASE = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const REST_BASE = env.apiBaseUrl;
 
 // ---------------------------------------------------------------------------
 // Types

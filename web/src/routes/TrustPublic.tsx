@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { env } from "../lib/env";
 
 interface PublicPage {
   name:       string;
@@ -11,7 +12,7 @@ interface PublicPage {
   last_scan?:  string | null;
 }
 
-const API_BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const API_BASE_URL = env.apiBaseUrl;
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: "bg-red-500",
