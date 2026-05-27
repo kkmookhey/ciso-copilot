@@ -34,7 +34,7 @@ export class AuthStack extends cdk.Stack {
         // Approve/Reject email links target the API Gateway invoke URL until
         // DNS for api.<DOMAIN> resolves. Flip to https://api.<DOMAIN>/v1 once
         // DNS lands.
-        API_BASE_URL:       'https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1',
+        API_BASE_URL:       config.apiBaseUrl,
         // Token signing key referenced from Secrets Manager once provisioned.
         // For now, default to a fixed name; create the secret separately.
         APPROVAL_TOKEN_SECRET_NAME: 'ciso-copilot/approval-signing-key',

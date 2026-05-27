@@ -99,7 +99,7 @@ export class ApiStack extends cdk.Stack {
     // Built using the v1 prefix from the existing API stage. We use a self-referential
     // string for the complete-webhook because we don't have the API URL until after
     // synth — accepting the indirection.
-    const completeWebhookUrl = `https://xoljryrb7i.execute-api.${this.region}.amazonaws.com/v1/onboarding/aws/complete`;
+    const completeWebhookUrl = `${config.apiBaseUrl}/onboarding/aws/complete`;
 
     const onboardingInitiateFn = new lambda.Function(this, 'OnboardingAwsInitiateFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -389,7 +389,7 @@ export class ApiStack extends cdk.Stack {
         GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
         STATE_JWT_SECRET_ARN:  `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key`,
         GITHUB_APP_SLUG:       'ciso-copilot',
-        WEB_CALLBACK_URL:      'https://shasta.transilience.cloud/ai/install/callback',
+        WEB_CALLBACK_URL:      `${config.appDomain}/ai/install/callback`,
       },
     });
     props.dbCluster.grantDataApiAccess(aiGithubFn);
@@ -654,9 +654,9 @@ export class ApiStack extends cdk.Stack {
         ...dbEnv,
         ENTRA_RUNNER_FN: props.shastaRunnerEntra.functionName,
         // Canonical web app domain — the success-page link sends the user
-        // here, NOT to the cdn.* asset CloudFront. Hardcoded to avoid
-        // wiring another prop through the stack just for the lookup.
-        APP_DOMAIN:      'https://shasta.transilience.cloud',
+        // here, NOT to the cdn.* asset CloudFront. Read from config so the
+        // repo stays operator-agnostic.
+        APP_DOMAIN:      config.appDomain,
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingEntraCallbackFn);
