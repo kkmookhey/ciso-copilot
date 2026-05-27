@@ -701,8 +701,8 @@ Expected: completes successfully (new `PATCH` method + updated `connections_list
 Run:
 ```bash
 cd /Users/kkmookhey/Projects/CISOBrief/web && pnpm build && \
-  aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete && \
-  aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+  aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete && \
+  aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 Expected: build succeeds, sync uploads, invalidation created.
 
@@ -725,8 +725,8 @@ Invoke it; expected response `200` with `{"status": "updated", "selected": ["cb0
 Then confirm the DB:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT scope FROM cloud_connections WHERE conn_id = CAST('79964b99-6501-413d-8f22-0431e870184d' AS UUID)"
 ```
@@ -736,7 +736,7 @@ Then trigger a rescan (synthetic `POST .../rescan` event, body `{"tier":"quick"}
 
 - [ ] **Step 4: Web verification (note the limit)**
 
-`pnpm build` (Step 2) is the code-level gate — `tsc` proves the types line up. The pickers' **visual + interaction behaviour cannot be agent-verified** (Google OAuth blocks automated sign-in). Flag for the user: on `https://shasta.transilience.cloud/` → Connect → the Azure connection, confirm the "Subscriptions (N of M)" toggle expands, checkboxes reflect `selected`, Save persists; the Quick/Medium/Deep `ScanPicker` shows on the Azure row (not the flat Rescan button); and a subsequent scan's progress card shows "N subscriptions scanned".
+`pnpm build` (Step 2) is the code-level gate — `tsc` proves the types line up. The pickers' **visual + interaction behaviour cannot be agent-verified** (Google OAuth blocks automated sign-in). Flag for the user: on `https://$SHASTA_DOMAIN/` → Connect → the Azure connection, confirm the "Subscriptions (N of M)" toggle expands, checkboxes reflect `selected`, Save persists; the Quick/Medium/Deep `ScanPicker` shows on the Azure row (not the flat Rescan button); and a subsequent scan's progress card shows "N subscriptions scanned".
 
 - [ ] **Step 5: Update HANDOFF.md and commit**
 

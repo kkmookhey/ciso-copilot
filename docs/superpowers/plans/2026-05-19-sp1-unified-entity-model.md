@@ -33,7 +33,7 @@ which rg && rg --version | head -1
 
 # 4. Confirm AWS CLI works with the right credentials
 aws sts get-caller-identity --query Account --output text
-# Expected: 470226123496
+# Expected: $AWS_ACCOUNT_ID
 ```
 
 All four must succeed before starting.
@@ -180,8 +180,8 @@ COMMIT;
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot --region us-east-1 \
   --sql "$(cat platform/sql/005_unified_entities.sql)"
 ```
@@ -190,8 +190,8 @@ Expected: `numberOfRecordsUpdated: 0` and no errors. Verify:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot --region us-east-1 \
   --sql "SELECT COUNT(*) FROM entities; SELECT COUNT(*) FROM edges; SELECT subject_entity_id FROM findings LIMIT 1;"
 ```
@@ -202,7 +202,7 @@ Expected: 0, 0, NULL (column exists).
 ```bash
 git switch feat/sp1-unified-entities
 git add platform/sql/005_unified_entities.sql
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(sql): 005 unified entities + edges + findings.subject_entity_id"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(sql): 005 unified entities + edges + findings.subject_entity_id"
 ```
 
 ---
@@ -413,7 +413,7 @@ def test_cross_scan_edge_creates_stub_entity(monkeypatch):
         tenant_id="t1",
         source_kind="github_repo", source_natural_key="github.com/kk/foo",
         target_kind="aws_iam_role",
-        target_natural_key="arn:aws:iam::470226123496:role/Deploy",
+        target_natural_key="arn:aws:iam::$AWS_ACCOUNT_ID:role/Deploy",
         kind="deploys_to", attributes={}, evidence_packet={"version": "0.1"},
         detector_id="ai.detectors.crossdomain", detector_version="0.1.0",
     )
@@ -761,7 +761,7 @@ git add platform/lambda/ai_scanner/unified_writer.py \
         platform/lambda/ai_scanner/detectors/base.py \
         platform/lambda/ai_scanner/tests/test_unified_writer.py
 git rm platform/lambda/ai_scanner/writer.py platform/lambda/ai_scanner/tests/test_writer.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): unified_writer — entities/edges/findings with stubs + tests"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): unified_writer — entities/edges/findings with stubs + tests"
 ```
 
 ---
@@ -810,7 +810,7 @@ def _normalise(result):
 ```bash
 git switch feat/sp1-unified-entities
 git add platform/lambda/ai_scanner/tests/test_detectors.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "test(platform): update detector test runner for entity/edge sort keys"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "test(platform): update detector test runner for entity/edge sort keys"
 ```
 
 ---
@@ -950,7 +950,7 @@ Expected: 2 passed.
 git switch feat/sp1-unified-entities
 git add platform/lambda/ai_scanner/detectors/framework.py \
         platform/lambda/ai_scanner/tests/fixtures/framework/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): framework detector — EntityEmission/EdgeEmission + framework dedup"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): framework detector — EntityEmission/EdgeEmission + framework dedup"
 ```
 
 ---
@@ -993,7 +993,7 @@ git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refac
 ```bash
 git add platform/lambda/ai_scanner/detectors/model_usage.py \
         platform/lambda/ai_scanner/tests/fixtures/model_usage/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): model_usage detector — EntityEmission/EdgeEmission, ai_model dedup across repos"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): model_usage detector — EntityEmission/EdgeEmission, ai_model dedup across repos"
 ```
 
 ---
@@ -1022,7 +1022,7 @@ Same pattern. Specifics for this detector:
 ```bash
 git add platform/lambda/ai_scanner/detectors/mcp_server.py \
         platform/lambda/ai_scanner/tests/fixtures/mcp_server/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): mcp_server detector — EntityEmission/EdgeEmission + per-file natural_key"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): mcp_server detector — EntityEmission/EdgeEmission + per-file natural_key"
 ```
 
 ---
@@ -1038,7 +1038,7 @@ git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refac
 ```bash
 git add platform/lambda/ai_scanner/detectors/agentic_workflow.py \
         platform/lambda/ai_scanner/tests/fixtures/agentic_workflow/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): agentic_workflow detector — EntityEmission"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): agentic_workflow detector — EntityEmission"
 ```
 
 ---
@@ -1053,7 +1053,7 @@ git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refac
 ```bash
 git add platform/lambda/ai_scanner/detectors/vector_db.py \
         platform/lambda/ai_scanner/tests/fixtures/vector_db/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): vector_db detector — EntityEmission + dedup by name"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): vector_db detector — EntityEmission + dedup by name"
 ```
 
 ---
@@ -1068,7 +1068,7 @@ git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refac
 ```bash
 git add platform/lambda/ai_scanner/detectors/embedding.py \
         platform/lambda/ai_scanner/tests/fixtures/embedding/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): embedding detector — EntityEmission"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): embedding detector — EntityEmission"
 ```
 
 ---
@@ -1084,7 +1084,7 @@ git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refac
 ```bash
 git add platform/lambda/ai_scanner/detectors/prompt.py \
         platform/lambda/ai_scanner/tests/fixtures/prompt/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): prompt detector — EntityEmission"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): prompt detector — EntityEmission"
 ```
 
 ---
@@ -1098,7 +1098,7 @@ This detector emits only findings, no entities/edges. The finding gets `subject_
 ```bash
 git add platform/lambda/ai_scanner/detectors/secrets_in_ai_code.py \
         platform/lambda/ai_scanner/tests/fixtures/secrets_in_ai_code/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): secrets_in_ai_code — emit FindingEmission with new shape"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): secrets_in_ai_code — emit FindingEmission with new shape"
 ```
 
 ---
@@ -1119,7 +1119,7 @@ Same shape change. Specifics:
 ```bash
 git add platform/lambda/ai_scanner/detectors/correlator.py \
         platform/lambda/ai_scanner/tests/test_correlator.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "refactor(platform): correlator — EdgeEmission with kind-based references"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "refactor(platform): correlator — EdgeEmission with kind-based references"
 ```
 
 ---
@@ -1254,7 +1254,7 @@ def _run_one(body):
 ```bash
 git add platform/lambda/ai_scanner/main.py \
         platform/lambda/ai_scanner/tests/test_scan_runner.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner main — emit github_repo + use unified_writer"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner main — emit github_repo + use unified_writer"
 ```
 
 ---
@@ -1287,7 +1287,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::470226123496:role/GitHubActionsDeployRole
+          role-to-assume: arn:aws:iam::$AWS_ACCOUNT_ID:role/GitHubActionsDeployRole
           aws-region: us-east-1
       - run: aws s3 cp dist/ s3://my-bucket/ --recursive
 ```
@@ -1389,7 +1389,7 @@ def detect(ctx) -> DetectorResult:
 ```bash
 git add platform/lambda/ai_scanner/detectors/crossdomain.py \
         platform/lambda/ai_scanner/tests/fixtures/crossdomain/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — crossdomain detector (GitHub Actions → AWS IAM role)"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — crossdomain detector (GitHub Actions → AWS IAM role)"
 ```
 
 ---
@@ -1506,7 +1506,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 git switch feat/sp1-unified-entities
 git add platform/lambda/shasta_runner/app/arn_to_entity.py \
         platform/lambda/shasta_runner/app/tests/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — ARN parser for entity extraction"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — ARN parser for entity extraction"
 ```
 
 ---
@@ -1638,7 +1638,7 @@ Add `app/detectors/`, `app/unified_writer.py` to `.gitignore` in each Lambda dir
 git add platform/lambda/shasta_runner/app/enumerate_iam.py \
         platform/lambda/shasta_runner/app/tests/test_enumerate_iam.py \
         platform/lambda/shasta_runner/build.sh
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — IAM enumeration (roles + users + contains edges)"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — IAM enumeration (roles + users + contains edges)"
 ```
 
 ---
@@ -1655,7 +1655,7 @@ git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(
 ```bash
 git add platform/lambda/shasta_runner/app/enumerate_storage.py \
         platform/lambda/shasta_runner/app/tests/test_enumerate_storage.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — S3 storage enumeration"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — S3 storage enumeration"
 ```
 
 ---
@@ -1677,7 +1677,7 @@ Emissions:
 ```bash
 git add platform/lambda/shasta_runner/app/enumerate_compute.py \
         platform/lambda/shasta_runner/app/tests/test_enumerate_compute.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — EC2 + Lambda enumeration with assumes edges"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — EC2 + Lambda enumeration with assumes edges"
 ```
 
 ---
@@ -1706,7 +1706,7 @@ git add platform/lambda/shasta_runner/app/enumerate_network.py \
         platform/lambda/shasta_runner/app/tests/test_enumerate_network.py \
         platform/lambda/shasta_runner/app/main.py \
         platform/lambda/shasta_runner/build.sh
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — network enum + handler uses unified_writer"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): shasta_runner — network enum + handler uses unified_writer"
 ```
 
 ---
@@ -2009,7 +2009,7 @@ git rm -r platform/lambda/ai_scan_api/
 
 git switch feat/sp1-unified-entities
 git add platform/lambda/entities_api/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): entities_api Lambda — replaces ai_scan_api, adds graph + relationships routes"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): entities_api Lambda — replaces ai_scan_api, adds graph + relationships routes"
 ```
 
 ---
@@ -2036,7 +2036,7 @@ grep -c "EntitiesApiFn\|entities/{id}/graph" /tmp/synth-api.yaml
 ```bash
 git switch feat/sp1-unified-entities
 git add platform/lib/api-stack.ts
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): CDK — rename ai_scan_api → entities_api + add graph/relationships routes"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): CDK — rename ai_scan_api → entities_api + add graph/relationships routes"
 ```
 
 ---
@@ -2064,8 +2064,8 @@ import subprocess
 import sys
 import uuid
 
-CLUSTER_ARN = "arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh"
-SECRET_ARN  = "arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp"
+CLUSTER_ARN = "$DB_CLUSTER_ARN"
+SECRET_ARN  = "$DB_SECRET_ARN"
 DB_NAME     = "ciso_copilot"
 REGION      = "us-east-1"
 
@@ -2235,8 +2235,8 @@ Inspect the output. Expected: `Upserted N entities`, `dedup delta: ≥0`, `Migra
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot --region us-east-1 \
   --sql "SELECT kind, COUNT(*) FROM entities GROUP BY kind ORDER BY 2 DESC"
 ```
@@ -2246,7 +2246,7 @@ aws rds-data execute-statement \
 ```bash
 git switch feat/sp1-unified-entities
 git add platform/scripts/migrate_to_entities.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): data migration script ai_assets/ai_relationships → entities/edges"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): data migration script ai_assets/ai_relationships → entities/edges"
 ```
 
 ---
@@ -2338,7 +2338,7 @@ pnpm build
 cd /Users/kkmookhey/Projects/CISOBrief
 git switch feat/sp1-unified-entities
 git add web/src/lib/api.ts web/src/routes/AIInventory.tsx web/src/routes/AssetDetail.tsx
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(web): repoint AI Inventory + Asset Detail at entities API"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(web): repoint AI Inventory + Asset Detail at entities API"
 ```
 
 ---
@@ -2404,7 +2404,7 @@ cd ios
 xcodegen generate
 xcodebuild build \
   -project CISOCopilot.xcodeproj -scheme CISOCopilot \
-  -destination "id=00008140-001E104E3A9B001C" \
+  -destination "id=<IOS_DEVICE_UDID>" \
   -derivedDataPath build-device -allowProvisioningUpdates 2>&1 | tail -5
 # Expected: BUILD SUCCEEDED
 ```
@@ -2415,7 +2415,7 @@ xcodebuild build \
 cd /Users/kkmookhey/Projects/CISOBrief
 git switch feat/sp1-unified-entities
 git add ios/CISOCopilot/Services/APIClient.swift ios/CISOCopilot/Views/AI/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(ios): repoint AI tab at entities API"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(ios): repoint AI tab at entities API"
 ```
 
 ---
@@ -2452,12 +2452,12 @@ Expected: both stacks complete.
 
 ```bash
 aws lambda update-function-code --function-name ciso-copilot-ai-scanner \
-  --image-uri 470226123496.dkr.ecr.us-east-1.amazonaws.com/ai-scanner:latest \
+  --image-uri $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ai-scanner:latest \
   --query LastUpdateStatus --output text
 aws lambda wait function-updated --function-name ciso-copilot-ai-scanner
 
 aws lambda update-function-code --function-name ciso-copilot-shasta-runner \
-  --image-uri 470226123496.dkr.ecr.us-east-1.amazonaws.com/ciso-copilot-shasta-runner:latest \
+  --image-uri $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ciso-copilot-shasta-runner:latest \
   --query LastUpdateStatus --output text
 aws lambda wait function-updated --function-name ciso-copilot-shasta-runner
 ```
@@ -2473,20 +2473,20 @@ python3 platform/scripts/migrate_to_entities.py
 ```bash
 cd /Users/kkmookhey/Projects/CISOBrief/web
 pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete --region us-east-1
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*' --region us-east-1
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete --region us-east-1
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*' --region us-east-1
 ```
 
 - [ ] **Step 7: Install iOS**
 
 ```bash
-xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
+xcrun devicectl device install app --device <IOS_DEVICE_UDID> \
   /Users/kkmookhey/Projects/CISOBrief/ios/build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
 ```
 
 - [ ] **Step 8: E2E verification**
 
-1. Hard-reload `https://shasta.transilience.cloud/`.
+1. Hard-reload `https://$SHASTA_DOMAIN/`.
 2. Trigger an AWS scan from /connect (rescan AWS connection). Verify:
    ```bash
    aws rds-data execute-statement --resource-arn ... --sql \

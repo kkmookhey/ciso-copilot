@@ -21,9 +21,9 @@ These steps are not coded; they are clicked through on `github.com` and `console
 1. Go to `https://github.com/settings/apps/new` (you, KK, while signed in as `kkmookhey`).
 2. Fill in:
    - **GitHub App name:** `CISO Copilot`
-   - **Homepage URL:** `https://shasta.transilience.cloud`
+   - **Homepage URL:** `https://$SHASTA_DOMAIN`
    - **Callback URL:** *(leave blank — we use a Setup URL instead)*
-   - **Setup URL (optional):** `https://shasta.transilience.cloud/ai/install/callback`
+   - **Setup URL (optional):** `https://$SHASTA_DOMAIN/ai/install/callback`
    - **Redirect on update:** checked
    - **Webhook → Active:** unchecked (no webhooks in 1a)
 3. **Repository permissions:**
@@ -44,7 +44,7 @@ These steps are not coded; they are clicked through on `github.com` and `console
 
 ### P2. Store credentials in AWS Secrets Manager
 
-Run locally (with AWS creds for the dev account, `470226123496`):
+Run locally (with AWS creds for the dev account, `$AWS_ACCOUNT_ID`):
 
 ```bash
 PEM_PATH="$HOME/Downloads/ciso-copilot.2026-05-18.private-key.pem"  # edit
@@ -243,8 +243,8 @@ COMMIT;
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "$(cat platform/sql/004_phase_ai.sql)" \
   --region us-east-1
@@ -256,8 +256,8 @@ Expected: returns `{"numberOfRecordsUpdated": 0}` with no errors. (Data API spli
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'ai_%' ORDER BY table_name" \
   --region us-east-1
@@ -269,8 +269,8 @@ Also verify the new findings column:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT column_name FROM information_schema.columns WHERE table_name='findings' AND column_name='evidence_packet'" \
   --region us-east-1
@@ -923,7 +923,7 @@ def env(monkeypatch):
     monkeypatch.setenv("STATE_JWT_SECRET_ARN", "arn:state")
     monkeypatch.setenv("GITHUB_APP_SECRET_ARN", "arn:gh")
     monkeypatch.setenv("GITHUB_APP_SLUG", "ciso-copilot")
-    monkeypatch.setenv("WEB_CALLBACK_URL", "https://shasta.transilience.cloud/ai/install/callback")
+    monkeypatch.setenv("WEB_CALLBACK_URL", "https://$SHASTA_DOMAIN/ai/install/callback")
 
 
 def _event_authed(tenant_id: str, sub: str = "user-sub-1",
@@ -1641,7 +1641,7 @@ Insert in `api-stack.ts` near the other Lambda definitions (e.g. just before the
         GITHUB_APP_SECRET_ARN: `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/github-app/credentials`,
         STATE_JWT_SECRET_ARN:  `arn:aws:secretsmanager:${this.region}:${this.account}:secret:ciso-copilot/state-jwt-signing-key`,
         GITHUB_APP_SLUG:       'ciso-copilot',
-        WEB_CALLBACK_URL:      'https://shasta.transilience.cloud/ai/install/callback',
+        WEB_CALLBACK_URL:      'https://$SHASTA_DOMAIN/ai/install/callback',
       },
     });
     props.dbCluster.grantDataApiAccess(aiGithubFn);
@@ -1717,7 +1717,7 @@ ID_TOKEN="eyJ..."   # paste
 
 curl -s -H "Authorization: Bearer $ID_TOKEN" \
   -X POST -H "Content-Type: application/json" -d '{}' \
-  https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/ai/connections/github/install_url | jq .
+  $API_BASE_URL/ai/connections/github/install_url | jq .
 ```
 
 Expected:
@@ -1728,7 +1728,7 @@ Expected:
 
 ```bash
 curl -s -H "Authorization: Bearer $ID_TOKEN" \
-  https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/ai/connections | jq .
+  $API_BASE_URL/ai/connections | jq .
 ```
 
 Expected:
@@ -2149,8 +2149,8 @@ git commit -m "feat(web): /ai/connections/:id/repos repo picker (Scan disabled u
 
 ```bash
 cd web && pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 Expected: sync succeeds, invalidation in progress.
@@ -2159,15 +2159,15 @@ Expected: sync succeeds, invalidation in progress.
 
 In a browser, on a clean profile:
 
-1. Go to `https://shasta.transilience.cloud/`.
-2. Sign in with your Google identity (`kkmookhey@gmail.com` should land tenant-approved).
+1. Go to `https://$SHASTA_DOMAIN/`.
+2. Sign in with your Google identity (`<ADMIN_EMAIL>` should land tenant-approved).
 3. Click **Connect clouds** in the nav.
 4. Click the new **GitHub** card.
 5. Browser redirects to `https://github.com/apps/ciso-copilot/installations/new?state=…`.
 6. On the GitHub install page, choose your `kkmookhey` user.
 7. Pick **Only select repositories** and select 3 repos with real AI code (e.g. anything that imports `openai`, `anthropic`, `langchain`).
 8. Click **Install**.
-9. GitHub redirects to `https://shasta.transilience.cloud/ai/install/callback?installation_id=…&state=…&setup_action=install`.
+9. GitHub redirects to `https://$SHASTA_DOMAIN/ai/install/callback?installation_id=…&state=…&setup_action=install`.
 10. After a brief "Finishing GitHub install…" screen, the URL changes to `/ai/connections/<uuid>/repos`.
 11. The selected 3 repos appear in the table with their last-push dates and language.
 12. The **Scan** buttons are visible but greyed out — that's expected (1b enables them).
@@ -2176,8 +2176,8 @@ In a browser, on a clean profile:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT id, tenant_id, provider, status, github_installation_id, github_org_name FROM ai_connections" \
   --region us-east-1

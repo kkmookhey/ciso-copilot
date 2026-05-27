@@ -619,7 +619,7 @@ Expected: ECR push completes; new digest printed.
 ```bash
 aws lambda update-function-code \
   --function-name ciso-copilot-shasta-runner-entra \
-  --image-uri 470226123496.dkr.ecr.us-east-1.amazonaws.com/shasta-runner-entra:latest
+  --image-uri $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/shasta-runner-entra:latest
 ```
 
 Wait for `LastUpdateStatus=Successful`:
@@ -635,8 +635,8 @@ Expected: status flips to `Successful` within ~30 seconds.
 ```bash
 cd /Users/kkmookhey/Projects/CISOBrief/web && \
   pnpm build && \
-  aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete && \
-  aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*' \
+  aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete && \
+  aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*' \
     --query 'Invalidation.{Id:Id,Status:Status}' --output text
 ```
 
@@ -652,14 +652,14 @@ Expected: CloudFront invalidation `InProgress` (becomes `Completed` in ~1-3 minu
 
 - [ ] **Step 1: Rescan an Entra-connected tenant**
 
-KK clicks "Scan" on the Entra row at `https://shasta.transilience.cloud/scan`. Wait for completion.
+KK clicks "Scan" on the Entra row at `https://$SHASTA_DOMAIN/scan`. Wait for completion.
 
 - [ ] **Step 2: Confirm the flag is set**
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT conn_id::text, scope FROM cloud_connections WHERE cloud_type='entra' AND status='active'"
 ```
@@ -668,7 +668,7 @@ Expected (Free-tier tenant): `scope` shows `{"signin_premium_required": true}`.
 
 - [ ] **Step 3: Confirm the banner renders**
 
-KK refreshes `https://shasta.transilience.cloud/connect` in an incognito window. Confirm the amber banner appears beneath the Entra row with the expected copy + Microsoft docs link.
+KK refreshes `https://$SHASTA_DOMAIN/connect` in an incognito window. Confirm the amber banner appears beneath the Entra row with the expected copy + Microsoft docs link.
 
 - [ ] **Step 4: (Optional) confirm the clear-path works**
 

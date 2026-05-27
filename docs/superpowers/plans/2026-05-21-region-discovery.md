@@ -689,8 +689,8 @@ Find an active AWS connection. Query for one:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT conn_id::text, tenant_id::text, account_identifier, credentials_secret_arn FROM cloud_connections WHERE cloud='aws' AND status='active' LIMIT 1"
 ```
@@ -712,8 +712,8 @@ Generate `<scan-uuid-medium>`. Insert the scan row (`scope` starts empty — the
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, tier, scope) VALUES (CAST('<scan-uuid-medium>' AS UUID), CAST('<tenant>' AS UUID), CAST('<conn>' AS UUID), 'manual', 'queued', 'medium', CAST('{}' AS JSONB))"
 ```
@@ -747,8 +747,8 @@ Confirm `scans.scope` was written:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT scope FROM scans WHERE scan_id=CAST('<scan-uuid-medium>' AS UUID)"
 ```
@@ -761,8 +761,8 @@ Repeat Steps 3-4 with a fresh `<scan-uuid-quick>`, `tier='quick'` in the INSERT,
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT DISTINCT check_id FROM findings WHERE scan_id=CAST('<scan-uuid-quick>' AS UUID) AND check_id LIKE ANY (ARRAY['sqs-%','secretsmanager-%','ecr-%']) ORDER BY check_id"
 ```

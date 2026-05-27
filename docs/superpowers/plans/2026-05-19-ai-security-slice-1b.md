@@ -149,7 +149,7 @@ npx cdk deploy CisoCopilotEcr --require-approval never
 
 ```bash
 git add platform/lib/ecr-stack.ts platform/bin/platform.ts
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): add ai-scanner ECR repo"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): add ai-scanner ECR repo"
 ```
 
 ---
@@ -227,7 +227,7 @@ npx cdk deploy CisoCopilotScan --require-approval never
 
 ```bash
 git add platform/lib/scan-stack.ts
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): add ai-scan-queue SQS + DLQ in scan-stack"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): add ai-scan-queue SQS + DLQ in scan-stack"
 ```
 
 ---
@@ -385,7 +385,7 @@ Watch for failures — if `dnf install` errors on `ripgrep` (sometimes called `r
 
 ```bash
 git add platform/lambda/ai_scanner/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): scaffold ai_scanner Lambda (Dockerfile + build.sh + stub handler)"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): scaffold ai_scanner Lambda (Dockerfile + build.sh + stub handler)"
 ```
 
 ---
@@ -647,7 +647,7 @@ Run the tests:
 
 ```bash
 git add platform/lambda/ai_scanner/scan_runner.py platform/lambda/ai_scanner/tests/test_scan_runner.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — ScanContext + clone_repo (with 4GB ceiling)"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — ScanContext + clone_repo (with 4GB ceiling)"
 ```
 
 ---
@@ -1060,7 +1060,7 @@ Run the tests:
 
 ```bash
 git add platform/lambda/ai_scanner/detectors/base.py platform/lambda/ai_scanner/detectors/__init__.py platform/lambda/ai_scanner/writer.py platform/lambda/ai_scanner/tests/test_writer.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — detector base + transactional writer"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — detector base + transactional writer"
 ```
 
 (Create `detectors/__init__.py` as empty before the commit if not already present.)
@@ -1211,7 +1211,7 @@ def build(*,
 # Expected: 1 passed
 
 git add platform/lambda/ai_scanner/evidence.py platform/lambda/ai_scanner/detectors/_walk.py platform/lambda/ai_scanner/tests/test_evidence.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — evidence packet builder + ripgrep helper"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — evidence packet builder + ripgrep helper"
 ```
 
 ---
@@ -1523,7 +1523,7 @@ Expected: 2 passed (langchain_in_repo + no_framework).
 
 ```bash
 git add platform/lambda/ai_scanner/detectors/framework.py platform/lambda/ai_scanner/tests/fixtures/framework/ platform/lambda/ai_scanner/tests/test_detectors.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — framework detector + fixtures"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — framework detector + fixtures"
 ```
 
 ---
@@ -1737,7 +1737,7 @@ def detect(ctx) -> DetectorResult:
 # Expected: 3 passed
 
 git add platform/lambda/ai_scanner/detectors/model_usage.py platform/lambda/ai_scanner/tests/fixtures/model_usage/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — model_usage detector (OpenAI/Anthropic/Bedrock) + fixtures"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — model_usage detector (OpenAI/Anthropic/Bedrock) + fixtures"
 ```
 
 ---
@@ -1802,7 +1802,7 @@ Use `ctx.repo_workdir.rglob("mcp.json")` and `rglob("claude_desktop_config.json"
 # Expected: 2 passed
 
 git add platform/lambda/ai_scanner/detectors/mcp_server.py platform/lambda/ai_scanner/tests/fixtures/mcp_server/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — mcp_server detector (Python AST + mcp.json) + fixtures"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — mcp_server detector (Python AST + mcp.json) + fixtures"
 ```
 
 ---
@@ -2190,7 +2190,7 @@ Also re-run the full suite to confirm nothing regressed:
 
 ```bash
 git add platform/lambda/ai_scanner/main.py platform/lambda/ai_scanner/tests/test_scan_runner.py
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — wire handler to orchestrate clone → detectors → correlator → commit"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scanner — wire handler to orchestrate clone → detectors → correlator → commit"
 ```
 
 ---
@@ -2218,7 +2218,7 @@ Helpers (`resp`, `resolve_tenant_id`) are copied verbatim from `ai_github/helper
 
 ```bash
 git add platform/lambda/ai_scan_api/
-git -c user.email=kkmookhey@gmail.com -c user.name="KK Mookhey" commit -m "feat(platform): ai_scan_api Lambda — 5 routes (POST scans + GET scans/assets)"
+git -c user.email=<ADMIN_EMAIL> -c user.name="KK Mookhey" commit -m "feat(platform): ai_scan_api Lambda — 5 routes (POST scans + GET scans/assets)"
 ```
 
 ---
@@ -2477,8 +2477,8 @@ npx cdk deploy CisoCopilotScan CisoCopilotApi --require-approval never
 ```bash
 cd web
 pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete --region us-east-1
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*' --region us-east-1
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete --region us-east-1
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*' --region us-east-1
 ```
 
 - [ ] **Step 4: Build + install iOS**
@@ -2488,10 +2488,10 @@ cd ios
 xcodegen generate
 xcodebuild build \
   -project CISOCopilot.xcodeproj -scheme CISOCopilot \
-  -destination "id=00008140-001E104E3A9B001C" \
+  -destination "id=<IOS_DEVICE_UDID>" \
   -derivedDataPath build-device \
   -allowProvisioningUpdates
-xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
+xcrun devicectl device install app --device <IOS_DEVICE_UDID> \
   build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
 ```
 
@@ -2512,8 +2512,8 @@ DB sanity:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT asset_type, COUNT(*) FROM ai_assets GROUP BY asset_type ORDER BY 2 DESC" \
   --region us-east-1

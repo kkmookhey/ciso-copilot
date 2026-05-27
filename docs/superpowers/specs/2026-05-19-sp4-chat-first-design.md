@@ -146,7 +146,7 @@ conversation rail and source side-sheet collapsible.
 │ Connect    │  Last week       │  │   • chart_donut     │      │  packet  │
 │ Admin      │  ─ Tuesday sync  │  │   ↗ source chip     │      │          │
 │            │                  │  └─────────────────────┘      │          │
-│ kkmookhey@ │                  │                               │          │
+│ <admin-email-prefix> │                  │                               │          │
 │ gmail.com  │                  │  ┌── composer ─────────┐      │          │
 │            │                  │  │ 🎤 [Ask anything…] ↑ │     │          │
 │            │                  │  └─────────────────────┘      │          │

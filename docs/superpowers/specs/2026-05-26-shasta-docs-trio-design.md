@@ -45,13 +45,13 @@ first thing a reader sees on GitHub.
 
 | Section | Job | Notes |
 |---------|-----|-------|
-| Hero | Hook + live link | Logo, "Shasta by Transilience — the Full Stack Security OS", 90-char one-liner, link to `shasta.transilience.cloud` |
+| Hero | Hook + live link | Logo, "Shasta by Transilience — the Full Stack Security OS", 90-char one-liner, link to `$SHASTA_DOMAIN` |
 | The thesis | Why one OS | ~150 words on the fragmentation problem (Wiz + Sentinel + Defender + Drata + Snyk + …) and what "one OS" actually means: unified findings model, shared compliance crosswalk, shared identity graph, shared evidence packets, shared front door |
 | What Shasta covers today | Four-quadrant feature map | Cloud security / AI security / SOC / Compliance — with sub-bullets per quadrant pointing at the actual shipped scanners + sub-projects |
 | The four surfaces | Web / iOS / voice / chat | Table with "what each surface is best at" — e.g. iOS is the alerting+handoff companion, voice is the hands-free walk-through, web is the analyst console, chat is the question-answer surface |
 | Sub-projects shipped | Timeline table | Subtle date-stamped table of shipped modules. Lets velocity speak without saying it. ~10–12 rows. |
 | How this was built | Light principles section | ~150 words. Acknowledges AI-augmented development (Claude Code + Anthropic SDK) without dwelling. Key principles: plan-first / spec-first workflow, vertical slices over horizontal phases, test-driven where possible, evidence-before-completion, subagent-driven implementation for parallel work, OSS leverage (Shasta + Whitney + Trivy + Semgrep) over reinvention. Sells *how* we ship velocity responsibly, not *that* we shipped fast. |
-| Live URLs + try it | Where to actually look | `shasta.transilience.cloud` + Cognito sign-in (Google / Microsoft federation) |
+| Live URLs + try it | Where to actually look | `$SHASTA_DOMAIN` + Cognito sign-in (Google / Microsoft federation) |
 | Tech stack | One-line-per-layer summary | AWS CDK + Lambda Python + Aurora Postgres + Cognito + EventBridge + SQS + ECR + Vite/React/TS + SwiftUI + WebRTC + LiteLLM |
 | Run it locally | Honest pointer | "This is a multi-tenant SaaS-shaped codebase; full self-host guide is roadmap. Today's path: live URL above, or for the curious — point at HANDOFF.md + CLAUDE.md for the deployment commands. Full self-host docs land when there's time." |
 | Links | Cross-refs | ARCHITECTURE.md, ROADMAP.md, HANDOFF.md (state), BACKLOG.md (open items) |

@@ -774,8 +774,8 @@ Trigger a Quick rescan of the existing AWS connection (via the web app's scan pi
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT scan_id, status, phase, tier, jsonb_typeof(scope) AS scope_type FROM scans ORDER BY started_at DESC LIMIT 3"
 ```

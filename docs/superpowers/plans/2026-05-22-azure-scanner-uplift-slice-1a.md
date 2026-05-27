@@ -1412,8 +1412,8 @@ A scan row must exist before the scanner runs (the scanner UPDATEs it). Insert o
 First, insert a `queued` scan row (replace `<SCAN_ID>` with a fresh UUID — generate with `python3 -c "import uuid;print(uuid.uuid4())"`):
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, tier, phase) VALUES (CAST('<SCAN_ID>' AS UUID), CAST('68db8abc-6388-4676-afe7-f24f8e49d6eb' AS UUID), CAST('79964b99-6501-413d-8f22-0431e870184d' AS UUID), 'manual', 'queued', 'quick', 'region_discovery')"
 ```
@@ -1443,8 +1443,8 @@ aws ecs run-task \
 Poll the scan row (a Quick scan should finish in a few minutes):
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT status, phase, tier, jsonb_typeof(scope) AS scope_type, (stats->>'findings') AS findings FROM scans WHERE scan_id = CAST('<SCAN_ID>' AS UUID)"
 ```
@@ -1454,8 +1454,8 @@ Expected: `status` = `completed` (or `partial`), `phase` = `done`, `tier` = `qui
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT count(*) FROM entities WHERE kind = 'azure_subscription'"
 ```

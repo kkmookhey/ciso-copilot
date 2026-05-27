@@ -17,8 +17,8 @@
 - **Repo root:** `/Users/kkmookhey/Projects/CISOBrief`. Web app in `web/`, platform in `platform/`. Web package manager is **pnpm**.
 - **API lambdas are not unit-tested in this repo** (no test harness for them) — verify backend Python changes structurally (`python3 -c "import ast; ast.parse(...)"`) and by validating SQL against the live DB with a read-only `aws rds-data` call, then by a post-deploy smoke check. This mirrors how the scanner plan handled non-importable code.
 - **Aurora Data API ARNs** (for SQL validation):
-  - cluster: `arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh`
-  - secret: `arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp`
+  - cluster: `$DB_CLUSTER_ARN`
+  - secret: `$DB_SECRET_ARN`
   - database: `ciso_copilot`
 - **`scans` table columns** (confirmed live): `scan_id, tenant_id, conn_id, trigger, status, scope, step_fn_arn, started_at, finished_at, error, stats, tier, phase`. There is **no `created_at`** — `started_at` defaults to `now()` at insert, so order "latest scan" by `started_at DESC`.
 - **`tier`** ∈ `quick|medium|deep` (default `quick`). **`phase`** ∈ `region_discovery|first_signal|crown_jewel|full|done` (default `done` — which is wrong for a fresh queued scan; Task 2 fixes the rescan insert to set `region_discovery`).
@@ -124,8 +124,8 @@ Run (read-only — the JOIN must parse and execute):
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn "arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh" \
-  --secret-arn "arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp" \
+  --resource-arn "$DB_CLUSTER_ARN" \
+  --secret-arn "$DB_SECRET_ARN" \
   --database ciso_copilot \
   --sql "SELECT c.conn_id::text, s.scan_id::text, s.tier, s.status, s.phase, s.started_at::text FROM cloud_connections c LEFT JOIN LATERAL (SELECT scan_id, tier, status, phase, started_at FROM scans WHERE scans.conn_id = c.conn_id ORDER BY started_at DESC LIMIT 1) s ON true ORDER BY c.created_at DESC LIMIT 5" \
   --output json
@@ -1144,8 +1144,8 @@ Expected: `CisoCopilotApi` deploys; the connections Lambda picks up the new `SCA
 ```bash
 cd web
 pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 - [ ] **Step 4: Verify `GET /connections` returns `latest_scan`**

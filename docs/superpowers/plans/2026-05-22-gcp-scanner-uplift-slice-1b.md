@@ -627,7 +627,7 @@ Expected: `legacy GCP Lambda retired`.
 
 - [ ] **Step 4: Live-verify a rescan through the real trigger code**
 
-The GCP connection: `conn_id` `219f41eb-311c-42a8-8e76-c473a7dbf3b4`, `tenant_id` `99d08352-53dd-4b59-beed-92cc755cb802` (confirm it is still the most-recent active GCP connection with: `aws rds-data execute-statement --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp --database ciso_copilot --sql "SELECT conn_id, tenant_id FROM cloud_connections WHERE cloud_type='gcp' AND status='active' ORDER BY created_at DESC LIMIT 1" --output json`).
+The GCP connection: `conn_id` `219f41eb-311c-42a8-8e76-c473a7dbf3b4`, `tenant_id` `99d08352-53dd-4b59-beed-92cc755cb802` (confirm it is still the most-recent active GCP connection with: `aws rds-data execute-statement --resource-arn $DB_CLUSTER_ARN --secret-arn $DB_SECRET_ARN --database ciso_copilot --sql "SELECT conn_id, tenant_id FROM cloud_connections WHERE cloud_type='gcp' AND status='active' ORDER BY created_at DESC LIMIT 1" --output json`).
 
 Invoke `ConnectionsListFn` directly with a synthetic API Gateway proxy event for `POST /connections/{id}/rescan` — this exercises the real `_rescan` → `_rescan_gcp` → `ecs:RunTask` path (`_resolve_tenant_id` reads the Cognito claims from `requestContext.authorizer.claims`):
 
@@ -642,7 +642,7 @@ cat > /tmp/gcp-rescan-event.json <<'EOF'
     "authorizer": {
       "claims": {
         "custom:tenant_id": "99d08352-53dd-4b59-beed-92cc755cb802",
-        "email": "kkmookhey@gmail.com"
+        "email": "<ADMIN_EMAIL>"
       }
     }
   }
@@ -661,13 +661,13 @@ Take the `scan_id` from Step 4. Poll:
 
 ```bash
 SCAN_ID=<scan_id from step 4>
-until aws rds-data execute-statement --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp --database ciso_copilot --sql "SELECT status, phase FROM scans WHERE scan_id=CAST('$SCAN_ID' AS UUID)" --output json | python3 -c "import sys,json; r=json.load(sys.stdin)['records'][0]; s=r[0]['stringValue']; print('status=',s,'phase=',r[1].get('stringValue')); sys.exit(0 if s in ('completed','failed','partial') else 1)"; do sleep 20; done
+until aws rds-data execute-statement --resource-arn $DB_CLUSTER_ARN --secret-arn $DB_SECRET_ARN --database ciso_copilot --sql "SELECT status, phase FROM scans WHERE scan_id=CAST('$SCAN_ID' AS UUID)" --output json | python3 -c "import sys,json; r=json.load(sys.stdin)['records'][0]; s=r[0]['stringValue']; print('status=',s,'phase=',r[1].get('stringValue')); sys.exit(0 if s in ('completed','failed','partial') else 1)"; do sleep 20; done
 ```
 
 Expected: terminates at `status=completed` (or `partial`), `phase=done`. Then confirm findings landed:
 
 ```bash
-aws rds-data execute-statement --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp --database ciso_copilot --sql "SELECT count(*) FROM findings WHERE scan_id=CAST('$SCAN_ID' AS UUID)" --output json
+aws rds-data execute-statement --resource-arn $DB_CLUSTER_ARN --secret-arn $DB_SECRET_ARN --database ciso_copilot --sql "SELECT count(*) FROM findings WHERE scan_id=CAST('$SCAN_ID' AS UUID)" --output json
 ```
 
 Expected: a non-zero finding count — confirming the rescan trigger started the Fargate task and it ran end-to-end.

@@ -1093,7 +1093,7 @@ If the image URI pins a digest, run a Lambda update:
 ```bash
 aws lambda update-function-code \
   --function-name ciso-copilot-shasta-runner-entra \
-  --image-uri 470226123496.dkr.ecr.us-east-1.amazonaws.com/shasta-runner-entra:latest
+  --image-uri $AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/shasta-runner-entra:latest
 ```
 
 - [ ] **Step 3: No CDK deploy required** unless the image-URI was digest-pinned (Step 2). Document the path taken.
@@ -1108,8 +1108,8 @@ aws lambda update-function-code \
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT conn_id::text, tenant_id::text, display_name, status FROM cloud_connections WHERE cloud_type='entra' AND status='active'"
 ```
@@ -1124,8 +1124,8 @@ KK clicks "Scan" on the Entra row at `/scan`, or the agent invokes the rescan AP
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT check_id, status, severity, count(*) FROM findings WHERE check_id LIKE 'ai_signin_%' GROUP BY 1, 2, 3 ORDER BY 1, 2"
 ```
@@ -1147,7 +1147,7 @@ Likely causes:
 
 - [ ] **Step 4: Confirm `/ai` view picks them up**
 
-KK refreshes `https://shasta.transilience.cloud/ai` in an incognito window. Expected changes from S1's baseline:
+KK refreshes `https://$SHASTA_DOMAIN/ai` in an incognito window. Expected changes from S1's baseline:
 - **By-source** row: Entra tile no longer 0; shows total AI-touching count (includes the new sign-in findings + any prior entra findings tagged via the predicate).
 - **Top AI users**: table populates with users who appeared in the sign-in events, ranked by Fail + Partial counts.
 - **Score**: Fail count goes up by the number of `ai_signin_personal_tier` + `ai_signin_unknown_tier` findings.

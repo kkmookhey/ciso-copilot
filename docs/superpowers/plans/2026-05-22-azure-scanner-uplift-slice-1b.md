@@ -659,8 +659,8 @@ aws lambda list-functions --query "Functions[?contains(FunctionName,'Connections
 Get a valid `sso_subject` for that tenant (the synthetic event needs it — `_resolve_tenant_id` looks the tenant up by the Cognito `sub`):
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT sso_subject FROM users WHERE tenant_id = CAST('99d08352-53dd-4b59-beed-92cc755cb802' AS UUID) LIMIT 1"
 ```
@@ -690,8 +690,8 @@ Expected: a `200` response with `{"scan_id": "<uuid>", "status": "queued"}`.
 Poll the scan row (use the `scan_id` from Step 2):
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT status, phase, tier, jsonb_typeof(scope) AS scope_type, (stats->>'findings') AS findings FROM scans WHERE scan_id = CAST('<SCAN_ID>' AS UUID)"
 ```

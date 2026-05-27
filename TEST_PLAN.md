@@ -6,8 +6,13 @@
 > Target: a stranger could land on the web app, sign in, connect a cloud,
 > see findings, all on their own.
 
-**Web app**: https://shasta.transilience.cloud/
-**Test account**: KK's `kkmookhey@gmail.com` (Google sign-in; Microsoft on web is a known-broken path — see test 2).
+**Web app**: https://$SHASTA_DOMAIN/
+**Test account**: KK's `<ADMIN_EMAIL>` (Google sign-in; Microsoft on web is a known-broken path — see test 2).
+
+> **Configuration note.** Bash blocks below use `$VAR` references
+> (account ID, ARNs, domains). Source `platform/.env` first
+> (`set -a && . platform/.env && set +a`); `<PLACEHOLDER>` tokens are
+> CDK stack outputs.
 
 Each test below: do the action, write **PASS / FAIL / observation**. If FAIL, paste what you saw — we'll fix in line.
 
@@ -22,7 +27,7 @@ Each test below: do the action, write **PASS / FAIL / observation**. If FAIL, pa
 ### T1.2 — Sign-in with Google (the working path)
 1. Click "Sign in with corporate account".
 2. On Cognito Hosted UI, click "Google".
-3. Pick `kkmookhey@gmail.com` (or sign in if not already).
+3. Pick `<ADMIN_EMAIL>` (or sign in if not already).
 4. Expectation: redirected back to web at `/callback`, then `/`, see Welcome screen with tenant name (`gmail.com`).
 5. Pull-down browser refresh: still signed in (token persisted in `localStorage`).
 
@@ -47,7 +52,7 @@ Your tenant `gmail.com` is already approved in DB; this section is a smoke check
 1. After T1.2, you should see Welcome directly, **not** the "Access request pending" screen.
 
 ### T2.2 — Approval email path (cold)
-*Skip this for now unless we sign in with a fresh email.* If we register a new tenant, we should see an approval email in `kkmookhey@gmail.com` from `kkmookhey@gmail.com` (sandbox-SES sender) within ~1 min. The Approve link should flip tenant to `approved`.
+*Skip this for now unless we sign in with a fresh email.* If we register a new tenant, we should see an approval email in `<ADMIN_EMAIL>` from `<ADMIN_EMAIL>` (sandbox-SES sender) within ~1 min. The Approve link should flip tenant to `approved`.
 
 ---
 
@@ -66,7 +71,7 @@ Your tenant `gmail.com` is already approved in DB; this section is a smoke check
 ### T3.3 — Azure tile → generate Cloud Shell command
 1. Click Azure.
 2. Expectation: card with "Run in Azure Cloud Shell" + a `curl … | bash` command + "Open Cloud Shell" button.
-3. Verify the command points at `https://d2pvi2ahuyphb0.cloudfront.net/cfn/azure/onboard.sh` with `?conn_id=...&external_id=...&api_base=...`.
+3. Verify the command points at `https://<CDN_HOSTNAME>/cfn/azure/onboard.sh` with `?conn_id=...&external_id=...&api_base=...`.
 4. **Optional**: actually paste it into a real Azure Cloud Shell to onboard a real subscription. If you don't have an Azure tenant handy, just verify the curl command renders correctly.
 
 ### T3.4 — Entra tile → admin-consent URL
@@ -78,7 +83,7 @@ Your tenant `gmail.com` is already approved in DB; this section is a smoke check
 ### T3.5 — GCP tile → generate gcloud script
 1. Click GCP.
 2. Expectation: card with "Run in Google Cloud Shell" + a `curl … | bash` command.
-3. Verify the command points at `https://d2pvi2ahuyphb0.cloudfront.net/cfn/gcp/onboard.sh`.
+3. Verify the command points at `https://<CDN_HOSTNAME>/cfn/gcp/onboard.sh`.
 4. **Optional**: paste in a real GCP Cloud Shell against a test project.
 
 ### T3.6 — Network errors
@@ -123,11 +128,11 @@ Your tenant `gmail.com` is already approved in DB; this section is a smoke check
 3. Expectation: no surprise sign-in screen; the refresh-token flow in `lib/cognito.ts` should silently re-mint.
 
 ### T5.2 — Direct deep-link
-1. From signed-in state, paste `https://shasta.transilience.cloud/findings` into a new tab.
+1. From signed-in state, paste `https://$SHASTA_DOMAIN/findings` into a new tab.
 2. Expectation: lands directly on Findings, not signed back out.
 
 ### T5.3 — Direct deep-link while signed out
-1. Open in incognito, paste `https://shasta.transilience.cloud/findings`.
+1. Open in incognito, paste `https://$SHASTA_DOMAIN/findings`.
 2. Expectation: redirected to `/signin`. After sign-in, you should land on Findings (or Welcome — depends on what the app remembers).
 
 ### T5.4 — Sign-out clears state
@@ -180,10 +185,10 @@ Skip Section 2 unless we register a new tenant on purpose.
 
 ### Setup (one-time per test session)
 
-- Test AWS account `470226123496` already onboarded with `ConfigRecordingMode=essentials` (default in the latest aws-onboard.yaml).
+- Test AWS account `$AWS_ACCOUNT_ID` already onboarded with `ConfigRecordingMode=essentials` (default in the latest aws-onboard.yaml).
 - Test user has `device_token` populated in the `users` table (verify via Aurora query).
 - iPhone signed in to CISO Copilot iOS app on TestFlight.
-- APNs Platform Application provisioned (Sandbox): `arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox`.
+- APNs Platform Application provisioned (Sandbox): `$APNS_PLATFORM_APP_ARN`.
 
 ### Gate
 
@@ -194,7 +199,7 @@ Skip Section 2 unless we register a new tenant on purpose.
      --protocol tcp --port 22 --cidr 0.0.0.0/0
    ```
 
-2. **Within 20s:** Refresh https://shasta.transilience.cloud/soc — the event appears at the top of the timeline with severity `high`, source `aws.config`, title `AuthorizeSecurityGroupIngress`, resource shown as `sg-TESTGROUP`, actor shown as the IAM user that ran the command.
+2. **Within 20s:** Refresh https://$SHASTA_DOMAIN/soc — the event appears at the top of the timeline with severity `high`, source `aws.config`, title `AuthorizeSecurityGroupIngress`, resource shown as `sg-TESTGROUP`, actor shown as the IAM user that ran the command.
 
 3. **Within 60s:** iPhone vibrates with a push notification matching the templated body: `drift · high · sg-TESTGROUP · AuthorizeSecurityGroupIngress · by <user>`.
 
@@ -240,8 +245,8 @@ or any IP/domain/sha256 in the event payload matches an entry in the
 - All three `ti_feed_*` Lambdas invoked at least once. Verify with:
   ```bash
   aws rds-data execute-statement \
-    --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-    --secret-arn  arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+    --resource-arn $DB_CLUSTER_ARN \
+    --secret-arn  $DB_SECRET_ARN \
     --database ciso_copilot \
     --sql "SELECT source, COUNT(*) FROM threat_indicators GROUP BY source ORDER BY source"
   ```
@@ -269,7 +274,7 @@ or any IP/domain/sha256 in the event payload matches an entry in the
      --protocol tcp --port 22 --cidr 0.0.0.0/0
    ```
 
-3. Within ~25s, refresh https://shasta.transilience.cloud/soc. The event
+3. Within ~25s, refresh https://$SHASTA_DOMAIN/soc. The event
    appears at the top of the timeline with severity `high`.
 
 4. Click the event row. The detail pane shows:

@@ -204,14 +204,14 @@ workflow:
 ```yaml
 - uses: aws-actions/configure-aws-credentials@v4
   with:
-    role-to-assume: arn:aws:iam::470226123496:role/GitHubActionsDeployRole
+    role-to-assume: arn:aws:iam::$AWS_ACCOUNT_ID:role/GitHubActionsDeployRole
     aws-region: us-east-1
 ```
 
 Emit:
 
 - Entity (stub if not already present, see §9): `aws_iam_role` with
-  `natural_key = arn:aws:iam::470226123496:role/GitHubActionsDeployRole`.
+  `natural_key = arn:aws:iam::$AWS_ACCOUNT_ID:role/GitHubActionsDeployRole`.
 - Edge: `github_repo → deploys_to → aws_iam_role`, confidence: `medium`,
   evidence packet cites the workflow file + line + the role ARN string.
 

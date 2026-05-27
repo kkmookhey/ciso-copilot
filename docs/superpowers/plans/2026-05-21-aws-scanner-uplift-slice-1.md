@@ -1517,8 +1517,8 @@ Use a real active AWS connection. Find one, build the params, and start the Farg
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT conn_id::text, tenant_id::text, account_identifier, credentials_secret_arn FROM cloud_connections WHERE cloud='aws' AND status='active' LIMIT 1"
 ```
@@ -1529,8 +1529,8 @@ Insert a `scans` row (generate a UUID for `<scan-uuid-medium>`), then start the 
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "INSERT INTO scans (scan_id, tenant_id, conn_id, trigger, status, tier, scope) VALUES (CAST('<scan-uuid-medium>' AS UUID), CAST('<tenant>' AS UUID), CAST('<conn>' AS UUID), 'manual', 'queued', 'medium', CAST('{\"regions\":[\"us-east-1\"]}' AS JSONB))"
 
@@ -1561,8 +1561,8 @@ Then query the findings the engine wrote:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT check_id, count(*) FROM findings WHERE scan_id=CAST('<scan-uuid-medium>' AS UUID) AND check_id LIKE ANY (ARRAY['sqs-%','secretsmanager-%','ecr-%']) GROUP BY check_id ORDER BY check_id"
 ```
@@ -1575,8 +1575,8 @@ Repeat Step 2 with a fresh `<scan-uuid-quick>` and `SCAN_TIER=quick` (and `tier=
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT DISTINCT check_id FROM findings WHERE scan_id=CAST('<scan-uuid-quick>' AS UUID) AND check_id LIKE ANY (ARRAY['sqs-%','secretsmanager-%','ecr-%']) ORDER BY check_id"
 ```
