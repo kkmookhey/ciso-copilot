@@ -22,7 +22,7 @@ DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
 APPROVAL_TOKEN_SECRET_NAME = os.environ["APPROVAL_TOKEN_SECRET_NAME"]
-DOMAIN = os.environ.get("DOMAIN", "settlingforless.com")
+DOMAIN = os.environ["DOMAIN"]
 
 rds_data = boto3.client("rds-data")
 ses      = boto3.client("ses")

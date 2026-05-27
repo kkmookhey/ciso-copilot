@@ -12,7 +12,10 @@ function optional(name: string, fallback: string = ''): string {
 
 export const config = {
   awsRegion:          process.env.AWS_REGION ?? 'us-east-1',
-  awsAccountId:       required('AWS_ACCOUNT_ID'),
+  // Informational — CDK resolves the deploy account from AWS credentials,
+  // not from this field. Kept in config for operator documentation parity
+  // with .env.example.
+  awsAccountId:       optional('AWS_ACCOUNT_ID', ''),
   domain:             required('DOMAIN'),
   approvalRecipient:  required('APPROVAL_RECIPIENT'),
   entraTenantId:      required('ENTRA_TENANT_ID'),

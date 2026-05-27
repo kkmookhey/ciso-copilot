@@ -78,6 +78,7 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         APPROVAL_TOKEN_SECRET_NAME: 'ciso-copilot/approval-signing-key',
+        DOMAIN:                     config.domain,
       },
     });
     props.dbCluster.grantDataApiAccess(adminDecisionFn);

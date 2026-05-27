@@ -17,6 +17,8 @@ web/.env
 web/.env.local
 web/.env.development
 web/.env.production
+# web/.env.test is INTENTIONALLY committed — placeholder URLs only,
+# satisfies vitest module-load env-var guards.
 
 # iOS local build config (template lives at ios/Local.xcconfig.example)
 ios/Local.xcconfig
