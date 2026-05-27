@@ -13,6 +13,6 @@ function requireEnv(name: string): string {
 }
 
 export const env = {
-  apiBaseUrl: requireEnv('VITE_API_BASE_URL'),
-  appDomain:  requireEnv('VITE_APP_DOMAIN'),
+  apiBaseUrl: requireEnv("VITE_API_BASE_URL"),
+  appDomain:  requireEnv("VITE_APP_DOMAIN"),
 };

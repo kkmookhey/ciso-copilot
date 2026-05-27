@@ -26,7 +26,7 @@ export const config = {
   apiBaseUrl:         required('API_BASE_URL'),
   webRedirectUri:     required('WEB_REDIRECT_URI'),
   appDomain:          required('APP_DOMAIN'),
-  adminEmails:        required('ADMIN_EMAILS'),
+  adminEmails:        optional('ADMIN_EMAILS', ''),
   apnsPlatformAppArn: required('APNS_PLATFORM_APP_ARN'),
   appCertArn:         required('APP_CERT_ARN'),
   legacyAppDomain:    optional('LEGACY_APP_DOMAIN', ''),
