@@ -46,12 +46,22 @@ pending.
 
 ## Status (2026-05-26)
 
-- **v1** — deployed at `ciso-copilot.kkmookhey.workers.dev`, sunset.
+- **v1** — sunset (Cloudflare Workers; the `workers/` directory was
+  deleted in Phase 2 Slice A).
 - **v2** — live. CME-v2 + AI Visibility v2 (Slices 1+2+2.1) + SOC
-  Slices 1+1c all shipped end-to-end. Next: docs + branding pass
-  (this session), then capability gating + billing module, then SOC
-  Slice 2 (identity drift). See **ROADMAP.md** for the full phase
-  plan.
+  Slices 1+1c all shipped. **Phase 2 Slice A** (secrets / hardcoded-
+  identifier extraction) shipped 2026-05-26 — every per-deployment
+  identifier now reads from env-var configuration (`platform/.env`,
+  `web/.env.production`, `ios/Local.xcconfig`). MIT-public **code-side**
+  gate is closed; only Tier 2 (doc sanitization in `HANDOFF.md`,
+  `TEST_PLAN.md`, `docs/superpowers/specs/*.md`,
+  `docs/superpowers/plans/*.md`) remains before the repo can flip
+  public.
+- **Next** — Phase 2 commerce-ready: capability gating, then the
+  billing module sub-phases, then SOC Slice 2 (identity drift). See
+  **ROADMAP.md** for the full phase plan. **iOS device install of the
+  Slice A5 build is pending KK-manual** — see HANDOFF for the unlock-
+  the-phone + one-command step.
 
 ## Repo layout
 
