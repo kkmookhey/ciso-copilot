@@ -108,7 +108,11 @@ def signin_to_params(
     severity = "low" if tier == "corp" else catalog_severity
 
     upn = event.get("userPrincipalName", "") or ""
-    created = event.get("createdDateTime", "")
+    # Microsoft Graph SDK returns createdDateTime as a real datetime; the
+    # fixtures historically used strings. Normalise to ISO-8601 so the
+    # evidence_packet stays JSON-serializable. Caught 2026-05-27.
+    created_raw = event.get("createdDateTime", "")
+    created = created_raw.isoformat() if hasattr(created_raw, "isoformat") else (created_raw or "")
 
     title = f"{upn or 'unknown user'} signed into {name}"[:500]
     description = (
