@@ -31,7 +31,10 @@ export default function AISummary() {
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-semibold">AI Exposure</h1>
 
-      {/* Score tiles */}
+      {/* Headline: single AI Exposure Score */}
+      <ExposureScore score={data.score} byFramework={data.by_framework} />
+
+      {/* Score tiles — supporting detail */}
       <section className="grid grid-cols-3 gap-4">
         <ScoreTile label="Fail"    value={data.score.fail}    tone="red"   to="/findings?status=fail"    />
         <ScoreTile label="Partial" value={data.score.partial} tone="amber" to="/findings?status=partial" />
@@ -115,6 +118,110 @@ export default function AISummary() {
     </div>
   );
 }
+
+// ---------- AI Exposure Score ----------
+
+const FAIL_WEIGHT    = 3;
+const PARTIAL_WEIGHT = 1;
+const PASS_WEIGHT    = 1;
+
+export function computeExposureScore(score: AIStatusCounts): number | null {
+  const weightedFail = score.fail * FAIL_WEIGHT + score.partial * PARTIAL_WEIGHT;
+  const total        = weightedFail + score.pass * PASS_WEIGHT;
+  if (total === 0) return null;
+  const raw = (1 - weightedFail / total) * 100;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+type VerdictBand = {
+  label:  string;
+  tone:   "red" | "amber" | "lime" | "green";
+  ringHex: string;
+  textCls: string;
+};
+
+export function verdictForScore(score: number): VerdictBand {
+  if (score >= 90) return { label: "Strong AI hygiene",  tone: "green", ringHex: "#16a34a", textCls: "text-green-700" };
+  if (score >= 70) return { label: "Looking healthy",    tone: "lime",  ringHex: "#65a30d", textCls: "text-lime-700" };
+  if (score >= 50) return { label: "Needs attention",    tone: "amber", ringHex: "#d97706", textCls: "text-amber-700" };
+  return             { label: "Critical exposure",       tone: "red",   ringHex: "#dc2626", textCls: "text-red-700" };
+}
+
+function ExposureScore({ score, byFramework }: {
+  score: AIStatusCounts;
+  byFramework: AISummaryResponse["by_framework"];
+}) {
+  const computed = computeExposureScore(score);
+  const frameworksWithFails = Object.values(byFramework)
+    .filter((c) => c.fail > 0).length;
+  const totalFailures = score.fail + score.partial;
+
+  if (computed === null) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 flex items-center gap-6">
+        <ScoreRing score={null} ringHex="#cbd5e1" />
+        <div>
+          <div className="text-sm uppercase tracking-wider text-slate-500">AI Exposure Score</div>
+          <div className="text-xl font-semibold text-slate-700 mt-1">No data yet</div>
+          <div className="text-sm text-slate-500 mt-1">
+            Connect a source from <Link to="/connect" className="text-blue-700 underline">Connect</Link> to compute your score.
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const verdict = verdictForScore(computed);
+  return (
+    <section
+      className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-6 flex items-center gap-6"
+      aria-label="AI Exposure Score"
+    >
+      <ScoreRing score={computed} ringHex={verdict.ringHex} />
+      <div className="flex-1">
+        <div className="text-sm uppercase tracking-wider text-slate-500">AI Exposure Score</div>
+        <div className={`text-2xl font-bold mt-1 ${verdict.textCls}`}>{verdict.label}</div>
+        <div className="text-sm text-slate-600 mt-2">
+          <span className="font-semibold text-slate-800">{totalFailures}</span> unresolved {totalFailures === 1 ? "control" : "controls"} across{" "}
+          <span className="font-semibold text-slate-800">{frameworksWithFails}</span>{" "}
+          {frameworksWithFails === 1 ? "framework" : "frameworks"}.
+        </div>
+        <div className="text-xs text-slate-400 mt-1" title="Higher is better. Fails weigh 3×, partials 1×.">
+          0–49 critical · 50–69 needs attention · 70–89 healthy · 90–100 strong
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ScoreRing({ score, ringHex }: { score: number | null; ringHex: string }) {
+  const size   = 120;
+  const stroke = 12;
+  const radius = (size - stroke) / 2;
+  const circ   = 2 * Math.PI * radius;
+  const pct    = score ?? 0;
+  const dash   = (pct / 100) * circ;
+
+  return (
+    <svg width={size} height={size} className="shrink-0" role="img" aria-label={score === null ? "no score" : `score ${score} of 100`}>
+      <circle cx={size / 2} cy={size / 2} r={radius}
+              fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+      {score !== null && (
+        <circle cx={size / 2} cy={size / 2} r={radius}
+                fill="none" stroke={ringHex} strokeWidth={stroke}
+                strokeDasharray={`${dash} ${circ - dash}`}
+                strokeLinecap="round"
+                transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      )}
+      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle"
+            className="fill-slate-900" style={{ fontSize: 32, fontWeight: 700 }}>
+        {score === null ? "—" : score}
+      </text>
+    </svg>
+  );
+}
+
+// ---------- ----------
 
 function ScoreTile({ label, value, tone, to }: {
   label: string; value: number; tone: "red" | "amber" | "green"; to: string;
