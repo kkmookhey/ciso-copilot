@@ -13,7 +13,7 @@
 > (`d569fc5`). Docs trio + branding pass + MIT license switch shipped.
 > SOC Slice 1c shipped + manual gate verified. 2026-05-25 batch
 > shipped SOC Slice 1 + CME-v2 across PRs #17–#21. iOS device
-> install still pending KK-manual.)
+> install + Tier 2 doc sanitization both shipped end-of-session.)
 
 > **Configuration note.** Commands in this doc use `$VAR` references
 > for per-deployment identifiers (account ID, ARNs, domains). Source
@@ -184,40 +184,28 @@ Deployed: S3 sync + CloudFront invalidation in-flight at merge time.
 
 ---
 
-## ⏸ iOS device install — pending KK manual step (2026-05-26)
+## ✅ iOS device install — shipped (2026-05-27)
 
-Slice A5's iOS code changes shipped (xcconfig wiring + source Info.plist +
-`APIClient.baseURL` reads from `Bundle.main`). The `.app` was successfully
-built and signed at:
+Slice A5's iOS code (xcconfig wiring + source Info.plist + `APIClient.baseURL`
+reads from `Bundle.main`) is installed on KK iPhone 16 Pro Max
+(devicectl identifier `<IOS_DEVICE_UDID>`). Build path:
 
 ```
 /Users/kkmookhey/Projects/CISOBrief/ios/build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
 ```
 
-`plutil` confirmed `API_BASE_URL` substituted correctly into Info.plist.
+`plutil` confirmed `API_BASE_URL` substituted correctly into Info.plist. Build
++ install ran clean (Tier 2 sanitization PR #30 had no iOS source changes; only
+the doc tokens shifted). Bundle ID `ai.transilience.cisocopilot`, signed with
+provisioning profile `iOS Team Provisioning Profile: ai.transilience.cisocopilot`.
 
-Install was blocked with `kAMDMobileImageMounterDeviceLocked: The device
-is locked.` — Apple requires the device be unlocked before the Developer
-Disk Image can mount for install. **KK to manually run:**
+**Smoke test (KK-pending):** open app on phone → Google sign-in → confirm
+APNs push lands within ~60s after triggering any drift event (e.g.
+`aws ec2 authorize-security-group-ingress` on the test AWS account) with the
+expected body (`drift · <severity> · <resource> · <eventName> · by <user>`).
 
-```bash
-# After unlocking the iPhone with face ID / passcode while plugged in:
-xcrun devicectl device install app \
-  --device <IOS_DEVICE_UDID> \
-  /Users/kkmookhey/Projects/CISOBrief/ios/build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
-```
-
-Then smoke-test: sign-in flow + trigger an APNs push (any drift event)
-to confirm the new env-driven `baseURL` round-trips correctly on device.
-
-If the build artifact has aged (>1 day), rebuild first with:
-
-```bash
-cd /Users/kkmookhey/Projects/CISOBrief/ios && \
-xcodebuild build -project CISOCopilot.xcodeproj -scheme CISOCopilot \
-  -destination "id=<IOS_DEVICE_UDID>" \
-  -derivedDataPath build-device -allowProvisioningUpdates
-```
+If a future iOS rebuild is needed, the canonical command lives in
+`CLAUDE.md` → Common commands → iOS build (device) block.
 
 ---
 
