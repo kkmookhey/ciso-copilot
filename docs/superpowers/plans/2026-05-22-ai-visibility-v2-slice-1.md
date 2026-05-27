@@ -1032,8 +1032,8 @@ Expected: 2 PASS.
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='findings' ORDER BY ordinal_position"
 ```
@@ -1399,8 +1399,8 @@ Expected: build succeeds.
 Run:
 ```bash
 cd web
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 Expected: invalidation accepted.
@@ -1426,8 +1426,8 @@ git commit -m "feat: add /ai route with score, by-source, by-framework, top peop
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT attributes FROM findings WHERE attributes ? 'commit_author_email' LIMIT 3"
 ```
@@ -1493,7 +1493,7 @@ import { test, expect } from '@playwright/test';
 
 test('AI Summary page renders the F/P/P tile and per-person table', async ({ page }) => {
   // Assumes a deployed authenticated session. Reuse existing auth helper if present.
-  await page.goto(process.env.AI_SUMMARY_URL || 'https://shasta.transilience.cloud/ai');
+  await page.goto(process.env.AI_SUMMARY_URL || 'https://$SHASTA_DOMAIN/ai');
   await expect(page.getByText(/AI Exposure/i)).toBeVisible({ timeout: 15000 });
   await expect(page.getByText(/Fail/i)).toBeVisible();
   await expect(page.getByText(/Partial/i)).toBeVisible();
@@ -1546,7 +1546,7 @@ Expected: scan completes; `findings` table now contains rows from the `ai_pass` 
 
 - [ ] **Step 3: Confirm the `/ai` page renders correctly with live data**
 
-Open `https://shasta.transilience.cloud/ai` in an incognito window. Sign in with Google. Confirm:
+Open `https://$SHASTA_DOMAIN/ai` in an incognito window. Sign in with Google. Confirm:
 1. Page title "AI Exposure" renders.
 2. Fail/Partial/Pass tiles show non-zero numbers (AWS + Azure findings combined).
 3. By-source row: AWS + Azure both non-zero, Code may be zero if no GitHub AI scan ran on this tenant.
@@ -1588,11 +1588,11 @@ Built on branch **`feat/ai-visibility-v2-slice-1`** (merged to main
 - **Deployed:** scanner image rebuilt + pushed (`sha256:…`);
   `CisoCopilotScan` + `CisoCopilotApi` deployed (UPDATE_COMPLETE); web
   built + synced to S3 + CloudFront invalidated. Live at
-  `shasta.transilience.cloud/ai`.
+  `$SHASTA_DOMAIN/ai`.
 
 **Slice 1 live-verification — pending (KK-gated, Google OAuth).**
 Checklist:
-1. Open `https://shasta.transilience.cloud/ai` in an incognito window;
+1. Open `https://$SHASTA_DOMAIN/ai` in an incognito window;
    sign in with Google.
 2. Confirm the page renders "AI Exposure" title + three F/P/P tiles
    with non-zero numbers (AWS + Azure findings combined on this
@@ -1626,7 +1626,7 @@ gh pr create --title "feat: AI Visibility v2 Slice 1 — Azure-AI pass + /ai vie
 - [ ] `pnpm test`, `pnpm typecheck`, `pnpm build` clean (no new errors over baseline)
 - [ ] `cdk deploy CisoCopilotScan` + `cdk deploy CisoCopilotApi --exclusively` both `UPDATE_COMPLETE`
 - [ ] Web synced + CloudFront invalidated
-- [ ] HANDOFF.md verification checklist passes on `shasta.transilience.cloud/ai`
+- [ ] HANDOFF.md verification checklist passes on `$SHASTA_DOMAIN/ai`
 
 Refs:
 - Spec: `docs/superpowers/specs/2026-05-22-ai-visibility-v2-design.md`

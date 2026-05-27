@@ -1226,13 +1226,13 @@ Expected: `UPDATE_COMPLETE`, hotswap path used.
 ```bash
 cd web
 pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 - [ ] **Step 3: Verify on KK's tenant (KK does this manually)**
 
-KK opens `https://shasta.transilience.cloud/ai` in incognito, signs in with Google, confirms 8 framework tiles render. Expected counts (from §2 of the spec):
+KK opens `https://$SHASTA_DOMAIN/ai` in incognito, signs in with Google, confirms 8 framework tiles render. Expected counts (from §2 of the spec):
 - NIST AI RMF, OWASP LLM Top 10, NIST AI 600-1: ~85 findings each
 - OWASP Agentic, MITRE ATLAS: ~102 each
 - ISO 42001, EU AI Act: ~68 each
@@ -1399,8 +1399,8 @@ KK triggers a rescan of his Entra connection via `/scan`. After completion:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT check_id, frameworks, evidence_packet->'_registry_rule_ids' FROM findings WHERE check_id LIKE 'ai_signin_%' ORDER BY last_seen DESC LIMIT 5"
 ```
@@ -1522,8 +1522,8 @@ git commit -m "feat(s3-web): mapping-not-attestation tooltip on framework filter
 ```bash
 cd web
 pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 - [ ] **Step 2: Push and open PR**

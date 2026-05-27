@@ -314,7 +314,7 @@ scanning.
 - Private key + client secret stored in a new Secrets Manager secret
   `ciso-copilot/github-app/credentials`.
 - Setup URL (post-install redirect):
-  `https://shasta.transilience.cloud/ai/install/callback?installation_id=...&setup_action=install&state=...`
+  `https://$SHASTA_DOMAIN/ai/install/callback?installation_id=...&setup_action=install&state=...`
 
 ### 8.2 Install flow
 

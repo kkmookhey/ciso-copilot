@@ -97,10 +97,10 @@ Add this block to the end of `platform/.env.example`:
 AWS_ACCOUNT_ID=
 
 # Public-facing identifiers — used by both CDK and runtime Lambdas
-SHASTA_DOMAIN=shasta.transilience.cloud
+SHASTA_DOMAIN=$SHASTA_DOMAIN
 API_BASE_URL=https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com/v1
-WEB_REDIRECT_URI=https://shasta.transilience.cloud/callback
-APP_DOMAIN=https://shasta.transilience.cloud
+WEB_REDIRECT_URI=https://$SHASTA_DOMAIN/callback
+APP_DOMAIN=https://$SHASTA_DOMAIN
 
 # Admin allowlist — server-side gate; client receives is_admin flag via /me
 ADMIN_EMAILS=
@@ -110,8 +110,8 @@ APNS_PLATFORM_APP_ARN=
 APP_CERT_ARN=
 
 # Legacy stop-gap domain still in CloudFront cert (drop when DNS-only on
-# shasta.transilience.cloud); empty string disables the alternate domain
-LEGACY_APP_DOMAIN=app.settlingforless.com
+# $SHASTA_DOMAIN); empty string disables the alternate domain
+LEGACY_APP_DOMAIN=$LEGACY_APP_DOMAIN
 ```
 
 - [ ] **Step 2: Commit**
@@ -171,15 +171,15 @@ export const config = {
 Open `platform/.env` (NOT `.env.example`) and add the same block as A1.1 but with KK's actual values:
 
 ```bash
-AWS_ACCOUNT_ID=470226123496
-SHASTA_DOMAIN=shasta.transilience.cloud
-API_BASE_URL=https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1
-WEB_REDIRECT_URI=https://shasta.transilience.cloud/callback
-APP_DOMAIN=https://shasta.transilience.cloud
-ADMIN_EMAILS=kkmookhey@gmail.com,kkmookhey@transilience.ai,kkmookhey@networkintelligence.ai
-APNS_PLATFORM_APP_ARN=arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox
-APP_CERT_ARN=arn:aws:acm:us-east-1:470226123496:certificate/28690c41-24bc-4eb8-b925-87820a2fb605
-LEGACY_APP_DOMAIN=app.settlingforless.com
+AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID
+SHASTA_DOMAIN=$SHASTA_DOMAIN
+API_BASE_URL=$API_BASE_URL
+WEB_REDIRECT_URI=https://$SHASTA_DOMAIN/callback
+APP_DOMAIN=https://$SHASTA_DOMAIN
+ADMIN_EMAILS=<ADMIN_EMAIL>,<ADMIN_EMAIL>,<ADMIN_EMAIL>
+APNS_PLATFORM_APP_ARN=$APNS_PLATFORM_APP_ARN
+APP_CERT_ARN=$APP_CERT_ARN
+LEGACY_APP_DOMAIN=$LEGACY_APP_DOMAIN
 ```
 
 - [ ] **Step 3: Verify `cdk synth` still works**
@@ -216,8 +216,8 @@ VITE_APP_DOMAIN=https://shasta.example.com
 - [ ] **Step 2: Create `web/.env.production`**
 
 ```bash
-VITE_API_BASE_URL=https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1
-VITE_APP_DOMAIN=https://shasta.transilience.cloud
+VITE_API_BASE_URL=$API_BASE_URL
+VITE_APP_DOMAIN=https://$SHASTA_DOMAIN
 ```
 
 - [ ] **Step 3: Create `web/src/lib/env.ts`**
@@ -276,7 +276,7 @@ API_BASE_URL = https:/$()/YOUR-API-ID.execute-api.us-east-1.amazonaws.com/v1
 - [ ] **Step 2: Create `ios/Local.xcconfig`**
 
 ```bash
-API_BASE_URL = https:/$()/xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1
+API_BASE_URL = https:/$()/<API_GW_ID>.execute-api.us-east-1.amazonaws.com/v1
 ```
 
 - [ ] **Step 3: Commit (only the .example)**
@@ -360,12 +360,12 @@ Change `platform/lib/static-stack.ts`:
 import { Construct } from 'constructs';
 import * as path from 'path';
 
-// ACM cert covering both the canonical shasta.transilience.cloud domain and
-// the legacy app.settlingforless.com stop-gap domain (DNS-validated 2026-05-21).
+// ACM cert covering both the canonical $SHASTA_DOMAIN domain and
+// the legacy $LEGACY_APP_DOMAIN stop-gap domain (DNS-validated 2026-05-21).
 // Lives in us-east-1 by necessity (CloudFront only accepts certs from us-east-1).
-const APP_CERT_ARN  = 'arn:aws:acm:us-east-1:470226123496:certificate/28690c41-24bc-4eb8-b925-87820a2fb605';
-const APP_DOMAIN    = 'app.settlingforless.com';      // legacy stop-gap domain
-const SHASTA_DOMAIN = 'shasta.transilience.cloud';    // canonical domain
+const APP_CERT_ARN  = '$APP_CERT_ARN';
+const APP_DOMAIN    = '$LEGACY_APP_DOMAIN';      // legacy stop-gap domain
+const SHASTA_DOMAIN = '$SHASTA_DOMAIN';    // canonical domain
 ```
 
 To:
@@ -376,7 +376,7 @@ import * as path from 'path';
 import { config } from './config';
 
 // ACM cert + canonical domain come from platform/.env so the repo stays
-// operator-agnostic. The legacy `app.settlingforless.com` stop-gap is kept
+// operator-agnostic. The legacy `$LEGACY_APP_DOMAIN` stop-gap is kept
 // as an optional alternate domain — empty string disables it.
 const APP_CERT_ARN  = config.appCertArn;
 const APP_DOMAIN    = config.legacyAppDomain;
@@ -427,7 +427,7 @@ Verify `platform/lib/events-stack.ts` has `import { config } from './config';`. 
 
 ```typescript
 // BEFORE:
-const APNS_PLATFORM_APP_ARN = 'arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox';
+const APNS_PLATFORM_APP_ARN = '$APNS_PLATFORM_APP_ARN';
 this.routerFn.addEnvironment('APNS_PLATFORM_APPLICATION_ARN', APNS_PLATFORM_APP_ARN);
 
 // AFTER:
@@ -459,7 +459,7 @@ git commit -m "refactor(cdk): events stack reads APNS ARN from config"
 
 ```typescript
 // BEFORE (line 71):
-webRedirectUri:     'https://shasta.transilience.cloud/callback',
+webRedirectUri:     'https://$SHASTA_DOMAIN/callback',
 
 // AFTER:
 webRedirectUri:     config.webRedirectUri,
@@ -495,7 +495,7 @@ git commit -m "refactor(cdk): platform entry reads webRedirectUri from config"
 // BEFORE (around line 345-349):
 environment: {
   ...dbEnv,
-  ADMIN_EMAILS: 'kkmookhey@gmail.com,kkmookhey@transilience.ai,kkmookhey@networkintelligence.ai',
+  ADMIN_EMAILS: '<ADMIN_EMAIL>,<ADMIN_EMAIL>,<ADMIN_EMAIL>',
   DOMAIN:       'settlingforless.com',
 },
 
@@ -510,7 +510,7 @@ environment: {
 - [ ] **Step 2: Verify**
 
 ```bash
-cd platform && grep -n "kkmookhey@" platform/lib/
+cd platform && grep -n "<admin-email-prefix>" platform/lib/
 ```
 
 Expected: no hits (only `config.adminEmails` references remain).
@@ -531,7 +531,7 @@ git commit -m "refactor(cdk): admin_tenants env from config (ADMIN_EMAILS, DOMAI
 
 ```typescript
 // BEFORE:
-WEB_CALLBACK_URL:      'https://shasta.transilience.cloud/ai/install/callback',
+WEB_CALLBACK_URL:      'https://$SHASTA_DOMAIN/ai/install/callback',
 
 // AFTER:
 WEB_CALLBACK_URL:      `${config.appDomain}/ai/install/callback`,
@@ -541,7 +541,7 @@ WEB_CALLBACK_URL:      `${config.appDomain}/ai/install/callback`,
 
 ```typescript
 // BEFORE:
-APP_DOMAIN:      'https://shasta.transilience.cloud',
+APP_DOMAIN:      'https://$SHASTA_DOMAIN',
 
 // AFTER:
 APP_DOMAIN:      config.appDomain,
@@ -551,7 +551,7 @@ APP_DOMAIN:      config.appDomain,
 
 ```typescript
 // BEFORE:
-API_BASE_URL:       'https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1',
+API_BASE_URL:       '$API_BASE_URL',
 
 // AFTER:
 API_BASE_URL:       config.apiBaseUrl,
@@ -560,7 +560,7 @@ API_BASE_URL:       config.apiBaseUrl,
 - [ ] **Step 4: Verify no remaining literals in api-stack/auth-stack**
 
 ```bash
-grep -nE "(xoljryrb7i|shasta\.transilience\.cloud)" platform/lib/api-stack.ts platform/lib/auth-stack.ts
+grep -nE "(<API_GW_ID>|shasta\.transilience\.cloud)" platform/lib/api-stack.ts platform/lib/auth-stack.ts
 ```
 
 Expected: zero hits (one false positive in auth-stack.ts:146-156 callback URLs which A2.6 handles).
@@ -582,13 +582,13 @@ git commit -m "refactor(cdk): API/auth Lambdas read URLs from config"
 ```typescript
 // BEFORE (lines 145-156):
 callbackUrls: [
-  'https://shasta.transilience.cloud/callback',      // canonical domain
+  'https://$SHASTA_DOMAIN/callback',      // canonical domain
   `https://app.${config.domain}/callback`,           // legacy stop-gap domain
   'https://dil1ztnjosz43.cloudfront.net/callback',   // CloudFront default (kept as backup)
   'http://localhost:5173/callback',                  // Vite dev server
 ],
 logoutUrls: [
-  'https://shasta.transilience.cloud/',
+  'https://$SHASTA_DOMAIN/',
   `https://app.${config.domain}/`,
   'https://dil1ztnjosz43.cloudfront.net/',
   'http://localhost:5173/',
@@ -612,7 +612,7 @@ logoutUrls: [
 - [ ] **Step 2: Verify final auth-stack literal sweep**
 
 ```bash
-grep -nE "(xoljryrb7i|shasta\.transilience\.cloud|dil1ztnjosz43)" platform/lib/auth-stack.ts
+grep -nE "(<API_GW_ID>|shasta\.transilience\.cloud|dil1ztnjosz43)" platform/lib/auth-stack.ts
 ```
 
 Expected: zero hits.
@@ -703,10 +703,10 @@ git commit -m "refactor(onboarding): module constants -> env vars (AWS/Azure/GCP
 
 ```python
 # BEFORE (lines 28-33):
-DB_CLUSTER_ARN      = "arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh"
-DB_SECRET_ARN       = "arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp"
-APPROVAL_RECIPIENT  = "kkmookhey@gmail.com"
-API_BASE_URL        = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1"
+DB_CLUSTER_ARN      = "$DB_CLUSTER_ARN"
+DB_SECRET_ARN       = "$DB_SECRET_ARN"
+APPROVAL_RECIPIENT  = "<ADMIN_EMAIL>"
+API_BASE_URL        = "$API_BASE_URL"
 
 # AFTER:
 import os
@@ -733,8 +733,8 @@ Append to `platform/.env`:
 
 ```bash
 # Aurora cluster + secret for one-off operational scripts (CDK stacks read these from stack outputs)
-DB_CLUSTER_ARN=arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh
-DB_SECRET_ARN=arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp
+DB_CLUSTER_ARN=$DB_CLUSTER_ARN
+DB_SECRET_ARN=$DB_SECRET_ARN
 ```
 
 And to `platform/.env.example`:
@@ -829,7 +829,7 @@ Expected: each stack reports `no changes — skipping` (because the templates ar
 - [ ] **Step 5: Smoke-test sign-in flow + Dashboard + /ai + /soc**
 
 Manually from a fresh incognito window:
-1. Visit `https://shasta.transilience.cloud/`
+1. Visit `https://$SHASTA_DOMAIN/`
 2. Click "Sign in with Google" → complete sign-in → land on Dashboard
 3. Navigate to `/ai`, `/soc`, `/connect` — each loads without 500/401
 4. Check `/admin` — admin nav visible (still using current client allowlist; refactored in A3+A4)
@@ -1147,7 +1147,7 @@ KK retrieves a fresh ID token from the running web app (DevTools → Application
 ```bash
 TOKEN="<paste>"
 curl -s -H "Authorization: Bearer $TOKEN" \
-  https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/me | python3 -m json.tool
+  $API_BASE_URL/me | python3 -m json.tool
 ```
 
 Expected: `user.is_admin: true` for KK; field present and `false` for any non-allowlisted account.
@@ -1169,7 +1169,7 @@ Expected: `user.is_admin: true` for KK; field present and `false` for any non-al
 // BEFORE (line 4-6):
 import { validIdToken, signOut } from "./cognito";
 
-const BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const BASE_URL = "$API_BASE_URL";
 
 // AFTER:
 import { validIdToken, signOut } from "./cognito";
@@ -1194,7 +1194,7 @@ git commit -m "refactor(web): api.ts reads BASE_URL from Vite env"
 
 ```typescript
 // BEFORE (line 129):
-const API_BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const API_BASE_URL = "$API_BASE_URL";
 
 // AFTER (and import env at the top of the file):
 import { env } from "./env";
@@ -1221,7 +1221,7 @@ git commit -m "refactor(web): cognito.ts reads API_BASE_URL from Vite env"
 For each of the three files, change:
 
 ```typescript
-const REST_BASE  = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const REST_BASE  = "$API_BASE_URL";
 ```
 
 To:
@@ -1236,7 +1236,7 @@ const REST_BASE = env.apiBaseUrl;
 - [ ] **Step 2: Verify zero hits in chat dir**
 
 ```bash
-grep -n "xoljryrb7i" web/src/chat/
+grep -n "<API_GW_ID>" web/src/chat/
 ```
 
 Expected: zero hits.
@@ -1257,7 +1257,7 @@ git commit -m "refactor(web): chat clients read REST_BASE from Vite env"
 
 ```typescript
 // BEFORE (line 14):
-const API_BASE_URL = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const API_BASE_URL = "$API_BASE_URL";
 
 // AFTER:
 import { env } from "../lib/env";
@@ -1322,7 +1322,7 @@ Repeat the same pattern as A4.5 on `web/src/routes/Shell.tsx`. Delete the `ADMIN
 - [ ] **Step 2: Verify zero hits for the email pattern**
 
 ```bash
-grep -rn "kkmookhey@" web/src/
+grep -rn "<admin-email-prefix>" web/src/
 ```
 
 Expected: zero hits.
@@ -1385,25 +1385,25 @@ Expected: `built in ...` success message; no TypeScript errors.
 - [ ] **Step 2: Grep the resulting bundle for leaked literals**
 
 ```bash
-grep -rl "kkmookhey@" web/dist/ ; echo "---" ; \
-grep -rl "470226123496" web/dist/ ; echo "---" ; \
-grep -rl "xoljryrb7i" web/dist/
+grep -rl "<admin-email-prefix>" web/dist/ ; echo "---" ; \
+grep -rl "$AWS_ACCOUNT_ID" web/dist/ ; echo "---" ; \
+grep -rl "<API_GW_ID>" web/dist/
 ```
 
-Expected: first two return nothing. The third (`xoljryrb7i`) WILL return matches because the API URL is correctly substituted into the bundle from `VITE_API_BASE_URL` — that's expected. Document this in the commit message as expected behavior.
+Expected: first two return nothing. The third (`<API_GW_ID>`) WILL return matches because the API URL is correctly substituted into the bundle from `VITE_API_BASE_URL` — that's expected. Document this in the commit message as expected behavior.
 
 - [ ] **Step 3: Deploy to S3 + invalidate CloudFront**
 
 ```bash
-aws s3 sync web/dist/ s3://ciso-copilot-app-470226123496/ --delete && \
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*' 2>&1 | tail -5
+aws s3 sync web/dist/ s3://<WEB_BUCKET>/ --delete && \
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*' 2>&1 | tail -5
 ```
 
 Expected: `sync` completes; invalidation `Status: InProgress`.
 
 - [ ] **Step 4: Smoke-test from fresh incognito**
 
-1. `https://shasta.transilience.cloud/` — sign in via Google
+1. `https://$SHASTA_DOMAIN/` — sign in via Google
 2. Land on Dashboard — loads without error
 3. Click `/admin` (sidebar) — admin page loads (KK is admin)
 4. From a non-admin account (or modify token claims), confirm admin nav is hidden
@@ -1479,7 +1479,7 @@ git commit -m "feat(ios): wire Local.xcconfig + Info.plist API_BASE_URL substitu
 // BEFORE (lines 6-9):
 @Observable
 final class APIClient {
-    static let baseURL = URL(string: "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1")!
+    static let baseURL = URL(string: "$API_BASE_URL")!
 
 // AFTER:
 @Observable
@@ -1498,7 +1498,7 @@ final class APIClient {
 - [ ] **Step 2: Verify zero hits for the literal in iOS source**
 
 ```bash
-grep -rn "xoljryrb7i" ios/CISOCopilot/
+grep -rn "<API_GW_ID>" ios/CISOCopilot/
 ```
 
 Expected: zero hits.
@@ -1525,7 +1525,7 @@ Expected: no errors; `CISOCopilot.xcodeproj` regenerated with the new build sett
 ```bash
 xcodebuild build \
   -project CISOCopilot.xcodeproj -scheme CISOCopilot \
-  -destination "id=00008140-001E104E3A9B001C" \
+  -destination "id=<IOS_DEVICE_UDID>" \
   -derivedDataPath build-device \
   -allowProvisioningUpdates 2>&1 | tail -20
 ```
@@ -1536,7 +1536,7 @@ Expected: `BUILD SUCCEEDED`.
 
 ```bash
 xcrun devicectl device install app \
-  --device 00008140-001E104E3A9B001C \
+  --device <IOS_DEVICE_UDID> \
   build-device/Build/Products/Debug-iphoneos/CISOCopilot.app 2>&1 | tail -5
 ```
 
@@ -1573,7 +1573,7 @@ git commit --allow-empty -m "verify(ios): Slice A5 — device build + sign-in + 
 # BEFORE (lines 11-16):
 CisoCopilotAccountId:
   Type: String
-  Default: "470226123496"
+  Default: "$AWS_ACCOUNT_ID"
   Description: AWS account ID that hosts the CISO Copilot platform. Do not change.
   AllowedPattern: "^[0-9]{12}$"
 
@@ -1636,7 +1636,7 @@ In `platform/cfn/azure/onboard.sh:34`:
 
 ```bash
 # BEFORE:
-COMPLETE_URL="${CISO_COMPLETE_URL:-https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/onboarding/azure/complete}"
+COMPLETE_URL="${CISO_COMPLETE_URL:-$API_BASE_URL/onboarding/azure/complete}"
 
 # AFTER:
 COMPLETE_URL="${CISO_COMPLETE_URL:?CISO_COMPLETE_URL must be set — the onboarding flow passes this automatically}"
@@ -1663,7 +1663,7 @@ git add platform/cfn/azure/onboard.sh platform/cfn/gcp/onboard.sh
 git commit -m "refactor(cfn): Azure/GCP onboard scripts require env var (no defaults)"
 ```
 
-### Task A6.3: Replace `470226123496` in test fixtures
+### Task A6.3: Replace `$AWS_ACCOUNT_ID` in test fixtures
 
 **Files:**
 - Modify: `platform/lambda/ai_scanner/tests/test_unified_writer.py:123,202-203`
@@ -1676,8 +1676,8 @@ git commit -m "refactor(cfn): Azure/GCP onboard scripts require env var (no defa
 
 ```bash
 cd /Users/kkmookhey/Projects/CISOBrief && \
-  grep -rl "470226123496" platform/lambda/*/tests/ | \
-  xargs sed -i.bak 's/470226123496/999999999999/g'
+  grep -rl "$AWS_ACCOUNT_ID" platform/lambda/*/tests/ | \
+  xargs sed -i.bak 's/$AWS_ACCOUNT_ID/999999999999/g'
 
 # Clean up .bak files
 find platform/lambda/*/tests/ -name "*.bak" -delete
@@ -1686,7 +1686,7 @@ find platform/lambda/*/tests/ -name "*.bak" -delete
 - [ ] **Step 2: Verify**
 
 ```bash
-grep -rn "470226123496" platform/lambda/
+grep -rn "$AWS_ACCOUNT_ID" platform/lambda/
 ```
 
 Expected: zero hits.
@@ -1722,7 +1722,7 @@ git commit -m "test: replace real AWS account ID in fixtures with 999999999999"
 
 ```bash
 cd /Users/kkmookhey/Projects/CISOBrief && \
-grep -rEn "\b470226123496\b" \
+grep -rEn "\b$AWS_ACCOUNT_ID\b" \
   --include="*.ts" --include="*.tsx" --include="*.js" --include="*.py" \
   --include="*.yaml" --include="*.yml" --include="*.sh" --include="*.swift" \
   --include="*.json" \
@@ -1735,7 +1735,7 @@ Expected: zero hits. (`platform/cdk.context.json` is excluded per spec Section 3
 - [ ] **Step 2: Source-code-only grep for API Gateway ID**
 
 ```bash
-grep -rEn "\bxoljryrb7i\b" \
+grep -rEn "\b<API_GW_ID>\b" \
   --include="*.ts" --include="*.tsx" --include="*.js" --include="*.py" \
   --include="*.yaml" --include="*.yml" --include="*.sh" --include="*.swift" \
   platform/lib/ platform/bin/ platform/lambda/ platform/cfn/ \
@@ -1747,7 +1747,7 @@ Expected: zero hits.
 - [ ] **Step 3: Web-only grep for personal emails**
 
 ```bash
-grep -rEn "kkmookhey@" web/src/
+grep -rEn "<admin-email-prefix>" web/src/
 ```
 
 Expected: zero hits.
@@ -1865,8 +1865,8 @@ own AWS account.
 - Loose `.p8`/`.pem`/`.env` files relocated from repo root to
   `~/.shasta/secrets/`. `workers/` directory deleted (v1 sunset).
 
-**Final grep audit:** zero hits for `470226123496`, `xoljryrb7i`, or
-`kkmookhey@` in any source file under `platform/lib/ platform/bin/
+**Final grep audit:** zero hits for `$AWS_ACCOUNT_ID`, `<API_GW_ID>`, or
+`<admin-email-prefix>` in any source file under `platform/lib/ platform/bin/
 platform/lambda/ platform/cfn/ web/src/ ios/CISOCopilot/ scripts/`. The
 only remaining account-ID leak is `platform/cdk.context.json` (standard
 CDK practice; accepted per spec §3 non-goals) and `docs/superpowers/`
@@ -1897,7 +1897,7 @@ git commit -m "docs(handoff): Phase 2 Slice A — secrets extraction shipped"
 
 ### Task A7.5: Final smoke pass
 
-- [ ] **Step 1: Sign-in via fresh incognito on `shasta.transilience.cloud`**
+- [ ] **Step 1: Sign-in via fresh incognito on `$SHASTA_DOMAIN`**
 
 Confirms web bundle (deployed in A4) works against deployed API (A2 + A3).
 

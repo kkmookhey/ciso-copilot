@@ -117,8 +117,8 @@ CREATE INDEX IF NOT EXISTS idx_events_incident
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "$(cat platform/sql/005_phase_soc.sql)"
 ```
@@ -130,8 +130,8 @@ Expected: empty `records` array, no error. (`IF NOT EXISTS` makes this idempoten
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT column_name FROM information_schema.columns WHERE table_name='events' AND column_name IN ('ai_narrative','source_event_id','mitre_technique','incident_id') ORDER BY column_name"
 ```
@@ -270,20 +270,20 @@ def cloudtrail_sg_open_event() -> dict:
         "id":          "ebr-event-abc123",
         "detail-type": "AWS API Call via CloudTrail",
         "source":      "aws.cloudtrail",
-        "account":     "470226123496",
+        "account":     "$AWS_ACCOUNT_ID",
         "time":        "2026-05-25T18:42:10Z",
         "region":      "us-east-1",
         "detail": {
             "eventID":          "ct-eventid-7f3a9c",   # the stable provider ID
             "eventName":        "AuthorizeSecurityGroupIngress",
             "eventSource":      "ec2.amazonaws.com",
-            "userIdentity":     {"arn": "arn:aws:iam::470226123496:user/test-user"},
+            "userIdentity":     {"arn": "arn:aws:iam::$AWS_ACCOUNT_ID:user/test-user"},
             "requestParameters": {
                 "groupId": "sg-0abc123def",
                 "ipPermissions": {"items": [{"ipProtocol": "tcp", "fromPort": 22, "toPort": 22,
                                              "ipRanges": {"items": [{"cidrIp": "0.0.0.0/0"}]}}]},
             },
-            "resources":       [{"ARN": "arn:aws:ec2:us-east-1:470226123496:security-group/sg-0abc123def"}],
+            "resources":       [{"ARN": "arn:aws:ec2:us-east-1:$AWS_ACCOUNT_ID:security-group/sg-0abc123def"}],
         },
     }
 
@@ -296,7 +296,7 @@ def config_item_change_event() -> dict:
         "id":          "ebr-event-xyz789",
         "detail-type": "Configuration Item Change Notification",
         "source":      "aws.config",
-        "account":     "470226123496",
+        "account":     "$AWS_ACCOUNT_ID",
         "time":        "2026-05-25T18:43:15Z",
         "region":      "us-east-1",
         "detail": {
@@ -306,7 +306,7 @@ def config_item_change_event() -> dict:
                 "configurationStateId":        "1716658994123",
                 "resourceType":                "AWS::EC2::SecurityGroup",
                 "resourceId":                  "sg-0abc123def",
-                "ARN":                         "arn:aws:ec2:us-east-1:470226123496:security-group/sg-0abc123def",
+                "ARN":                         "arn:aws:ec2:us-east-1:$AWS_ACCOUNT_ID:security-group/sg-0abc123def",
                 "configuration":               {"ipPermissions": [{"fromPort": 22, "toPort": 22,
                                                                    "ipRanges": [{"cidrIp": "0.0.0.0/0"}]}]},
             },
@@ -1184,7 +1184,7 @@ cd platform && npx cdk deploy CisoCopilotEvents --require-approval never --hotsw
 
 Verify SQS is receiving by sending a synthetic event to the central bus:
 ```bash
-aws events put-events --entries '[{"Source":"aws.config","DetailType":"Configuration Item Change Notification","Detail":"{\"configurationItem\":{\"configurationItemCaptureTime\":\"2026-05-25T19:00:00Z\",\"resourceId\":\"sg-test-soc-s1\",\"resourceType\":\"AWS::EC2::SecurityGroup\",\"ARN\":\"arn:aws:ec2:us-east-1:470226123496:security-group/sg-test-soc-s1\",\"configuration\":{\"ipPermissions\":[{\"fromPort\":22,\"toPort\":22,\"ipRanges\":[{\"cidrIp\":\"0.0.0.0/0\"}]}]}},\"configurationItemDiff\":{\"changeType\":\"UPDATE\"}}","EventBusName":"ciso-copilot-events"}]'
+aws events put-events --entries '[{"Source":"aws.config","DetailType":"Configuration Item Change Notification","Detail":"{\"configurationItem\":{\"configurationItemCaptureTime\":\"2026-05-25T19:00:00Z\",\"resourceId\":\"sg-test-soc-s1\",\"resourceType\":\"AWS::EC2::SecurityGroup\",\"ARN\":\"arn:aws:ec2:us-east-1:$AWS_ACCOUNT_ID:security-group/sg-test-soc-s1\",\"configuration\":{\"ipPermissions\":[{\"fromPort\":22,\"toPort\":22,\"ipRanges\":[{\"cidrIp\":\"0.0.0.0/0\"}]}]}},\"configurationItemDiff\":{\"changeType\":\"UPDATE\"}}","EventBusName":"ciso-copilot-events"}]'
 sleep 5
 aws sqs receive-message --queue-url $(aws sqs get-queue-url --queue-name soc-enrichment-queue --query QueueUrl --output text) --max-number-of-messages 1
 ```
@@ -1270,8 +1270,8 @@ def sample_event_row() -> dict:
         "kind":            "drift",
         "severity":        "high",
         "title":           "AuthorizeSecurityGroupIngress",
-        "actor":           "arn:aws:iam::470226123496:user/test-user",
-        "resource_arn":    "arn:aws:ec2:us-east-1:470226123496:security-group/sg-abc",
+        "actor":           "arn:aws:iam::$AWS_ACCOUNT_ID:user/test-user",
+        "resource_arn":    "arn:aws:ec2:us-east-1:$AWS_ACCOUNT_ID:security-group/sg-abc",
         "fired_at":        "2026-05-25T18:42:10Z",
         "before_state":    {},
         "after_state":     {"ipPermissions": [{"fromPort": 22, "toPort": 22,
@@ -2782,8 +2782,8 @@ Expected: 2 passed.
 - [ ] **Step 8: Build + deploy web**
 
 ```bash
-cd web && pnpm build && aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+cd web && pnpm build && aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 - [ ] **Step 9: Commit**
@@ -2869,7 +2869,7 @@ Append to `TEST_PLAN.md`:
 
 ### Setup (one-time per test session)
 
-- Test AWS account `470226123496` already onboarded with `ConfigRecordingMode=essentials` (default in the latest aws-onboard.yaml).
+- Test AWS account `$AWS_ACCOUNT_ID` already onboarded with `ConfigRecordingMode=essentials` (default in the latest aws-onboard.yaml).
 - Test user has `device_token` populated in the `users` table (verify via Aurora query).
 - iPhone signed in to CISO Copilot iOS app on TestFlight.
 
@@ -2882,7 +2882,7 @@ Append to `TEST_PLAN.md`:
      --protocol tcp --port 22 --cidr 0.0.0.0/0
    ```
 
-2. **Within 20s:** Refresh https://shasta.transilience.cloud/soc — the event appears at the top of the timeline with severity `high`, source `aws.config`, title `AuthorizeSecurityGroupIngress`, resource shown as `sg-TESTGROUP`, actor shown as the IAM user that ran the command.
+2. **Within 20s:** Refresh https://$SHASTA_DOMAIN/soc — the event appears at the top of the timeline with severity `high`, source `aws.config`, title `AuthorizeSecurityGroupIngress`, resource shown as `sg-TESTGROUP`, actor shown as the IAM user that ran the command.
 
 3. **Within 60s:** iPhone vibrates with a push notification matching the templated body: `drift · high · sg-TESTGROUP · AuthorizeSecurityGroupIngress · by <user>`.
 

@@ -90,7 +90,11 @@ CISOBrief.md     PRD (v1, retained for reference)
 
 ## Common commands
 
-All from `platform/` unless stated.
+All from `platform/` unless stated. Commands use `$VAR` references for
+per-deployment identifiers — source `platform/.env` first
+(`set -a && . platform/.env && set +a`). `<PLACEHOLDER>` tokens are
+CDK outputs (`aws cloudformation describe-stacks --stack-name <Stack>
+--query 'Stacks[0].Outputs'`); see `platform/.env.example` for keys.
 
 ```bash
 # CDK deploy (full — for IAM/infra changes)
@@ -105,8 +109,8 @@ npx cdk deploy <StackName> --require-approval never --hotswap
 
 # Aurora query via Data API (cluster + secret ARNs in HANDOFF.md)
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot --sql "SELECT ..."
 
 # Tail a Lambda's logs
@@ -120,8 +124,8 @@ aws logs tail "/aws/lambda/<FunctionName>" --since 5m
 # Web deploy
 cd web
 pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 ```bash
@@ -130,10 +134,10 @@ cd ios
 xcodegen generate
 xcodebuild build \
   -project CISOCopilot.xcodeproj -scheme CISOCopilot \
-  -destination "id=00008140-001E104E3A9B001C" \
+  -destination "id=<IOS_DEVICE_UDID>" \
   -derivedDataPath build-device \
   -allowProvisioningUpdates
-xcrun devicectl device install app --device 00008140-001E104E3A9B001C \
+xcrun devicectl device install app --device <IOS_DEVICE_UDID> \
   build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
 ```
 

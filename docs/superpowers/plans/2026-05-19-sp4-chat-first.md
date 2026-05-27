@@ -105,8 +105,8 @@ COMMIT;
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "$(cat platform/sql/006_conversations.sql)"
 ```
@@ -117,8 +117,8 @@ Expected: a JSON response with no `error`. (The Data API runs the whole batch; `
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT table_name FROM information_schema.tables WHERE table_name IN ('conversations','conversation_messages') ORDER BY table_name"
 ```
@@ -881,7 +881,7 @@ Expected: both stacks `UPDATE_COMPLETE` / `CREATE_COMPLETE`. Note the `ChatStrea
 
 Run (replace `$TOKEN` with a valid id_token from the web app's localStorage):
 ```bash
-curl -s -X POST https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/conversations \
+curl -s -X POST $API_BASE_URL/conversations \
   -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json'
 ```
 Expected: `{"conversation_id":"<uuid>"}`.
@@ -906,7 +906,7 @@ git commit -m "feat(platform): wire chat_session REST routes + streaming Functio
 // web/src/chat/chatApi.ts
 import { validIdToken } from "../lib/cognito";
 
-const REST_BASE = "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1";
+const REST_BASE = "$API_BASE_URL";
 // Set from the ChatFnUrlStack output (Task 4a.7 Step 6):
 const STREAM_BASE = import.meta.env.VITE_CHAT_STREAM_URL ?? "";
 
@@ -1372,11 +1372,11 @@ git commit -m "feat(web): chat — four-column Shell + landing flow + route tabl
 
 ```bash
 cd web && pnpm build
-aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete
-aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
-- [ ] **Step 2: Manual demo in a browser** — sign in at `https://shasta.transilience.cloud/`:
+- [ ] **Step 2: Manual demo in a browser** — sign in at `https://$SHASTA_DOMAIN/`:
   - Lands on `/` showing the four-column chat shell (module rail, conversation rail, empty chat center).
   - Type "what's my IAM posture?" → an assistant bubble appears and text streams in token-by-token.
   - Refresh → the conversation reloads with both messages intact.

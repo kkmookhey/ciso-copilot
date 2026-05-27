@@ -1517,8 +1517,8 @@ Run these to collect the live GCP connection's identifiers and the network confi
 ```bash
 # The existing GCP connection: conn_id + scope (project_id, project_number, sa_email, wif_pool, wif_provider)
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT conn_id, tenant_id, scope FROM cloud_connections WHERE provider='gcp' ORDER BY created_at DESC LIMIT 1" \
   --output json
@@ -1537,8 +1537,8 @@ Substitute `<SCAN_ID>` (a fresh UUID — generate with `python -c "import uuid; 
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "INSERT INTO scans (scan_id, tenant_id, conn_id, status, phase, tier, started_at) VALUES (CAST('<SCAN_ID>' AS UUID), CAST('<TENANT_ID>' AS UUID), CAST('<CONN_ID>' AS UUID), 'queued', 'region_discovery', 'quick', now())"
 ```
@@ -1581,8 +1581,8 @@ Substitute `<SCAN_ID>`:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT status, phase, tier, scope::text, stats::text FROM scans WHERE scan_id = CAST('<SCAN_ID>' AS UUID)" \
   --output json
@@ -1596,8 +1596,8 @@ Substitute `<SCAN_ID>`:
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT (SELECT count(*) FROM findings WHERE scan_id = CAST('<SCAN_ID>' AS UUID)) AS findings, (SELECT count(*) FROM entities WHERE tenant_id = CAST('<TENANT_ID>' AS UUID) AND kind LIKE 'gcp_%') AS gcp_entities" \
   --output json

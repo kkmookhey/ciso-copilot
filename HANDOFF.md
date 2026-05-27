@@ -7,13 +7,22 @@
 > → ROADMAP.
 >
 > Last updated: 2026-05-27 (ICICI Lombard demo done — went well. The
-> AI demo polish + 4 prod bug fixes session shipped as PR #29 on
-> `feat/ai-demo-polish-and-fixes`. 2026-05-26: Secrets extraction —
+> AI demo polish + 4 prod bug fixes session shipped as PR #29 →
+> `fa39589` on main. 2026-05-26: Secrets extraction —
 > Phase 2 Slice A — PR #26 (`f853e36`). AI page UX polish — PR #27
 > (`d569fc5`). Docs trio + branding pass + MIT license switch shipped.
 > SOC Slice 1c shipped + manual gate verified. 2026-05-25 batch
 > shipped SOC Slice 1 + CME-v2 across PRs #17–#21. iOS device
 > install still pending KK-manual.)
+
+> **Configuration note.** Commands in this doc use `$VAR` references
+> for per-deployment identifiers (account ID, ARNs, domains). Source
+> `platform/.env` before running them (e.g.
+> `set -a && . platform/.env && set +a`). Values not in `.env` use
+> `<PLACEHOLDER>` tokens and come from CDK stack outputs — fetch with
+> `aws cloudformation describe-stacks --stack-name <Stack> --query
+> 'Stacks[0].Outputs'`. See `platform/.env.example` for the full key
+> list.
 
 ## 🚀 ICICI demo prep — 2 features + 4 bugs fixed (2026-05-27, PR #29)
 
@@ -95,7 +104,7 @@ each had been broken silently for days or weeks):
    the existing row's id stays unchanged but the API returned a new
    UUID — the SPA navigated to `/ai/connections/<unpersisted-uuid>/repos`
    which 404'd. Caught when KK reinstalled the GitHub App after the
-   `app.settlingforless.com` → `shasta.transilience.cloud` domain
+   `$LEGACY_APP_DOMAIN` → `$SHASTA_DOMAIN` domain
    migration. Workaround used during the session: query
    `ai_connections` directly for the real id. Fix: read the
    `RETURNING` value into `persisted_id` and return that.
@@ -147,7 +156,7 @@ broken if the test suite had run real SQL against a real schema.
 - `0d0b229` fix(findings): make Entra findings actually visible
 - `ebf024e` fix(ai-github): return persisted conn_id from RETURNING on ON CONFLICT
 
-**PR:** [#29](https://github.com/kkmookhey/ciso-copilot/pull/29) — awaiting review/merge.
+**PR:** [#29](https://github.com/kkmookhey/ciso-copilot/pull/29) merged as `fa39589` (2026-05-27 14:05 UTC).
 
 ---
 
@@ -194,7 +203,7 @@ Disk Image can mount for install. **KK to manually run:**
 ```bash
 # After unlocking the iPhone with face ID / passcode while plugged in:
 xcrun devicectl device install app \
-  --device EB16CFA4-2DE9-5E5A-BE8D-838399AD230F \
+  --device <IOS_DEVICE_UDID> \
   /Users/kkmookhey/Projects/CISOBrief/ios/build-device/Build/Products/Debug-iphoneos/CISOCopilot.app
 ```
 
@@ -206,7 +215,7 @@ If the build artifact has aged (>1 day), rebuild first with:
 ```bash
 cd /Users/kkmookhey/Projects/CISOBrief/ios && \
 xcodebuild build -project CISOCopilot.xcodeproj -scheme CISOCopilot \
-  -destination "id=00008140-001E104E3A9B001C" \
+  -destination "id=<IOS_DEVICE_UDID>" \
   -derivedDataPath build-device -allowProvisioningUpdates
 ```
 
@@ -217,7 +226,7 @@ xcodebuild build -project CISOCopilot.xcodeproj -scheme CISOCopilot \
 Branding + product docs + MIT license all shipped end-to-end in one
 session. The repo is now invitation-ready for the Transilience team.
 
-**What's live and deployed to `shasta.transilience.cloud`:**
+**What's live and deployed to `$SHASTA_DOMAIN`:**
 - Brand pass — every web surface now reads "Shasta by Transilience"
   (no mobius mark — text-only lockup); sign-in / callback / pending
   routes use a `<HeroLockup>` with persimmon-underlined chapter
@@ -309,8 +318,8 @@ own AWS account.
 - Loose `.p8`/`.pem`/`.env` files relocated from repo root to
   `~/.shasta/secrets/`. `workers/` directory deleted (v1 sunset).
 
-**Final grep audit:** zero hits for `470226123496`, `xoljryrb7i`, or
-`kkmookhey@` in any source file under `platform/lib/ platform/bin/
+**Final grep audit:** zero hits for `$AWS_ACCOUNT_ID`, `<API_GW_ID>`, or
+`<admin-email-prefix>` in any source file under `platform/lib/ platform/bin/
 platform/lambda/ platform/cfn/ web/src/ ios/CISOCopilot/ scripts/`. The
 only remaining account-ID leak is `platform/cdk.context.json` (standard
 CDK practice; accepted per spec §3 non-goals) and `docs/superpowers/`
@@ -756,7 +765,7 @@ Reactive fix during S2.1 verification — `/ai` was returning **500
 Internal Server Error**. Root-cause + fix below; the lesson is the
 load-bearing part.
 
-**Symptom:** `https://shasta.transilience.cloud/ai` → "Failed to load
+**Symptom:** `https://$SHASTA_DOMAIN/ai` → "Failed to load
 AI summary: 500 {\"message\": \"Internal server error\"}". `GET
 /v1/ai/summary` without auth returned 401 (so the route looked
 deployed), but `aws lambda list-functions` had no `AiSummaryFn` and
@@ -844,7 +853,7 @@ Built subagent-driven on branch **`feat/ai-visibility-v2-slice-2.1`**
 - **Deployed:** scanner image `sha256:9eb38f0c…` pushed; Lambda
   re-resolved `:latest`. Web bundle synced to S3; CloudFront
   invalidation `I4H208LEK1MQDTTFZ91YEARAD1` queued. Live at
-  `shasta.transilience.cloud`.
+  `$SHASTA_DOMAIN`.
 
 **Live-verification (Task 5) — VERIFIED (2026-05-24, KK):** Entra
 rescan against the Free-tier test tenant set
@@ -883,7 +892,7 @@ below (PR #6).
   existing Entra compliance checks. Customers who already have a
   `cloud_type='entra'` connection get S2 instantly on the next scan.
 - **Pre-flight (Task 1 — KK-gated, pending):** `AuditLog.Read.All` on
-  AAD app `093442df-dc5a-463e-84a4-9cff0a750bce`. The plan path
+  AAD app `$ENTRA_CLIENT_ID`. The plan path
   assumes scope is present (Shasta already reads
   `user.signInActivity`); the try/except wrapper in the handler
   ensures a Graph 403 is non-fatal regardless. KK to confirm via
@@ -958,7 +967,7 @@ Entra-connected test tenant. Outcome:
 first scan →" link was pointing at `${cdnDistribution}` (the GCP
 onboarding asset CDN) instead of the canonical app domain. Returned
 S3 XML AccessDenied when clicked. Patched to hardcode
-`https://shasta.transilience.cloud`. `CisoCopilotApi` deployed.
+`https://$SHASTA_DOMAIN`. `CisoCopilotApi` deployed.
 
 **Deferred from S2 (per plan + spec):**
 - Per-tenant sanctioned-app overrides + `ai_signin_unsanctioned_app`
@@ -1056,7 +1065,7 @@ commits ahead of `main`).
 - **Provider connectors** — OpenAI/Anthropic admin-API blocked.
 
 **Slice 1 live-verification — pending (KK-gated, Google OAuth):**
-1. Open `https://shasta.transilience.cloud/ai` in an incognito window;
+1. Open `https://$SHASTA_DOMAIN/ai` in an incognito window;
    sign in with Google.
 2. Confirm the page renders "AI Exposure" title + three F/P/P tiles
    with non-zero numbers (today's data: 102 AI-touching findings;
@@ -1122,10 +1131,10 @@ main 2026-05-22, commit `a57f528`).
 - **Deployed:** `CisoCopilotApi` deployed (`UPDATE_COMPLETE`); web built
   (`tsc -b && vite build` clean), synced to S3, CloudFront invalidation
   `IB4TNKV8P0SR5A1FH4ZK2OYS17` queued. Live at
-  `shasta.transilience.cloud`.
+  `$SHASTA_DOMAIN`.
 - **Browser-smoke pending** — an agent can't pass Google OAuth.
   Verification checklist:
-  1. Open `https://shasta.transilience.cloud` in an incognito window.
+  1. Open `https://$SHASTA_DOMAIN` in an incognito window.
   2. Sign in with Google.
   3. Click "Scan" in the nav. Confirm the page renders the existing
      GCP project connection as a card (AWS not connected on this
@@ -1247,7 +1256,7 @@ to main 2026-05-22, commit `e36e2e1`).
 and GCP Slice 2a (code) both shipped today. Open verification + dev work
 in rough priority order:
 
-1. **Browser-smoke verify Slice 2b** on `shasta.transilience.cloud` —
+1. **Browser-smoke verify Slice 2b** on `$SHASTA_DOMAIN` —
    checklist at the top of the 2b section above; KK-gated (Google OAuth).
 2. **Expose the GCP "org" toggle** in the web onboarding flow so the
    `--org <ORG_ID>` path in `cfn/gcp/onboard.sh` is reachable from the
@@ -1577,7 +1586,7 @@ final whole-branch review). Merged to `main` (`dad4c16`).
   while running).
 
 **Web UX browser-smoke (2026-05-21) — DONE.** KK smoke-tested the new
-web UX on https://shasta.transilience.cloud/. Scan picker works; live
+web UX on https://$SHASTA_DOMAIN/. Scan picker works; live
 scan updates render correctly under the cloud being scanned. **One bug
 found + fixed + deployed:** the `ScanPicker` dropdown
 (`web/src/routes/ConnectClouds.tsx`) did not dismiss on outside-click —
@@ -1806,7 +1815,7 @@ Spec: `docs/superpowers/specs/2026-05-19-sp4-chat-first-design.md`. Plan:
 - **Web** — `/` is now the chat surface (`ChatShell`: ModuleRail +
   ConversationRail + ChatCenter); the old Welcome page moved to `/dashboard`.
   Conversation CRUD + landing flow (load most-recent <24h or create fresh) +
-  token-streamed assistant replies. Deployed to `shasta.transilience.cloud`.
+  token-streamed assistant replies. Deployed to `$SHASTA_DOMAIN`.
 
 **Gotcha paid in debugging time (load-bearing):**
 
@@ -2242,7 +2251,7 @@ cloud-security half of the platform and remains current.
 Phases 0 + A + B + C + D + E are deployed. End-to-end sign-in (Google) +
 AWS onboarding + scan + findings + **voice via OpenAI Realtime over WebRTC**
 all confirmed working on KK's iPhone 16 Pro Max against AWS account
-`470226123496`. **Web sign-in via Google verified end-to-end on 2026-05-18**
+`$AWS_ACCOUNT_ID`. **Web sign-in via Google verified end-to-end on 2026-05-18**
 after recreating the Cognito user pool with `email: mutable: true` and
 patching all Lambdas to emit CORS headers (iOS had hidden the missing
 `access-control-allow-origin` because `URLSession` doesn't enforce CORS).
@@ -2256,21 +2265,21 @@ his admin.
 
 | Surface | URL / ARN |
 |---|---|
-| AWS account | `470226123496` (us-east-1) |
-| API base | `https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/` |
-| Web SPA | `https://shasta.transilience.cloud/` (custom domain live 2026-05-18; backed by CloudFront `shasta.transilience.cloud` which still works) |
-| Asset CDN | `https://d2pvi2ahuyphb0.cloudfront.net/` |
+| AWS account | `$AWS_ACCOUNT_ID` (us-east-1) |
+| API base | `$API_BASE_URL/` |
+| Web SPA | `https://$SHASTA_DOMAIN/` (custom domain live 2026-05-18; backed by CloudFront `$SHASTA_DOMAIN` which still works) |
+| Asset CDN | `https://<CDN_HOSTNAME>/` |
 | Cognito User Pool | `us-east-1_jOC1znCSS` (recreated 2026-05-18; old `us-east-1_ePRQ2iwZT` retained, awaiting cleanup) |
 | Cognito iOS client | `2r71e13kahf79bvb9stuehm3il` |
 | Cognito Web client | `5vroudnp54n7fdqvjj49ff53br` |
-| Event bus | `arn:aws:events:us-east-1:470226123496:event-bus/ciso-copilot-events` |
-| Aurora cluster | `cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh` (db: `ciso_copilot`) |
+| Event bus | `arn:aws:events:us-east-1:$AWS_ACCOUNT_ID:event-bus/ciso-copilot-events` |
+| Aurora cluster | `<DB_CLUSTER_NAME>` (db: `ciso_copilot`) |
 | iOS bundle | `ai.transilience.cisocopilot` |
 
 ## What works (verified end-to-end on 2026-05-18)
 
 - **Google sign-in (iOS + web Cognito hosted UI)** with email-first home-realm discovery (iOS). Web still on the legacy generic-IdP-picker. Web sign-in + sign-out + sign-in-again all verified on 2026-05-18 (this was the test case that drove the pool recreate).
-- **Tenant approval gate**: post-confirmation Lambda creates a `tenants` row in `pending` and emails `APPROVAL_RECIPIENT` (currently KK's Gmail; SES sender flipped to `kkmookhey@gmail.com` because `no-reply@settlingforless.com` isn't DKIM-verified yet).
+- **Tenant approval gate**: post-confirmation Lambda creates a `tenants` row in `pending` and emails `APPROVAL_RECIPIENT` (currently KK's Gmail; SES sender flipped to `<ADMIN_EMAIL>` because `no-reply@settlingforless.com` isn't DKIM-verified yet).
 - **AWS onboarding**: CFN one-click deep link → `CISOCopilotReader` IAM role + EventBridge forwarder created in customer account → `/onboarding/aws/complete` webhook flips `cloud_connections.status` to `active` and enqueues an initial scan.
 - **AWS scanner**: 270+ findings produced against KK's own account across IAM, Organizations, CloudFront, Logging, Compute, Storage, Networking, Encryption modules. Visible in iOS Risks tab after pull-to-refresh.
 - **Voice (OpenAI Realtime GA via WebRTC)**: tap mic on Overview tab → backend mints ephemeral `ek_...` via `POST /v1/realtime/client_secrets` → iOS WebRTC peer connection + data channel → full-duplex audio with Google AEC3 → tool calls (`get_top_risks`, `list_connected_clouds`) dispatch through our authenticated API and feed results back. Voice quality clean (no echo). **iOS only — web voice still to be lifted from Shasta.**
@@ -2296,9 +2305,9 @@ his admin.
 
 4. **Email attribute mutability** *(FIXED 2026-05-18)*: pool `email` is now `Mutable: true`. Originally `Mutable: false`, which caused `user.email: Attribute cannot be updated` on *every* fresh federated re-sign-in (Cognito syncs email from the id_token on each sign-in; iOS hides this with refresh tokens, web hits it directly). Cognito's `UpdateUserPool` API refuses to flip mutability on a *standard* attribute in place — the pool had to be replaced. Done via construct-ID rename `UserPool` → `UserPoolV2`. Old pool `us-east-1_ePRQ2iwZT` retained (RETAIN was in effect on the old logical ID); manual delete pending.
 
-5. **SES sandbox + Gmail spoof-drop** *(FIXED 2026-05-18 later)*: domain `settlingforless.com` now verified in SES (TXT + 3 DKIM CNAMEs + SPF TXT at apex, all published via Google Cloud DNS console). post_confirmation Lambda + `scripts/send_approval_email.py` now both `Source=CISO Copilot <no-reply@settlingforless.com>`. Earlier symptom: when sending FROM kkmookhey@gmail.com via AWS SES (because Gmail is the only verified-sender identity), Gmail silently spam-foldered or dropped them — Gmail From: arriving from non-Google IPs without Google DKIM signature looks like spoofing. Account still in SES sandbox (200/day, 1/s); sufficient since approval emails only go TO the verified `APPROVAL_RECIPIENT` (kkmookhey@gmail.com). Request prod access only when we want to send notifications/digests to other users.
+5. **SES sandbox + Gmail spoof-drop** *(FIXED 2026-05-18 later)*: domain `settlingforless.com` now verified in SES (TXT + 3 DKIM CNAMEs + SPF TXT at apex, all published via Google Cloud DNS console). post_confirmation Lambda + `scripts/send_approval_email.py` now both `Source=CISO Copilot <no-reply@settlingforless.com>`. Earlier symptom: when sending FROM <ADMIN_EMAIL> via AWS SES (because Gmail is the only verified-sender identity), Gmail silently spam-foldered or dropped them — Gmail From: arriving from non-Google IPs without Google DKIM signature looks like spoofing. Account still in SES sandbox (200/day, 1/s); sufficient since approval emails only go TO the verified `APPROVAL_RECIPIENT` (<ADMIN_EMAIL>). Request prod access only when we want to send notifications/digests to other users.
 
-6. **CFN templateURL must be S3, not CloudFront**: CloudFormation Console hard-rejects non-S3 URLs. We presign a 1-hour S3 GET URL on every `/onboarding/aws/initiate` call. The Lambda role has `s3:GetObject` on `arn:aws:s3:::ciso-copilot-cdn-470226123496/cfn/aws-onboard.yaml`. IAM perm propagation can take ~1 min after a fresh deploy; if the first presigned URL 403s, wait and retry.
+6. **CFN templateURL must be S3, not CloudFront**: CloudFormation Console hard-rejects non-S3 URLs. We presign a 1-hour S3 GET URL on every `/onboarding/aws/initiate` call. The Lambda role has `s3:GetObject` on `arn:aws:s3:::<CDN_BUCKET>/cfn/aws-onboard.yaml`. IAM perm propagation can take ~1 min after a fresh deploy; if the first presigned URL 403s, wait and retry.
 
 7. **AWS Config `DeliveryChannel` limit = 1 per account/region**: CFN template defaults `EnableAwsConfig=false`. Customer can flip to `true` in the CFN review step if their account has no Config recorder. We still ingest Config item changes via the EventBridge forwarder, which is always created.
 
@@ -2426,9 +2435,9 @@ shasta-runner (Lambda container image, ECR ciso-copilot-shasta-runner:latest)
 
 ## Cleanup state in DB (end of 2026-05-18 testing session)
 
-- `users` table: 1 Google user (`kkmookhey@gmail.com`), 1 Microsoft user (`kkmookhey@transilience.ai`), 1 Google user (`randevak@gmail.com` — KK's wife) all linked to their own admin-role tenant rows. Same rows survived the pool recreate because `users.sso_subject` is keyed on the IdP `sub`, not the Cognito sub.
+- `users` table: 1 Google user (`<ADMIN_EMAIL>`), 1 Microsoft user (`<ADMIN_EMAIL>`), 1 Google user (`randevak@gmail.com` — KK's wife) all linked to their own admin-role tenant rows. Same rows survived the pool recreate because `users.sso_subject` is keyed on the IdP `sub`, not the Cognito sub.
 - `tenants` table: `gmail.com` (approved, KK only), `transilience.ai` (approved, KK only), `randevak@gmail.com` (pending — full email used as tenant key for personal-domain isolation), `Dev Test Tenant` (long-lived scaffold).
-- `cloud_connections` table: 3 **active** connections — AWS (`26e97477-...`, account `470226123496`), Azure (`79964b99-...`, Entra tenant `017c6f31-...`, 2 subscriptions), GCP (`219f41eb-...`, project `gen-lang-client-0693606939`). All orphan `pending` rows from re-clicked Connect tiles deleted.
+- `cloud_connections` table: 3 **active** connections — AWS (`26e97477-...`, account `$AWS_ACCOUNT_ID`), Azure (`79964b99-...`, Entra tenant `017c6f31-...`, 2 subscriptions), GCP (`219f41eb-...`, project `gen-lang-client-0693606939`). All orphan `pending` rows from re-clicked Connect tiles deleted.
 - `scans` table: one `completed` scan per active connection (AWS, Azure sub `cb0d6ed4-...`, GCP), plus a manual rescan for Azure sub `8cd2b4cc-...` triggered after the multi-sub fix landed.
 - `findings` table: ~480 across the 3 clouds (270 AWS + 108 Azure + 102 GCP). Will grow by ~100 once the second Azure sub completes.
 
@@ -2459,10 +2468,10 @@ shasta-runner (Lambda container image, ECR ciso-copilot-shasta-runner:latest)
 
 - **Tenant isolation for personal-email domains**: `post_confirmation` now segregates `gmail.com` / `outlook.com` / `yahoo.com` / `icloud.com` / etc. into per-user tenants. KK's wife migrated to her own pending tenant — fixed the data-leakage bug where she could see KK's clouds.
 - **`scripts/send_approval_email.py`**: reusable admin tool to re-fire approval emails for any pending tenant. Built when the email path was being debugged; useful when SES delivery is flaky or for manual ops.
-- **SES from-domain fix**: switched `Source=` to `no-reply@settlingforless.com` (DKIM + SPF verified via Google Cloud DNS). Previously sent from `kkmookhey@gmail.com` which Gmail silently spam-foldered (Gmail-from-AWS-IP looks like spoofing).
+- **SES from-domain fix**: switched `Source=` to `no-reply@settlingforless.com` (DKIM + SPF verified via Google Cloud DNS). Previously sent from `<ADMIN_EMAIL>` which Gmail silently spam-foldered (Gmail-from-AWS-IP looks like spoofing).
 - **SES production access granted**: form submitted by KK; AWS approved. Sending TO unverified recipients now works → user-side approval notifications deliver.
 - **admin_decision Lambda error handling**: wraps `_send_user_email` in try/except so SES sandbox failure no longer 500s the approve link (was misleading "Internal Server Error" while the tenant flip had already succeeded).
-- **`shasta.transilience.cloud` custom domain**: ACM cert issued, Cloud DNS records (CNAME + DKIM validation) added, CloudFront alternate domain attached, Cognito callback URLs include the new domain. SPA reachable at `https://shasta.transilience.cloud/` end-to-end.
+- **`$SHASTA_DOMAIN` custom domain**: ACM cert issued, Cloud DNS records (CNAME + DKIM validation) added, CloudFront alternate domain attached, Cognito callback URLs include the new domain. SPA reachable at `https://$SHASTA_DOMAIN/` end-to-end.
 - **Dashboards on web home**: PieChart (severity), BarChart (by-cloud) using Recharts; clickable → drill down to `/findings?severity=X` / `/findings?cloud=Y`. TopRisks reads URL params + shows clearable filter chips. Compliance posture cards now clickable too (filter by framework).
 - **`/findings/summary` endpoint**: aggregates by severity + cloud for dashboard tiles without paging through findings.
 - **`/events` endpoint + UI surfacing**: real-time alerts now reachable. iOS Overview shows live "Recent activity" + Alerts count; web Welcome same.

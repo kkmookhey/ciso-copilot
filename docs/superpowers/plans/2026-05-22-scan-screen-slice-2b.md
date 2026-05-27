@@ -22,7 +22,7 @@
 - **The current `ConnectClouds.tsx` (523 lines)** contains both `ScanPicker` (the tier dropdown) and `SubscriptionPicker` (the Azure subscription checklist). Both are *deleted* by Task 6 — not kept for coexistence. Lines marked for deletion are noted in Task 6.
 - **`onboarding_gcp_complete` already does no auto-scan in org mode** (Slice 2a). Task 1 only needs to remove the project-mode auto-scan call.
 - **Web build/typecheck**: `cd web && pnpm typecheck && pnpm build`. The web dev server: `pnpm dev` (Vite, default port). Browser-smoke verification of the live UI is human-gated (an agent can't pass Google OAuth) — Task 7 documents the smoke checklist; the agent reports "code shipped, browser-smoke pending".
-- **Web deploy**: `pnpm build && aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete && aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'`.
+- **Web deploy**: `pnpm build && aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete && aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'`.
 
 ## File structure
 
@@ -1029,8 +1029,8 @@ Run:
 
 ```bash
 cd web && pnpm build && \
-  aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete && \
-  aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+  aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete && \
+  aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 Expected: build succeeds; S3 sync uploads; CloudFront invalidation queued.
@@ -1039,7 +1039,7 @@ Expected: build succeeds; S3 sync uploads; CloudFront invalidation queued.
 
 This is the human-gated final verification — an agent cannot pass Google OAuth. Append a checklist to `HANDOFF.md` (the next task documents the full Slice 2b shipped block; the smoke checklist lives inside that). Verification steps:
 
-1. Open `https://shasta.transilience.cloud` in an incognito window.
+1. Open `https://$SHASTA_DOMAIN` in an incognito window.
 2. Sign in with Google.
 3. Click "Scan" in the nav. Confirm the page renders the existing GCP project connection as a card.
 4. Confirm the AWS connection card shows only a tier picker; the Azure card shows the subscription checklist; the GCP card shows the tier picker (single-project mode).

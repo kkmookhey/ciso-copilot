@@ -132,16 +132,16 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS source_ip TEXT;
 Run:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn  arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn  $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "$(cat platform/sql/013_phase_soc_ti.sql)"
 ```
 Expected: success with `numberOfRecordsUpdated: 0` (DDL doesn't update rows). Confirm table exists:
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn  arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn  $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT to_regclass('public.threat_indicators') IS NOT NULL AS exists"
 ```
@@ -2185,8 +2185,8 @@ This is the deploy + manual seed step. Confirm everything is green locally befor
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn  arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn  $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "$(cat platform/sql/013_phase_soc_ti.sql)"
 ```
@@ -2228,8 +2228,8 @@ Expected: each returns `{"ok": true, ...}` with a non-zero count for `feodo`, `t
 
 ```bash
 aws rds-data execute-statement \
-  --resource-arn arn:aws:rds:us-east-1:470226123496:cluster:cisocopilotdata-aurorapg9038c119-4oo3zrwtnfxh \
-  --secret-arn  arn:aws:secretsmanager:us-east-1:470226123496:secret:AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp \
+  --resource-arn $DB_CLUSTER_ARN \
+  --secret-arn  $DB_SECRET_ARN \
   --database ciso_copilot \
   --sql "SELECT source, COUNT(*) FROM threat_indicators GROUP BY source ORDER BY source"
 ```
@@ -2247,8 +2247,8 @@ cd platform && npx cdk deploy CisoCopilotEvents --require-approval never --hotsw
 
 ```bash
 cd web && pnpm build && \
-  aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete && \
-  aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'
+  aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete && \
+  aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
 ```
 
 - [ ] **Step 8: Commit and push**
@@ -2330,7 +2330,7 @@ and `threat_indicators` has rows from `abusech_feodo`, `abusech_threatfox`,
 
 2. Within 60 seconds, the iPhone vibrates (Slice 1 gate carries over).
 
-3. Open `https://shasta.transilience.cloud/soc` in a browser. The new event
+3. Open `https://$SHASTA_DOMAIN/soc` in a browser. The new event
    appears at the top of the timeline with severity `high`.
 
 4. Click it. The detail pane shows:

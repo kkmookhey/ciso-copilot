@@ -45,7 +45,7 @@ The 2026-05-26 audit found:
   `*.p8`/`*.pem`/`.env`/`*.key`). No AWS access keys, no API tokens, no
   private keys in tracked source.
 - **Single-tenant identifiers leaked across production code**: AWS account
-  `470226123496` in 15 source files; API Gateway ID `xoljryrb7i` in 10
+  `$AWS_ACCOUNT_ID` in 15 source files; API Gateway ID `<API_GW_ID>` in 10
   source files; APNS Platform App ARN + ACM cert ARN as literal constants
   in CDK; KK's three personal email addresses in two web client files +
   one CDK file.
@@ -66,9 +66,9 @@ need to change between deployments.
    moves to env vars.
 2. The `is_admin` refactor (server emits flag; web consumes flag).
 3. CFN onboarding templates parameterize their previously-hardcoded defaults.
-4. Test fixtures containing `470226123496` change to `999999999999`.
+4. Test fixtures containing `$AWS_ACCOUNT_ID` change to `999999999999`.
 5. Tier 4 hygiene: relocate loose secret files, delete `workers/`.
-6. Final grep-audit verifying zero hits for `470226123496` and `xoljryrb7i`
+6. Final grep-audit verifying zero hits for `$AWS_ACCOUNT_ID` and `<API_GW_ID>`
    in source code paths (docs/specs/plans excluded).
 
 **Explicitly out of scope (deferred to a later session):**
@@ -117,24 +117,24 @@ and `ios/Local.xcconfig`.
 
 ```
 # AWS deployment target
-AWS_ACCOUNT_ID=470226123496
+AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID
 AWS_REGION=us-east-1
 
 # Public-facing identifiers
-SHASTA_DOMAIN=shasta.transilience.cloud
-API_BASE_URL=https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1
-WEB_REDIRECT_URI=https://shasta.transilience.cloud/callback
-APP_DOMAIN=https://shasta.transilience.cloud
+SHASTA_DOMAIN=$SHASTA_DOMAIN
+API_BASE_URL=$API_BASE_URL
+WEB_REDIRECT_URI=https://$SHASTA_DOMAIN/callback
+APP_DOMAIN=https://$SHASTA_DOMAIN
 
 # Admin allowlist (server-side gate; client receives is_admin flag)
-ADMIN_EMAILS=kkmookhey@gmail.com,kkmookhey@transilience.ai,kkmookhey@networkintelligence.ai
+ADMIN_EMAILS=<ADMIN_EMAIL>,<ADMIN_EMAIL>,<ADMIN_EMAIL>
 
 # Pre-existing per-deployment ARNs
-APNS_PLATFORM_APP_ARN=arn:aws:sns:us-east-1:470226123496:app/APNS_SANDBOX/CISOCopilotAPNSSandbox
-APP_CERT_ARN=arn:aws:acm:us-east-1:470226123496:certificate/28690c41-24bc-4eb8-b925-87820a2fb605
+APNS_PLATFORM_APP_ARN=$APNS_PLATFORM_APP_ARN
+APP_CERT_ARN=$APP_CERT_ARN
 
 # Operational scripts
-APPROVAL_RECIPIENT=kkmookhey@gmail.com
+APPROVAL_RECIPIENT=<ADMIN_EMAIL>
 
 # Pre-existing (already in platform/.env per CLAUDE.md): ENTRA_*, GOOGLE_*, DOMAIN
 ```
@@ -142,8 +142,8 @@ APPROVAL_RECIPIENT=kkmookhey@gmail.com
 ### `web/.env.production`
 
 ```
-VITE_API_BASE_URL=https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1
-VITE_APP_DOMAIN=https://shasta.transilience.cloud
+VITE_API_BASE_URL=$API_BASE_URL
+VITE_APP_DOMAIN=https://$SHASTA_DOMAIN
 ```
 
 No `VITE_ADMIN_EMAILS` — the client receives `is_admin` from the server.
@@ -151,7 +151,7 @@ No `VITE_ADMIN_EMAILS` — the client receives `is_admin` from the server.
 ### `ios/Local.xcconfig`
 
 ```
-API_BASE_URL = https:/$()/xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1
+API_BASE_URL = https:/$()/<API_GW_ID>.execute-api.us-east-1.amazonaws.com/v1
 ```
 
 (The `/$()` is Xcode's escape for `//` in xcconfig files; without it, Xcode
@@ -266,11 +266,11 @@ with KK's token returns `is_admin: true`.
 
 **Verify:**
 - `pnpm test` in `web/` (passes — admin-nav tests adapt to the new `is_admin` source)
-- `pnpm build`; grep the resulting `dist/` for `470226123496`, `xoljryrb7i`,
-  `kkmookhey@` → all zero hits
+- `pnpm build`; grep the resulting `dist/` for `$AWS_ACCOUNT_ID`, `<API_GW_ID>`,
+  `<admin-email-prefix>` → all zero hits
 - `pnpm dev` against staging; sign-in flow + admin nav + deep-link routes
-- Deploy: `aws s3 sync dist/ s3://ciso-copilot-app-470226123496/ --delete`;
-  `aws cloudfront create-invalidation --distribution-id E2FV1Z0DJ4RQS4 --paths '/*'`
+- Deploy: `aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete`;
+  `aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'`
 - Production smoke test from a fresh browser
 
 ### Slice A5 — iOS migration
@@ -294,7 +294,7 @@ with KK's token returns `is_admin: true`.
 - Investigate the onboarding Lambda that presigns the S3 URL for the CFN
   template; if it substitutes parameters at presign time, add account-ID
   substitution there
-- Replace `470226123496` with `999999999999` in:
+- Replace `$AWS_ACCOUNT_ID` with `999999999999` in:
   - `platform/lambda/ai_scanner/tests/test_unified_writer.py`
   - `platform/lambda/ai_scanner/tests/fixtures/crossdomain/with_oidc/expected.json`
   - `platform/lambda/ai_scanner/tests/fixtures/crossdomain/with_oidc/repo/.github/workflows/deploy.yml`
@@ -311,7 +311,7 @@ with KK's token returns `is_admin: true`.
 
 - Final grep audit:
   ```
-  grep -rEn "\b470226123496\b|\bxoljryrb7i\b|kkmookhey@" \
+  grep -rEn "\b$AWS_ACCOUNT_ID\b|\b<API_GW_ID>\b|<admin-email-prefix>" \
     --include="*.ts" --include="*.tsx" --include="*.js" --include="*.py" \
     --include="*.yaml" --include="*.yml" --include="*.sh" --include="*.swift" \
     --include="*.json" \
@@ -394,11 +394,11 @@ risk-ascending (lowest blast first).
 
 ## 13. Success criteria
 
-1. `grep -rEn "\b470226123496\b" platform/ web/ ios/ scripts/` returns zero
+1. `grep -rEn "\b$AWS_ACCOUNT_ID\b" platform/ web/ ios/ scripts/` returns zero
    hits in source files (test fixtures using `999999999999`; `cdk.context.json`
    excluded per non-goal #2)
-2. `grep -rEn "\bxoljryrb7i\b" platform/ web/ ios/ scripts/` returns zero hits
-3. `grep -rEn "kkmookhey@" web/src/` returns zero hits
+2. `grep -rEn "\b<API_GW_ID>\b" platform/ web/ ios/ scripts/` returns zero hits
+3. `grep -rEn "<admin-email-prefix>" web/src/` returns zero hits
 4. `pnpm test` in `web/`, `pytest` across all Lambda directories all green
 5. Production smoke tests pass for sign-in + Dashboard + `/ai` + `/soc` + admin
    nav (KK sees admin items; non-admin doesn't)

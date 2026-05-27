@@ -4,7 +4,7 @@
 > Transilience" brand across every web surface (and later iOS) without
 > abandoning the Quiet Paper / persimmon aesthetic that already exists.
 >
-> Status: **SHIPPED 2026-05-26** to `shasta.transilience.cloud` (web
+> Status: **SHIPPED 2026-05-26** to `$SHASTA_DOMAIN` (web
 > only; iOS deferred). Mid-flight pivot from mobius-mark + wordmark
 > lockup to text-only "Shasta by Transilience" lockup after the
 > localhost preview showed the hand-rolled lemniscate SVG didn't read
@@ -20,12 +20,12 @@ live deliberately apart:
 | Surface | Rich Black (`#0A0A0B`) — dark-first, cinematic | Quiet Paper (`#FAF8F3`) — light-first, calm |
 | Accent | Violet → crimson gradient + bumblebee yellow | Persimmon (`#D85F3B`) |
 | Voice | Operator-grade, "a bit menacing" | Quiet, calm, relaxed |
-| Where | `transilience.ai` (marketing) | `shasta.transilience.cloud` (product) |
+| Where | `transilience.ai` (marketing) | `$SHASTA_DOMAIN` (product) |
 | Why | Sells the company to a CISO | Hosts the analyst's daily work |
 
 The customer journey: visit transilience.ai (dark, serious, "the company
 that builds security operators") → sign up → land on
-shasta.transilience.cloud (light, calm, paper-mode, "your daily analyst
+$SHASTA_DOMAIN (light, calm, paper-mode, "your daily analyst
 workspace"). That contrast is a feature, not a bug — analysts already
 stare at dark IDEs all day; a calm warm console is a relief.
 
@@ -182,7 +182,7 @@ Pulled out as a separate spec when we ship the iOS branding sprint.
       sidebar and the content area is unchanged
 - [ ] No regression in the existing `pnpm lint` baseline (~42 errors
       already documented as known dirty; don't add more)
-- [ ] Deployed to `shasta.transilience.cloud` via `pnpm build` + S3 sync
+- [ ] Deployed to `$SHASTA_DOMAIN` via `pnpm build` + S3 sync
       + CloudFront invalidation
 - [ ] README screenshot capture (deferred from Phase 1 docs trio) is now
       unblocked — capture post-deploy
@@ -217,7 +217,7 @@ Pulled out as a separate spec when we ship the iOS branding sprint.
 7. Update favicon
 8. Local visual check
 9. `pnpm build` + S3 sync + CloudFront invalidation
-10. Open `shasta.transilience.cloud` in incognito, walk every route,
+10. Open `$SHASTA_DOMAIN` in incognito, walk every route,
     confirm the brand pass landed
 11. Capture screenshots of the branded UI → drop into README → commit
 12. Tell KK we're ready for the Transilience team share
