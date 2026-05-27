@@ -35,7 +35,7 @@ export interface ScanStatus {
 }
 
 export interface MeResponse {
-  user:   { email: string | null; role: string | null; is_admin: boolean } | null;
+  user:   { email: string | null; role: string | null; is_admin?: boolean } | null;
   tenant: { tenant_id: string; display_name: string;
             status: "pending" | "approved" | "rejected" | "suspended" } | null;
 }

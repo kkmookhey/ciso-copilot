@@ -45,14 +45,13 @@ def _make_db_response(email: str, role: str = "admin") -> dict:
 
 
 def test_is_admin_true_when_email_in_allowlist(env_setup):
-    with patch("boto3.client") as mock_boto:
-        mock_rds = MagicMock()
-        mock_rds.execute_statement.return_value = _make_db_response("admin@example.com")
-        mock_boto.return_value = mock_rds
+    import main as me_main
+    importlib.reload(me_main)
 
-        import main as me_main
-        importlib.reload(me_main)
+    mock_rds = MagicMock()
+    mock_rds.execute_statement.return_value = _make_db_response("admin@example.com")
 
+    with patch.object(me_main, "rds_data", mock_rds):
         result = me_main.handler(_make_event(), None)
 
     body = json.loads(result["body"])
@@ -60,14 +59,13 @@ def test_is_admin_true_when_email_in_allowlist(env_setup):
 
 
 def test_is_admin_false_when_email_not_in_allowlist(env_setup):
-    with patch("boto3.client") as mock_boto:
-        mock_rds = MagicMock()
-        mock_rds.execute_statement.return_value = _make_db_response("randomuser@example.com")
-        mock_boto.return_value = mock_rds
+    import main as me_main
+    importlib.reload(me_main)
 
-        import main as me_main
-        importlib.reload(me_main)
+    mock_rds = MagicMock()
+    mock_rds.execute_statement.return_value = _make_db_response("randomuser@example.com")
 
+    with patch.object(me_main, "rds_data", mock_rds):
         result = me_main.handler(_make_event(), None)
 
     body = json.loads(result["body"])
@@ -75,34 +73,29 @@ def test_is_admin_false_when_email_not_in_allowlist(env_setup):
 
 
 def test_is_admin_case_insensitive(env_setup):
-    with patch("boto3.client") as mock_boto:
-        mock_rds = MagicMock()
-        mock_rds.execute_statement.return_value = _make_db_response("Admin@Example.com")
-        mock_boto.return_value = mock_rds
+    import main as me_main
+    importlib.reload(me_main)
 
-        import main as me_main
-        importlib.reload(me_main)
+    mock_rds = MagicMock()
+    mock_rds.execute_statement.return_value = _make_db_response("Admin@Example.com")
 
+    with patch.object(me_main, "rds_data", mock_rds):
         result = me_main.handler(_make_event(), None)
 
     body = json.loads(result["body"])
     assert body["user"]["is_admin"] is True
 
 
-def test_is_admin_false_when_admin_emails_empty(monkeypatch):
-    monkeypatch.setenv("DB_CLUSTER_ARN", "arn:aws:rds:us-east-1:999999999999:cluster:test")
-    monkeypatch.setenv("DB_SECRET_ARN",  "arn:aws:secretsmanager:us-east-1:999999999999:secret:test")
-    monkeypatch.setenv("DB_NAME",        "ciso_copilot_test")
-    monkeypatch.setenv("ADMIN_EMAILS",   "")
+def test_is_admin_false_when_admin_emails_empty(env_setup, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "")
 
-    with patch("boto3.client") as mock_boto:
-        mock_rds = MagicMock()
-        mock_rds.execute_statement.return_value = _make_db_response("admin@example.com")
-        mock_boto.return_value = mock_rds
+    import main as me_main
+    importlib.reload(me_main)
 
-        import main as me_main
-        importlib.reload(me_main)
+    mock_rds = MagicMock()
+    mock_rds.execute_statement.return_value = _make_db_response("admin@example.com")
 
+    with patch.object(me_main, "rds_data", mock_rds):
         result = me_main.handler(_make_event(), None)
 
     body = json.loads(result["body"])
