@@ -143,15 +143,13 @@ export class AuthStack extends cdk.Stack {
         flows:  { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [
-          'https://shasta.transilience.cloud/callback',      // canonical domain
-          `https://app.${config.domain}/callback`,           // legacy stop-gap domain
-          'https://dil1ztnjosz43.cloudfront.net/callback',   // CloudFront default (kept as backup)
+          `${config.appDomain}/callback`,                    // canonical domain
+          ...(config.legacyAppDomain ? [`https://app.${config.domain}/callback`] : []),
           'http://localhost:5173/callback',                  // Vite dev server
         ],
         logoutUrls: [
-          'https://shasta.transilience.cloud/',
-          `https://app.${config.domain}/`,
-          'https://dil1ztnjosz43.cloudfront.net/',
+          `${config.appDomain}/`,
+          ...(config.legacyAppDomain ? [`https://app.${config.domain}/`] : []),
           'http://localhost:5173/',
         ],
       },
