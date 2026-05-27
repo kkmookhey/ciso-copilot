@@ -490,10 +490,15 @@ CME-v2 spec. After the next AWS Medium rescan:
 
 ### Known UX gaps logged (not blockers)
 
-- Framework tiles on `/ai` link to source docs but don't drill into
-  `/findings?framework=<key>`. ~10 min web tweak.
-- Redundant Entra ID P1/P2 hint copy in `AISummary.tsx:87` now overlaps
-  with the Slice 2.1 connect-page banner — trim or cross-link.
+- ~~Framework tiles on `/ai` link to source docs but don't drill into
+  `/findings?framework=<key>`.~~ **Done in PR #22 (`f62c3f4`)** —
+  `AISummary.tsx:157` is the drill-down `<Link>`; the ↗ source-doc `<a>`
+  carries `stopPropagation`.
+- ~~Redundant Entra ID P1/P2 hint copy in `AISummary.tsx:87` now overlaps
+  with the Slice 2.1 connect-page banner~~ **Done in PR #22 (`f62c3f4`)** —
+  empty-state copy is now "Connect Entra (see Connect for any licensing
+  notes) to populate this", a cross-link rather than a redundant P1/P2
+  hint. Test file uses `MemoryRouter` per the `<Link>` switch.
 
 ## 🛠 `/ai` endpoint restored (2026-05-24)
 
