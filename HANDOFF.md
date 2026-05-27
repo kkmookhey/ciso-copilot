@@ -6,16 +6,150 @@
 > still hurts. Product docs sit at the repo root: README → ARCHITECTURE
 > → ROADMAP.
 >
-> Last updated: 2026-05-26 (Secrets extraction shipped — Phase 2 Slice A
-> complete, PR #26 merged on `main` as `f853e36`. AI page UX polish
-> shipped, PR #27 merged as `d569fc5` — `/ai` now has a nav item and
-> the score/source tiles drill into `/findings`. iOS device install
-> still pending KK-manual (build complete, app blocked on locked
-> device — see "iOS install — pending" note below). Earlier same day:
-> docs trio + branding pass + MIT license switch shipped; SOC Slice
-> 1c shipped + manual gate verified end-to-end on
-> `feat/ai-powered-soc-slice-1c`. The 2026-05-25 batch shipped SOC
-> Slice 1, CME-v2 across PRs #17–#21.)
+> Last updated: 2026-05-27 (ICICI Lombard demo done — went well. The
+> AI demo polish + 4 prod bug fixes session shipped as PR #29 on
+> `feat/ai-demo-polish-and-fixes`. 2026-05-26: Secrets extraction —
+> Phase 2 Slice A — PR #26 (`f853e36`). AI page UX polish — PR #27
+> (`d569fc5`). Docs trio + branding pass + MIT license switch shipped.
+> SOC Slice 1c shipped + manual gate verified. 2026-05-25 batch
+> shipped SOC Slice 1 + CME-v2 across PRs #17–#21. iOS device
+> install still pending KK-manual.)
+
+## 🚀 ICICI demo prep — 2 features + 4 bugs fixed (2026-05-27, PR #29)
+
+Demo went well. ICICI Lombard's security + risk team. They run Prisma
+Cloud as incumbent CSPM and have asked for a product brochure + Prisma
+comparison — saved as a project memory under `project_icici_lombard_demo`
+for future positioning work.
+
+**Two features shipped:**
+
+1. **`/ai/inventory` reframed around the autonomous-AI narrative.**
+   Hero stat strip counts entities by kind: Agents / MCP servers / Tools
+   prominent; Models / Vector DBs / Embeddings / Prompts / Frameworks as
+   satellites. Two-section split: "Autonomous AI surface" (agents + MCP +
+   tools) on top, "Models, data & prompts" below. Per-row "Discovered in"
+   badge derived from `detector_id` (Code / AWS / Azure / Entra / GCP /
+   Manual). `per_page` bumped to 200 with a truncation banner when capped.
+   File: `web/src/routes/AIInventory.tsx`.
+
+2. **AI Exposure Score on `/ai`.** Single 0–100 number above the existing
+   Fail/Partial/Pass tiles. Formula: `round((1 - (fail*3 + partial*1) /
+   (fail*3 + partial*1 + pass*1)) * 100)`, clamped 0–100. Verdict bands:
+   90+ strong, 70–89 healthy, 50–69 needs attention, <50 critical. SVG
+   donut ring (rotated -90° so 12 o'clock is the start, going clockwise).
+   `computeExposureScore` + `verdictForScore` exported as pure functions
+   so the formula is testable in isolation. Six new tests cover boundary
+   bands + empty case + worked example matching the existing
+   `/ai/summary` mock. File: `web/src/routes/AISummary.tsx`.
+
+**Four production bugs caught & fixed** (this is the load-bearing part —
+each had been broken silently for days or weeks):
+
+1. **`entities_api._upsert_repo_entity` INSERTed into a `connection_id`
+   column that no longer exists on `entities`.** The SP1 unified-entity
+   migration (`005`) replaced `ai_assets` (which had the column) with
+   `entities` (which doesn't). Postgres `42703` was caught by the
+   top-level `try/except` and returned to the SPA as a generic 500 with
+   zero CloudWatch breadcrumb. **Every `POST /ai/scans` had been broken
+   since the Lambda redeploy on 2026-05-19 20:06 UTC** — nobody scanned
+   a new repo in the eight days since, so nobody noticed. Also added
+   `traceback.format_exc()` to the exception fence so future 500s
+   actually log a stack trace.
+
+2. **`ai_scans.repo_asset_id` FK still pointed at the retired
+   `ai_assets` table.** Fix #1 unblocked the INSERT and immediately hit
+   FK `23503`. Migration `014_ai_scans_repo_asset_fkey_to_entities.sql`
+   repoints to `entities(id)` using `NOT VALID` so the 13 historical
+   `ai_scans` rows are not re-validated. They become orphans referencing
+   nothing in `entities`; `repo_asset_id` is NOT NULL so we can't null
+   them. Acceptable — `ai_assets` is retired, rows are demo-tier. Applied
+   live via the Data API; the migration file is the tracked record.
+
+3. **Entra `ai_signin_pass` crashed silently on `datetime` from
+   Microsoft Graph SDK.** SDK returns `auditLogs/signIns`
+   `createdDateTime` as a real `datetime` object; Slice 2 tests used
+   string fixtures, and Slice 2.1 verification used a Free-tier tenant
+   that hits a 403 before reaching `signin_to_params`. **The entire AI
+   sign-in pass had been silently emitting zero findings for any P1/P2
+   tenant with real activity** — every Entra tenant before KK's
+   production tenant either had no AI activity or was Free-tier. Fix:
+   ISO-stringify at extraction (defensively via `hasattr(.isoformat)`).
+   Regression test uses a real `datetime(..., tzinfo=utc)` matching
+   production SDK behaviour.
+
+4. **`/findings?cloud=entra` dropped Entra rows.** Three symptoms
+   (`?cloud=entra` returned 0, Group By Cloud showed no Entra bucket,
+   filter looked broken) all from one root cause — `TopRisks` fetched
+   only top-200 findings sorted severity DESC, then filtered
+   client-side. With ~800 findings dominated by AWS critical/high, the
+   few low-severity Entra rows fell outside the response window before
+   `cloudOf()` could classify them. Three changes: `cloudOf()` returns
+   "Entra" for `domain === "identity"`; `listFindings()` receives
+   `cloud` + `severity` URL params so the server filters before
+   `LIMIT`; new discoverable cloud chip row on `/findings` so the
+   filter is reachable without typing the URL.
+
+5. **`ai_github._complete` returned a locally-generated UUID instead of
+   the SQL `RETURNING id`.** On re-installs (where `ON CONFLICT` fires),
+   the existing row's id stays unchanged but the API returned a new
+   UUID — the SPA navigated to `/ai/connections/<unpersisted-uuid>/repos`
+   which 404'd. Caught when KK reinstalled the GitHub App after the
+   `app.settlingforless.com` → `shasta.transilience.cloud` domain
+   migration. Workaround used during the session: query
+   `ai_connections` directly for the real id. Fix: read the
+   `RETURNING` value into `persisted_id` and return that.
+
+**Common cause across the four bugs:** every Python Lambda mocks
+`_rds.execute_statement` in tests, so the test suite never validates SQL
+against real Aurora schema. Same root cause for the `connection_id`, FK,
+and ON CONFLICT bugs. Fixture-vs-real-SDK gap caused the `datetime` bug.
+**Followup worth opening a brainstorm on:** lightweight integration
+tests against a local Postgres (or sqlite with pg-compat layer) before
+more features land on these surfaces. None of these would have shipped
+broken if the test suite had run real SQL against a real schema.
+
+**Live deploy log this session:**
+- `entities_api`: hotswap deploy
+- `shasta_runner_entra`: Docker image rebuilt + pushed to ECR
+  (`sha256:6e0bb390d3...`) → Lambda re-resolved `:latest`
+- Migration `014` applied via Data API; tracked in `platform/sql/`
+- `ai_github`: hotswap deploy
+- Web bundle: 4× S3 sync + CloudFront invalidation rounds during the
+  session as each fix landed
+
+**Deferred / followups (none blocking):**
+- HANDOFF.md entry → this block (closes the loop)
+- `Finding` API response should carry server-derived `cloud` field so
+  the SPA stops guessing from ARN substrings (the current heuristic
+  also misses Azure findings whose ARN format doesn't include "azure"
+  or "microsoft." substring)
+- Integration tests against real Postgres (the meta followup — see above)
+- ICICI brochure + Prisma comparison deck (KK to draft; positioning
+  guidance saved to memory)
+
+**Files:**
+- `web/src/routes/AIInventory.tsx` (rework)
+- `web/src/routes/AISummary.tsx` + `.test.tsx` (Exposure Score + tests)
+- `web/src/routes/TopRisks.tsx` (cloudOf + filter passing + chip row)
+- `platform/lambda/entities_api/main.py` (`_upsert_repo_entity` +
+  traceback logging)
+- `platform/sql/014_ai_scans_repo_asset_fkey_to_entities.sql` (new)
+- `platform/lambda/shasta_runner_entra/app/ai_signin_pass.py` + test
+- `platform/lambda/ai_github/main.py` + test
+
+**Commits on `feat/ai-demo-polish-and-fixes`:**
+- `852a353` feat(ai-inventory): hero strip + autonomous AI section + discovered-in badges
+- `2dbbc36` feat(ai-summary): AI Exposure Score headline with weighted formula
+- `3b9f361` fix(entities-api): drop bogus connection_id from entities INSERT
+- `4f96f31` chore(sql): migration 014 — repoint ai_scans FK to entities
+- `e59c2f7` fix(entra-scanner): ISO-stringify Graph SDK datetime in ai_signin evidence
+- `0d0b229` fix(findings): make Entra findings actually visible
+- `ebf024e` fix(ai-github): return persisted conn_id from RETURNING on ON CONFLICT
+
+**PR:** [#29](https://github.com/kkmookhey/ciso-copilot/pull/29) — awaiting review/merge.
+
+---
 
 ## 🚀 AI page UX polish — shipped (2026-05-26, PR #27)
 
