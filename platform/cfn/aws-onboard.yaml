@@ -10,8 +10,7 @@ Description: >
 Parameters:
   CisoCopilotAccountId:
     Type: String
-    Default: "470226123496"
-    Description: AWS account ID that hosts the CISO Copilot platform. Do not change.
+    Description: AWS account ID that hosts the CISO Copilot platform. Passed by the onboarding flow.
     AllowedPattern: "^[0-9]{12}$"
 
   ExternalId:
@@ -27,13 +26,11 @@ Parameters:
 
   CentralEventBusArn:
     Type: String
-    Default: "arn:aws:events:us-east-1:470226123496:event-bus/ciso-copilot-events"
-    Description: ARN of the CISO Copilot central event bus that receives forwarded events. Do not change.
+    Description: ARN of the CISO Copilot central event bus that receives forwarded events. Passed by the onboarding flow.
 
   CompleteWebhookUrl:
     Type: String
-    Default: "https://xoljryrb7i.execute-api.us-east-1.amazonaws.com/v1/onboarding/aws/complete"
-    Description: CISO Copilot endpoint that the custom resource calls to register this connection. Do not change.
+    Description: CISO Copilot endpoint that the custom resource calls to register this connection. Passed by the onboarding flow.
 
   ConnectionId:
     Type: String
