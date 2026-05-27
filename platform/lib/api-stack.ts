@@ -60,7 +60,10 @@ export class ApiStack extends cdk.Stack {
       handler: 'main.handler',
       code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'me')),
       timeout: cdk.Duration.seconds(10),
-      environment: dbEnv,
+      environment: {
+        ...dbEnv,
+        ADMIN_EMAILS: config.adminEmails,
+      },
     });
     props.dbCluster.grantDataApiAccess(meFn);
 

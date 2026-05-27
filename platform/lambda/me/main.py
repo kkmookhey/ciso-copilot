@@ -24,6 +24,12 @@ DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN  = os.environ["DB_SECRET_ARN"]
 DB_NAME        = os.environ["DB_NAME"]
 
+ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in os.environ.get("ADMIN_EMAILS", "").split(",")
+    if e.strip()
+}
+
 rds_data = boto3.client("rds-data")
 
 
@@ -56,10 +62,13 @@ def handler(event: dict, context) -> dict:
         return _resp(200, {"user": None, "tenant": None})
 
     r = rows[0]
+    email = r[0].get("stringValue")
+    is_admin = bool(email) and email.lower() in ADMIN_EMAILS
     return _resp(200, {
         "user": {
-            "email": r[0].get("stringValue"),
-            "role":  r[1].get("stringValue"),
+            "email":    email,
+            "role":     r[1].get("stringValue"),
+            "is_admin": is_admin,
         },
         "tenant": {
             "tenant_id":    r[2].get("stringValue"),
