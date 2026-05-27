@@ -1,0 +1,109 @@
+# gitleaks allowlist for the Shasta repo.
+#
+# Scope: pre-existing historical findings audited and triaged as Tier 3
+# of the Phase 2 secrets-extraction work (2026-05-27), before the
+# MIT-public flip. Every fingerprint below was manually verified as
+# either a synthetic test fixture or an AWS resource *name* (not a
+# credential). Adding new entries here without a paired triage note in
+# the PR description should be a review block.
+#
+# ─────────────────────────────────────────────────────────────────────
+# private-key (2 hits) — synthetic RSA test fixtures
+# ─────────────────────────────────────────────────────────────────────
+# Both are 2048-bit RSA keys generated via `openssl genrsa` purely for
+# hermetic unit tests of the GitHub-App JWT-minting code path. They are
+# never used to sign real requests and have no production access. The
+# first is the inlined fixture in the test file; the second is the same
+# test's planning doc quoting the fixture as a code example.
+
+2f037658fbe9752f1fcbeab1b4857dd96b16a052:docs/superpowers/plans/2026-05-18-ai-security-slice-1a.md:private-key:608
+c5a26283cf6d978403479ada7059b0f61e4fd3d6:platform/lambda/ai_github/tests/test_github_app.py:private-key:14
+
+# ─────────────────────────────────────────────────────────────────────
+# generic-api-key (73 hits) — Aurora secret ARN *name*, not a credential
+# ─────────────────────────────────────────────────────────────────────
+# Every hit matches the Secrets Manager secret name
+# `AuroraPgSecretF5CEE99C-niqW1iheRsGP-BgwkPp` (the CDK-generated suffix
+# triggers gitleaks's entropy heuristic). The name is the resource
+# identifier, not the secret value — reading the actual value requires
+# `secretsmanager:GetSecretValue` IAM permission. Per Phase 2 Slice A
+# spec §3 non-goals, AWS resource identifiers are accepted as
+# information disclosure, not credential leak.
+#
+# Tier 2 sanitization (PR #30) replaced these with $DB_SECRET_ARN in
+# the current tree; historical commits still contain the literal name.
+# These fingerprints freeze that history at the audited state.
+
+083a8c9ca849b75b82d17e97c743168e695630a9:HANDOFF.md:generic-api-key:65
+0f9bf03bcb94322727ee8927bcb41dda2c340cf6:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1.md:generic-api-key:121
+0f9bf03bcb94322727ee8927bcb41dda2c340cf6:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1.md:generic-api-key:134
+22ff2964187e75826c10ad33acae8b1310d0ebe0:HANDOFF.md:generic-api-key:87
+2f037658fbe9752f1fcbeab1b4857dd96b16a052:docs/superpowers/plans/2026-05-18-ai-security-slice-1a.md:generic-api-key:2180
+2f037658fbe9752f1fcbeab1b4857dd96b16a052:docs/superpowers/plans/2026-05-18-ai-security-slice-1a.md:generic-api-key:247
+2f037658fbe9752f1fcbeab1b4857dd96b16a052:docs/superpowers/plans/2026-05-18-ai-security-slice-1a.md:generic-api-key:260
+2f037658fbe9752f1fcbeab1b4857dd96b16a052:docs/superpowers/plans/2026-05-18-ai-security-slice-1a.md:generic-api-key:273
+33ff6db58d60f718f6ff15edffd4724c62ab7d85:docs/superpowers/plans/2026-05-20-aws-scanner-uplift-slice-0.md:generic-api-key:1097
+33ff6db58d60f718f6ff15edffd4724c62ab7d85:docs/superpowers/plans/2026-05-20-aws-scanner-uplift-slice-0.md:generic-api-key:62
+33ff6db58d60f718f6ff15edffd4724c62ab7d85:docs/superpowers/plans/2026-05-20-aws-scanner-uplift-slice-0.md:generic-api-key:76
+3ce55b8f21e00d8e8860ece3cbdd52a42787097c:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1.md:generic-api-key:121
+3ce55b8f21e00d8e8860ece3cbdd52a42787097c:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1.md:generic-api-key:134
+46a8f41fd1b36e46178f4c3e658485b7d4345059:docs/superpowers/plans/2026-05-21-scan-progress-ux.md:generic-api-key:128
+46a8f41fd1b36e46178f4c3e658485b7d4345059:docs/superpowers/plans/2026-05-21-scan-progress-ux.md:generic-api-key:21
+480fc8c534ca49dbb2fa0a5d681681e7d8588289:docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1a.md:generic-api-key:1416
+480fc8c534ca49dbb2fa0a5d681681e7d8588289:docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1a.md:generic-api-key:1447
+480fc8c534ca49dbb2fa0a5d681681e7d8588289:docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1a.md:generic-api-key:1458
+51401033b4bdadb84ad0b279eabffc6f40de8ab3:docs/superpowers/plans/2026-05-24-entra-licensing-banner-plan.md:generic-api-key:662
+51589f47467e7d7cc29c04c35bb9ec8f556920a8:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1a.md:generic-api-key:1521
+51589f47467e7d7cc29c04c35bb9ec8f556920a8:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1a.md:generic-api-key:1541
+51589f47467e7d7cc29c04c35bb9ec8f556920a8:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1a.md:generic-api-key:1585
+51589f47467e7d7cc29c04c35bb9ec8f556920a8:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1a.md:generic-api-key:1600
+55f882ecb35dbac9d5799978034de94c4275588a:docs/superpowers/plans/2026-05-22-ai-visibility-v2-slice-1.md:generic-api-key:1036
+55f882ecb35dbac9d5799978034de94c4275588a:docs/superpowers/plans/2026-05-22-ai-visibility-v2-slice-1.md:generic-api-key:1430
+59095ba2997bec59b20fd13f958a9ead4fba1393:CLAUDE.md:generic-api-key:73
+674700c57bab83659cb9659611e4f798ac6ab733:scripts/send_approval_email.py:generic-api-key:29
+814e4c8af6bbfb8f39d7c0a81f153fa6ba6e7fd4:platform/scripts/migrate_to_entities.py:generic-api-key:37
+81ca902400c404ef91d654ba50bb5f6ad24c1678:docs/superpowers/plans/2026-05-19-sp1-unified-entity-model.md:generic-api-key:184
+81ca902400c404ef91d654ba50bb5f6ad24c1678:docs/superpowers/plans/2026-05-19-sp1-unified-entity-model.md:generic-api-key:194
+81ca902400c404ef91d654ba50bb5f6ad24c1678:docs/superpowers/plans/2026-05-19-sp1-unified-entity-model.md:generic-api-key:2068
+81ca902400c404ef91d654ba50bb5f6ad24c1678:docs/superpowers/plans/2026-05-19-sp1-unified-entity-model.md:generic-api-key:2239
+874607d6ad36ef8ee7a4971789c44cfd673ee131:docs/superpowers/plans/2026-05-23-ai-visibility-v2-slice-2.md:generic-api-key:1112
+874607d6ad36ef8ee7a4971789c44cfd673ee131:docs/superpowers/plans/2026-05-23-ai-visibility-v2-slice-2.md:generic-api-key:1128
+8a0b972590fb881498557ce57eedea5e6d89c4b4:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:136
+8a0b972590fb881498557ce57eedea5e6d89c4b4:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:144
+8a0b972590fb881498557ce57eedea5e6d89c4b4:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:2189
+8a0b972590fb881498557ce57eedea5e6d89c4b4:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:2232
+951ecb5d6783e83a31094fc92cd272a5c9782155:docs/superpowers/plans/2026-05-21-scan-execution-v2-backend.md:generic-api-key:1559
+951ecb5d6783e83a31094fc92cd272a5c9782155:docs/superpowers/plans/2026-05-21-scan-execution-v2-backend.md:generic-api-key:1571
+951ecb5d6783e83a31094fc92cd272a5c9782155:docs/superpowers/plans/2026-05-21-scan-execution-v2-backend.md:generic-api-key:1602
+951ecb5d6783e83a31094fc92cd272a5c9782155:docs/superpowers/plans/2026-05-21-scan-execution-v2-backend.md:generic-api-key:1620
+951ecb5d6783e83a31094fc92cd272a5c9782155:docs/superpowers/plans/2026-05-21-scan-execution-v2-backend.md:generic-api-key:980
+951ecb5d6783e83a31094fc92cd272a5c9782155:docs/superpowers/plans/2026-05-21-scan-execution-v2-backend.md:generic-api-key:992
+a02d9814b0bd8221baabf7c2061ea3ad36fe4293:docs/superpowers/plans/2026-05-21-azure-scanner-uplift-slice-0.md:generic-api-key:778
+a1889537b70d135a482c4e0d9a79efe9615e1d04:docs/superpowers/plans/2026-05-21-region-discovery.md:generic-api-key:693
+a1889537b70d135a482c4e0d9a79efe9615e1d04:docs/superpowers/plans/2026-05-21-region-discovery.md:generic-api-key:716
+a1889537b70d135a482c4e0d9a79efe9615e1d04:docs/superpowers/plans/2026-05-21-region-discovery.md:generic-api-key:751
+a1889537b70d135a482c4e0d9a79efe9615e1d04:docs/superpowers/plans/2026-05-21-region-discovery.md:generic-api-key:765
+ad418a3504075925bc3f4d88e77026ab0e5a4bb2:docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-2.md:generic-api-key:729
+b683538b0c720280a4e7ecbb59360935d1cda470:docs/superpowers/plans/2026-05-19-ai-security-slice-1b.md:generic-api-key:2516
+b70193d17cec2b5769f071c70e3094abc4fa472c:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1b.md:generic-api-key:630
+b70193d17cec2b5769f071c70e3094abc4fa472c:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1b.md:generic-api-key:664
+b70193d17cec2b5769f071c70e3094abc4fa472c:docs/superpowers/plans/2026-05-22-gcp-scanner-uplift-slice-1b.md:generic-api-key:670
+b7c884d3b8aa0844f0f4afe3a512c0bbba80dd4f:docs/superpowers/plans/2026-05-24-ai-visibility-v2-slice-3.md:generic-api-key:1403
+c7f37511c40b5e6b1f48caa791661b0fc804554a:docs/superpowers/plans/2026-05-26-secrets-extraction-plan.md:generic-api-key:707
+c7f37511c40b5e6b1f48caa791661b0fc804554a:docs/superpowers/plans/2026-05-26-secrets-extraction-plan.md:generic-api-key:737
+d40a6b92e45f35a95eda1f08cd96bc4713b5b517:TEST_PLAN.md:generic-api-key:244
+d40a6b92e45f35a95eda1f08cd96bc4713b5b517:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:136
+d40a6b92e45f35a95eda1f08cd96bc4713b5b517:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:144
+d40a6b92e45f35a95eda1f08cd96bc4713b5b517:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:2189
+d40a6b92e45f35a95eda1f08cd96bc4713b5b517:docs/superpowers/plans/2026-05-25-ai-powered-soc-slice-1c.md:generic-api-key:2232
+dc00ca67961b3e390faca311b59eb95c92a7d785:docs/superpowers/plans/2026-05-19-sp4-chat-first.md:generic-api-key:109
+dc00ca67961b3e390faca311b59eb95c92a7d785:docs/superpowers/plans/2026-05-19-sp4-chat-first.md:generic-api-key:121
+e21ddce00d93bc0e82c33a7adf99941017187350:docs/superpowers/plans/2026-05-21-aws-scanner-uplift-slice-1.md:generic-api-key:1521
+e21ddce00d93bc0e82c33a7adf99941017187350:docs/superpowers/plans/2026-05-21-aws-scanner-uplift-slice-1.md:generic-api-key:1533
+e21ddce00d93bc0e82c33a7adf99941017187350:docs/superpowers/plans/2026-05-21-aws-scanner-uplift-slice-1.md:generic-api-key:1565
+e21ddce00d93bc0e82c33a7adf99941017187350:docs/superpowers/plans/2026-05-21-aws-scanner-uplift-slice-1.md:generic-api-key:1579
+e4105ac24074858c18f6c96b0913c074b576ee58:docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1b.md:generic-api-key:663
+e4105ac24074858c18f6c96b0913c074b576ee58:docs/superpowers/plans/2026-05-22-azure-scanner-uplift-slice-1b.md:generic-api-key:694
+f0b0e4e9f6097aae3f59e9cd48ad013b76f85657:TEST_PLAN.md:generic-api-key:244
+f853e366a06b9cdd8bacc239a03e2de744bf630a:docs/superpowers/plans/2026-05-26-secrets-extraction-plan.md:generic-api-key:707
+f853e366a06b9cdd8bacc239a03e2de744bf630a:docs/superpowers/plans/2026-05-26-secrets-extraction-plan.md:generic-api-key:737
