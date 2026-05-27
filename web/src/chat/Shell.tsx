@@ -18,14 +18,6 @@ import { executeTool } from "./tools";
 import { VoiceClient } from "./voiceClient";
 import type { VoiceState } from "./voiceClient";
 
-const ADMIN_EMAILS = new Set([
-  "kkmookhey@gmail.com",
-  "kkmookhey@transilience.ai",
-  "kkmookhey@networkintelligence.ai",
-]);
-function isAdmin(email: string | null | undefined): boolean {
-  return !!email && ADMIN_EMAILS.has(email.toLowerCase());
-}
 
 export function ChatShell() {
   const nav = useNavigate();
@@ -240,7 +232,7 @@ export function ChatShell() {
 
   return (
     <div style={{ display: "flex", height: "100vh" }}>
-      <ModuleRail email={me?.user?.email ?? ""} isAdmin={isAdmin(me?.user?.email)} />
+      <ModuleRail email={me?.user?.email ?? ""} isAdmin={me?.user?.is_admin === true} />
       <ConversationRail
         conversations={convs}
         activeId={state.conversationId}
