@@ -115,8 +115,14 @@ def _complete(event: dict) -> dict:
     org_name    = account.get("login")
     account_typ = account.get("type")  # 'User' | 'Organization'
 
-    conn_id = str(uuid.uuid4())
-    helpers.rds_data.execute_statement(
+    # Use ON CONFLICT to make re-installs idempotent. Read the RETURNING value
+    # rather than the locally-generated UUID — on conflict, the persisted id
+    # is the EXISTING row, not the new UUID we just generated. Returning the
+    # local UUID was a real bug (caught 2026-05-27): the SPA navigated to
+    # /ai/connections/<fresh-uuid>/repos which 404'd because that uuid was
+    # never persisted.
+    new_id = str(uuid.uuid4())
+    rs = helpers.rds_data.execute_statement(
         resourceArn=helpers.DB_CLUSTER_ARN,
         secretArn=helpers.DB_SECRET_ARN,
         database=helpers.DB_NAME,
@@ -133,14 +139,16 @@ def _complete(event: dict) -> dict:
             "RETURNING id::text"
         ),
         parameters=[
-            {"name": "id",   "value": {"stringValue": conn_id}},
+            {"name": "id",   "value": {"stringValue": new_id}},
             {"name": "tid",  "value": {"stringValue": tenant_id}},
             {"name": "inst", "value": {"longValue":   installation_id}},
             {"name": "org",  "value": {"stringValue": org_name or ""}},
             {"name": "acct", "value": {"stringValue": account_typ or ""}},
         ],
     )
-    return helpers.resp(200, {"connection_id": conn_id})
+    rows = rs.get("records", [])
+    persisted_id = rows[0][0]["stringValue"] if rows and rows[0] else new_id
+    return helpers.resp(200, {"connection_id": persisted_id})
 
 
 # ----------------------------------------------------------------------------
