@@ -62,6 +62,11 @@ platform/lambda/soc_enrichment/spend_cap.py
 # build.sh-staged copies — docker build context only, not source of truth
 platform/lambda/tools/_shared/
 
+# ai_supply_chain_matcher build artifacts (produced by build.sh, not source)
+platform/lambda/ai_supply_chain_matcher/_shared/
+platform/lambda/ai_supply_chain_matcher/build/
+platform/lambda/ai_supply_chain_matcher/dist/
+
 # Logs / scratch
 *.log
 .cache/

@@ -5,6 +5,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as path from 'path';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -320,6 +321,66 @@ export class ScanStack extends cdk.Stack {
       batchSize:      1,
       maxConcurrency: 5,
     }));
+
+    // ========================================================================
+    // ai-supply-chain-matcher — SQS queue + Lambda
+    //
+    // Triggered after ai_scanner commits sca_vuln findings. Joins CVEs with
+    // the ai_framework→ai_agent edge graph and the KEV threat_indicators table.
+    // When both conditions hold (KEV-listed AND actively imported), emits an
+    // ai_supply_chain_active finding at CRITICAL severity and fires an APNs push.
+    //
+    // PREREQUISITE: run `./build.sh` in lambda/ai_supply_chain_matcher/ before
+    // `cdk deploy`. build.sh vendors _shared/push.py into dist/matcher.zip.
+    // ========================================================================
+    const matcherDlq = new sqs.Queue(this, 'AiSupplyChainMatcherDlq', {
+      queueName:       'ai-supply-chain-matcher-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    const matcherQueue = new sqs.Queue(this, 'AiSupplyChainMatcherQueue', {
+      queueName:        'ai-supply-chain-matcher-queue',
+      visibilityTimeout: cdk.Duration.seconds(60),
+      retentionPeriod:  cdk.Duration.days(4),
+      deadLetterQueue: {
+        queue:           matcherDlq,
+        maxReceiveCount: 3,
+      },
+    });
+
+    const matcherFn = new lambda.Function(this, 'AiSupplyChainMatcherFn', {
+      functionName: 'ciso-copilot-ai-supply-chain-matcher',
+      runtime:      lambda.Runtime.PYTHON_3_12,
+      handler:      'main.handler',
+      // Zip is built by lambda/ai_supply_chain_matcher/build.sh into dist/.
+      // Point CDK at the zip so the asset hash stays stable across deploys.
+      code:         lambda.Code.fromAsset(
+                      path.join(__dirname, '..', 'lambda', 'ai_supply_chain_matcher', 'dist', 'matcher.zip')
+                    ),
+      timeout:      cdk.Duration.seconds(30),
+      memorySize:   512,
+      environment: {
+        ...dbEnv,
+        APNS_PLATFORM_APP_ARN: process.env.APNS_PLATFORM_APP_ARN ?? '',
+      },
+    });
+    // Consume the matcher queue (one message per scan, sequential — no blast radius concern).
+    matcherFn.addEventSource(new lambda_event.SqsEventSource(matcherQueue, {
+      batchSize: 1,
+    }));
+    props.dbCluster.grantDataApiAccess(matcherFn);
+    // SNS: create platform endpoint + publish for APNs push.
+    matcherFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['sns:CreatePlatformEndpoint', 'sns:Publish'],
+      resources: ['*'],
+    }));
+
+    // Grant the AI scanner permission to send messages and inject the queue URL.
+    matcherQueue.grantSendMessages(this.aiScanner);
+    this.aiScanner.addEnvironment('AI_SUPPLY_CHAIN_MATCHER_QUEUE_URL', matcherQueue.queueUrl);
+
+    new cdk.CfnOutput(this, 'AiSupplyChainMatcherQueueUrl', { value: matcherQueue.queueUrl });
+    new cdk.CfnOutput(this, 'AiSupplyChainMatcherFnName',   { value: matcherFn.functionName });
 
     new cdk.CfnOutput(this, 'AiScanQueueUrl',  { value: this.aiScanQueue.queueUrl });
     new cdk.CfnOutput(this, 'AiScannerFnName', { value: this.aiScanner.functionName });
