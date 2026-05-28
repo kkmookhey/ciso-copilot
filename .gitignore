@@ -67,6 +67,11 @@ platform/lambda/ai_supply_chain_matcher/_shared/
 platform/lambda/ai_supply_chain_matcher/build/
 platform/lambda/ai_supply_chain_matcher/dist/
 
+# forensic_callback build artifacts (produced by build.sh, not source)
+platform/lambda/forensic_callback/_shared/
+platform/lambda/forensic_callback/build/
+platform/lambda/forensic_callback/dist/
+
 # Logs / scratch
 *.log
 .cache/

@@ -1028,6 +1028,53 @@ export class ApiStack extends cdk.Stack {
       'POST', new apigw.LambdaIntegration(toolsFn), authedOpts,
     );
 
+    // ========================================================================
+    // Wow-demo Task 17 — forensic_callback Lambda
+    // Triggered by one-time EventBridge rule scheduled by run_forensic_scan
+    // (Task 12). Looks up tenant from conversation_id, fires APNs push with
+    // the 'clean' result, then deletes the rule so EB doesn't accumulate stale
+    // rules. PREREQUISITE: run `./build.sh` in lambda/forensic_callback/ before
+    // `cdk deploy`. build.sh vendors _shared/push.py into dist/.
+    // ========================================================================
+    const forensicCallbackFn = new lambda.Function(this, 'ForensicCallbackFn', {
+      functionName: 'ciso-copilot-forensic-callback',
+      runtime:      lambda.Runtime.PYTHON_3_12,
+      handler:      'main.handler',
+      // Zip is built by lambda/forensic_callback/build.sh into dist/.
+      code:         lambda.Code.fromAsset(
+                      path.join(__dirname, '..', 'lambda', 'forensic_callback', 'dist', 'forensic_callback.zip')
+                    ),
+      timeout:      cdk.Duration.seconds(15),
+      environment: {
+        ...dbEnv,
+        APNS_PLATFORM_APP_ARN: process.env.APNS_PLATFORM_APP_ARN ?? '',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(forensicCallbackFn);
+    // Allow EventBridge to invoke this Lambda.
+    forensicCallbackFn.grantInvoke(new iam.ServicePrincipal('events.amazonaws.com'));
+    // Push via SNS.
+    forensicCallbackFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['sns:CreatePlatformEndpoint', 'sns:Publish'],
+      resources: ['*'],
+    }));
+
+    // Wire the ARN into ToolsFn so run_forensic_scan can schedule against it.
+    toolsFn.addEnvironment('FORENSIC_CALLBACK_FN_ARN', forensicCallbackFn.functionArn);
+    // ToolsFn needs EB put/delete-rule permissions to schedule + clean up rules.
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   [
+        'events:PutRule',
+        'events:PutTargets',
+        'events:RemoveTargets',
+        'events:DeleteRule',
+      ],
+      resources: ['*'],
+    }));
+    // ToolsFn also needs to pass the Lambda's role to EventBridge.
+    forensicCallbackFn.grantInvoke(toolsFn);
+
+    new cdk.CfnOutput(this, 'ForensicCallbackFnName', { value: forensicCallbackFn.functionName });
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });
     new cdk.CfnOutput(this, 'GcpScriptUrl',     { value: gcpScriptUrl });
