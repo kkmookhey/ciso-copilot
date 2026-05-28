@@ -1,22 +1,51 @@
-#!/usr/bin/env bash
-# Build the tools Lambda zip.
-# - Vendors _shared/ so the Lambda can import _shared.{speakable,mcp_client,push}.
-# - Installs deps targeting manylinux2014_x86_64 (matches Lambda runtime) and
-#   falls back to the host Python wheels if the targeted install fails — pattern
-#   borrowed from soc_enrichment/build.sh.
-# CDK's lambda.Code.fromAsset points at this directory; the zip output below is
-# for manual inspection / out-of-band uploads. Asset-mode deploys still need
-# this script run first so build/ contains vendored deps + _shared/.
+#!/bin/bash
+# platform/lambda/tools/build.sh — build + push tools-lambda image to ECR.
+#
+# Usage:
+#   ./build.sh           # builds + pushes tag "latest"
+#   ./build.sh v1.2.3    # builds + pushes tag "v1.2.3" (also tags latest)
+#   NO_CACHE=1 ./build.sh
+#
+# Prereqs: docker, aws CLI, authenticated to ECR.
+
 set -euo pipefail
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-BUILD=$HERE/build
-DIST=$HERE/dist
-rm -rf "$BUILD" "$DIST"
-mkdir -p "$BUILD" "$DIST"
-pip3 install --target "$BUILD" -r "$HERE/requirements.txt" --quiet \
-  --platform manylinux2014_x86_64 --only-binary=:all: --python-version 3.12 2>/dev/null \
-  || pip3 install --target "$BUILD" -r "$HERE/requirements.txt" --quiet
-cp "$HERE"/*.py "$BUILD"
-cp -r "$HERE/.."/_shared "$BUILD/_shared"
-(cd "$BUILD" && zip -qr "$DIST/tools.zip" .)
-echo "built: $DIST/tools.zip"
+cd "$(dirname "$0")"
+
+REGION="${AWS_REGION:-us-east-1}"
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+REPO="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/tools-lambda"
+TAG="${1:-latest}"
+
+# Stage _shared/ into the build context so the Dockerfile can COPY it.
+# .gitignore excludes the staged copy; source of truth stays in ../_shared/.
+echo "==> staging _shared/ from ../_shared"
+rm -rf _shared
+cp -r ../_shared _shared
+
+cleanup() {
+  echo "==> cleaning up staged _shared/"
+  rm -rf _shared
+}
+trap cleanup EXIT
+
+echo "==> ECR auth"
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "$REPO" >/dev/null
+
+echo "==> docker build (linux/amd64) → $REPO:$TAG"
+docker build \
+  --platform linux/amd64 \
+  --provenance=false \
+  ${NO_CACHE:+--no-cache} \
+  -t "tools-lambda:$TAG" \
+  -t "$REPO:$TAG" \
+  -t "$REPO:latest" \
+  .
+
+echo "==> docker push $REPO:$TAG"
+docker push "$REPO:$TAG"
+if [[ "$TAG" != "latest" ]]; then
+  docker push "$REPO:latest"
+fi
+
+echo "==> done. Image URI: $REPO:$TAG"

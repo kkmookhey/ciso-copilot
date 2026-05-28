@@ -59,6 +59,9 @@ __pycache__/
 # Local-dev symlinks — vendored into Lambda zip by build.sh, not committed
 platform/lambda/soc_enrichment/spend_cap.py
 
+# build.sh-staged copies — docker build context only, not source of truth
+platform/lambda/tools/_shared/
+
 # Logs / scratch
 *.log
 .cache/

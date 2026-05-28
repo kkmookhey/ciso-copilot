@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigw from 'aws-cdk-lib/aws-apigateway';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
@@ -40,6 +41,7 @@ interface ApiStackProps extends cdk.StackProps {
   aiScanQueue:        sqs.IQueue;
   cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
   webRedirectUri:     string;   // e.g. https://<cdn>/callback
+  toolsLambdaRepo:    ecr.IRepository;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -984,21 +986,24 @@ export class ApiStack extends cdk.Stack {
 
     // ========================================================================
     // Wow-demo Task 6 — POST /v1/tools/{tool_name} dispatcher
+    // Task 8 — converted to container Lambda so it can shell out to npx for
+    // the Anthropic-reference Slack + GitHub MCP servers.
     // ========================================================================
-    const toolsFn = new lambda.Function(this, 'ToolsFn', {
-      runtime:    lambda.Runtime.PYTHON_3_12,
-      handler:    'main.handler',
-      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'tools')),
+    const toolsFn = new lambda.DockerImageFunction(this, 'ToolsFn', {
+      code: lambda.DockerImageCode.fromEcr(props.toolsLambdaRepo, { tagOrDigest: 'latest' }),
       // 60s covers Task 11's tail_lambda_logs_for_pattern, which polls
       // CloudWatch Logs Insights for up to 30s before returning.
       timeout:    cdk.Duration.seconds(60),
-      memorySize: 512,
+      memorySize: 1024,
       environment: {
         ...dbEnv,
-        ENTRA_TENANT_ID:    config.entraTenantId,
-        ENTRA_CLIENT_ID:    config.entraClientId,
-        ENTRA_CLIENT_SECRET: config.entraClientSecret,
-        // Tool-specific MCP_*/JIRA_*/GITHUB_* env vars wired in Tasks 8-11.
+        ENTRA_TENANT_ID:       config.entraTenantId,
+        ENTRA_CLIENT_ID:       config.entraClientId,
+        ENTRA_CLIENT_SECRET:   config.entraClientSecret,
+        MCP_SLACK_COMMAND:     'npx -y @modelcontextprotocol/server-slack',
+        MCP_SLACK_FORWARD_ENV: 'SLACK_BOT_TOKEN',
+        SLACK_BOT_TOKEN:       process.env.SLACK_BOT_TOKEN ?? '',
+        // Atlassian and GitHub env vars added in Tasks 9 + 10.
       },
     });
     props.dbCluster.grantDataApiAccess(toolsFn);

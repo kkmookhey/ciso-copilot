@@ -48,6 +48,7 @@ new ApiStack(app, 'CisoCopilotApi', {
   eventBus:           eventsStack.eventBus,
   cdnDistribution:    staticStack.cdnDistribution,
   shastaRunnerEntra:  scanStack.shastaRunnerEntra,
+  toolsLambdaRepo:    ecrStack.toolsLambda,
   scanCluster:                 scanStack.scanCluster,
   // Use plain strings for the task-def family + role ARNs to avoid a
   // cross-stack CloudFormation export on the revision ARN (which changes on
