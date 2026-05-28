@@ -15,6 +15,13 @@ RUN dnf install -y git && dnf clean all
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
+# Trivy 0.55.x for SCA dependency scanning.
+# Static binary; ~80MB; supports requirements.txt / package.json / pom.xml etc.
+# install.sh detects the OS arch and fetches the right static binary.
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+    | sh -s -- -b /usr/local/bin v0.55.0 \
+ && trivy --version
+
 # Source.
 COPY . ${LAMBDA_TASK_ROOT}/
 

@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 import scan_runner
+import trivy as trivy_sca
 import unified_writer
 from detectors import (
     framework, model_usage, mcp_server, agentic_workflow,
@@ -94,6 +95,12 @@ def _run_one(body: dict) -> None:
         all_entities = [repo_entity] + [e for r in results for e in r.entities] + corr_result.entities
         all_edges    = [e for r in results for e in r.edges] + corr_result.edges
         all_findings = [f for r in results for f in r.findings] + corr_result.findings
+
+        # === SCA pass via Trivy ===
+        trivy_raw = trivy_sca.run_trivy(str(workdir))
+        sca_findings = trivy_sca.parse_trivy_findings(trivy_raw, repo_id=ctx.repo_full_name)
+        all_findings.extend(sca_findings)
+        print(f"[ai_scanner] trivy: {len(sca_findings)} sca_vuln findings emitted")
 
         unified_writer.commit_scan(ctx,
                                     entities=all_entities,
