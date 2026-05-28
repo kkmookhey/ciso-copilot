@@ -17,7 +17,7 @@ import urllib.error
 
 import boto3
 
-from voice_session.system_prompt import render as render_system_prompt
+from system_prompt import render as render_system_prompt
 
 DB_CLUSTER_ARN     = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN      = os.environ["DB_SECRET_ARN"]
