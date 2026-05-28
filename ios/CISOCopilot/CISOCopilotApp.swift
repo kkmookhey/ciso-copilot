@@ -22,6 +22,8 @@ struct CISOCopilotApp: App {
                 )) { sheetID in
                     NavigationStack {
                         BriefingView(incident: sheetID.context)
+                            .environment(auth)
+                            .environment(api)
                             .environmentObject(incidentRouter)
                     }
                 }
