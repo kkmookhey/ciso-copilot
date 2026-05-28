@@ -101,10 +101,11 @@ def handler(event: dict, context: Any) -> None:
             body      = json.loads(record["body"])
             tenant_id = body["tenant_id"]
             scan_id   = body.get("scan_id") or _NIL_UUID
+            conn_id   = _conn_id_for_scan(scan_id) if scan_id != _NIL_UUID else _NIL_UUID
             matches   = _find_matches(tenant_id=tenant_id)
-            print(f"[matcher] tenant={tenant_id} scan={scan_id} matches={len(matches)}")
+            print(f"[matcher] tenant={tenant_id} scan={scan_id} conn={conn_id} matches={len(matches)}")
             for m in matches:
-                finding_id = _emit_finding(tenant_id=tenant_id, scan_id=scan_id, match=m)
+                finding_id = _emit_finding(tenant_id=tenant_id, scan_id=scan_id, conn_id=conn_id, match=m)
                 _fire_push(tenant_id=tenant_id, finding_id=finding_id, match=m)
         except Exception as e:
             print(f"[matcher] error: {type(e).__name__}: {e}")
@@ -139,7 +140,21 @@ def _str(row: list, i: int) -> str:
     return row[i].get("stringValue", "") if i < len(row) else ""
 
 
-def _emit_finding(*, tenant_id: str, scan_id: str, match: dict) -> str:
+def _conn_id_for_scan(scan_id: str) -> str:
+    """Look up the cloud_connections conn_id used by the triggering scan
+    so the synthetic ai_supply_chain_active finding satisfies the
+    findings.conn_id FK. Falls back to _NIL_UUID only if the scan row is
+    missing (shouldn't happen — the scanner inserts it first)."""
+    rs = _rds.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql="SELECT conn_id::text FROM scans WHERE scan_id = CAST(:s AS UUID) LIMIT 1",
+        parameters=[{"name": "s", "value": {"stringValue": scan_id}}],
+    )
+    rows = rs.get("records", [])
+    return rows[0][0].get("stringValue") if rows else _NIL_UUID
+
+
+def _emit_finding(*, tenant_id: str, scan_id: str, conn_id: str, match: dict) -> str:
     finding_id = str(uuid.uuid4())
     # check_id encodes the unique match: one row per (CVE, repo) pair.
     check_id   = f"ai_supply_chain_active:{match['cve']}:{match['repo_entity_id']}"
@@ -168,12 +183,12 @@ def _emit_finding(*, tenant_id: str, scan_id: str, match: dict) -> str:
         database=DB_NAME,
         sql=(
             "INSERT INTO findings "
-            "  (finding_id, tenant_id, conn_id, scan_id, kind, check_id, "
+            "  (finding_id, tenant_id, conn_id, scan_id, check_id, "
             "   title, description, severity, status, domain, "
             "   frameworks, evidence_packet, first_seen, last_seen) "
             "VALUES "
             "  (CAST(:fid AS UUID), CAST(:t AS UUID), CAST(:conn AS UUID), "
-            "   CAST(:s AS UUID), 'ai_supply_chain_active', :check_id, "
+            "   CAST(:s AS UUID), :check_id, "
             "   :title, :desc, 'critical', 'fail', 'ai', "
             "   CAST('[]' AS JSONB), CAST(:ep AS JSONB), NOW(), NOW()) "
             "ON CONFLICT (tenant_id, conn_id, check_id, "
@@ -188,7 +203,7 @@ def _emit_finding(*, tenant_id: str, scan_id: str, match: dict) -> str:
         parameters=[
             {"name": "fid",      "value": {"stringValue": finding_id}},
             {"name": "t",        "value": {"stringValue": tenant_id}},
-            {"name": "conn",     "value": {"stringValue": _NIL_UUID}},
+            {"name": "conn",     "value": {"stringValue": conn_id}},
             {"name": "s",        "value": {"stringValue": scan_id}},
             {"name": "check_id", "value": {"stringValue": check_id}},
             {"name": "title",    "value": {"stringValue": title[:500]}},
