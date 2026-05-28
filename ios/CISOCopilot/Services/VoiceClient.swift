@@ -54,6 +54,10 @@ final class VoiceClient: NSObject {
     private var pendingToolArgs: [String: String] = [:]
     private var pendingToolNames: [String: String] = [:]
 
+    /// If set before start(), this developer message is injected into the
+    /// conversation once the data channel opens, triggering Shasta to speak first.
+    private var pendingSeedMessage: String?
+
     override init() {
         RTCInitializeSSL()
         self.factory = RTCPeerConnectionFactory(
@@ -64,6 +68,13 @@ final class VoiceClient: NSObject {
     }
 
     // MARK: - Public API
+
+    /// Start a session and, once the data channel opens, inject a developer
+    /// message so Shasta speaks the briefing without waiting for user input.
+    func start(seedDeveloperMessage: String) async {
+        pendingSeedMessage = seedDeveloperMessage
+        await start()
+    }
 
     func start() async {
         guard state == .idle || state == .error else { return }
@@ -285,6 +296,23 @@ final class VoiceClient: NSObject {
         dc.sendData(RTCDataBuffer(data: data, isBinary: false))
     }
 
+    /// If a seed message is pending and the data channel is now open, send it
+    /// as a user-role conversation item and trigger a response so Shasta speaks first.
+    private func sendSeedIfPending() {
+        guard let seed = pendingSeedMessage,
+              dataChannel?.readyState == .open else { return }
+        pendingSeedMessage = nil
+        sendEvent([
+            "type": "conversation.item.create",
+            "item": [
+                "type":    "message",
+                "role":    "user",
+                "content": [["type": "input_text", "text": seed]],
+            ],
+        ])
+        sendEvent(["type": "response.create"])
+    }
+
     // MARK: - Tool dispatch
 
     private func dispatchTool(callId: String, name: String, argsJson: String) async {
@@ -383,7 +411,10 @@ extension VoiceClient: RTCPeerConnectionDelegate {
 // MARK: - RTCDataChannelDelegate
 
 extension VoiceClient: RTCDataChannelDelegate {
-    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
+    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        guard dataChannel.readyState == .open else { return }
+        Task { @MainActor [weak self] in self?.sendSeedIfPending() }
+    }
     nonisolated func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         guard let event = try? JSONSerialization.jsonObject(with: buffer.data) as? [String: Any] else { return }
         Task { @MainActor [weak self] in self?.handleEvent(event) }
