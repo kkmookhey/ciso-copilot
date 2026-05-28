@@ -79,12 +79,12 @@ JOIN threat_indicators kev
  AND kev.source = 'kev'
  AND kev.indicator_value = trivy.evidence_packet->>'cve'
 WHERE trivy.tenant_id = CAST(:t AS UUID)
-  AND trivy.kind = 'sca_vuln'
+  AND trivy.check_id = 'sca_vuln'
   AND trivy.severity IN ('critical', 'high')
   AND NOT EXISTS (
     SELECT 1 FROM findings prior
     WHERE prior.tenant_id = trivy.tenant_id
-      AND prior.kind = 'ai_supply_chain_active'
+      AND prior.check_id = 'ai_supply_chain_active'
       AND prior.evidence_packet->>'package'        = trivy.evidence_packet->>'package'
       AND prior.evidence_packet->>'cve'            = trivy.evidence_packet->>'cve'
       AND prior.evidence_packet->>'agent_entity_id' = agent.id::text

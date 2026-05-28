@@ -41,10 +41,17 @@ def run_trivy(repo_path: str, *, timeout: int = 120) -> dict[str, Any]:
         return {"Results": []}
 
 
-def parse_trivy_findings(raw: dict[str, Any], *, repo_id: str) -> list[dict]:
-    """Convert Trivy JSON to a list of finding rows ready for unified_writer."""
+def parse_trivy_findings(raw: dict[str, Any], *, tenant_id: str,
+                          repo_full_name: str):
+    """Convert Trivy JSON to a list of FindingEmission instances ready for
+    unified_writer.commit_scan."""
+    # Imported lazily to keep this module test-friendly without forcing the
+    # FindingEmission dependency on every consumer.
+    from detectors.base import FindingEmission
+
     out = []
     dropped = 0
+    repo_natural_key = f"github.com/{repo_full_name}"
     for result in raw.get("Results", []):
         target = result.get("Target", "unknown")
         for v in result.get("Vulnerabilities", []):
@@ -54,20 +61,28 @@ def parse_trivy_findings(raw: dict[str, Any], *, repo_id: str) -> list[dict]:
             if not (pkg and ver and cve):
                 dropped += 1
                 continue
-            out.append({
-                "kind":      "sca_vuln",
-                "severity":  _SEVERITY_MAP.get(v.get("Severity", "UNKNOWN"), "info"),
-                "title":     f"{pkg} {ver} — {cve}",
-                "evidence_packet": {
+            description = (v.get("Description") or "")[:1000]
+            out.append(FindingEmission(
+                tenant_id=tenant_id,
+                finding_type="sca_vuln",
+                severity=_SEVERITY_MAP.get(v.get("Severity", "UNKNOWN"), "info"),
+                title=f"{pkg} {ver} — {cve}",
+                description=description or f"{pkg} {ver} affected by {cve}.",
+                subject_entity_kind="github_repo",
+                subject_entity_natural_key=repo_natural_key,
+                subject_type="github_repo",
+                subject_ref=repo_full_name,
+                evidence_packet={
                     "package":       pkg,
                     "version":       ver,
                     "fixed_version": v.get("FixedVersion"),
                     "cve":           cve,
                     "manifest":      target,
-                    "description":   (v.get("Description") or "")[:1000],
-                    "repo_id":       repo_id,
+                    "description":   description,
+                    "repo_id":       repo_full_name,
                 },
-            })
+                confidence="high",
+            ))
     if dropped:
         # Surface schema drift early — a Trivy output change that nukes
         # PkgName/InstalledVersion/VulnerabilityID will manifest here.
