@@ -123,9 +123,18 @@ final class VoiceClient: NSObject {
         let s = RTCAudioSession.sharedInstance()
         s.lockForConfiguration()
         defer { s.unlockForConfiguration() }
-        try s.setCategory(.playAndRecord, with: [.defaultToSpeaker])
-        try s.setMode(.voiceChat)
+        // .videoChat (FaceTime-style) keeps the VPIO echo-cancellation but
+        // runs the chain at a louder output level than .voiceChat — which
+        // was making Shasta inaudible on iPhone even at max volume.
+        try s.setCategory(
+            .playAndRecord,
+            with: [.defaultToSpeaker, .allowBluetoothA2DP]
+        )
+        try s.setMode(.videoChat)
         try s.setActive(true)
+        // Force speaker routing — .defaultToSpeaker isn't always honored
+        // when the route is initially established via the receiver.
+        try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
     }
 
     private func setupPeerConnection() throws {
