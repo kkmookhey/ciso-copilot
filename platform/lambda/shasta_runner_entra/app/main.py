@@ -105,6 +105,13 @@ def handler(event: dict, context) -> dict:
         except Exception as e:
             print(f"WARN: failed to update signin_premium_required flag: {e}")
 
+        try:
+            _fire_personal_tier_pushes(tenant_id=tenant_id, scan_id=scan_id)
+        except Exception as e:
+            # Push failure must not fail the scan.
+            print(f"[entra-runner] personal-tier push error (non-fatal): {type(e).__name__}: {e}")
+            import traceback; traceback.print_exc()
+
         _update_scan(scan_id, status="completed", stats={
             "findings":        written,
             "entra_tenant_id": entra_tenant_id,
@@ -336,6 +343,57 @@ def _update_connection_premium_flag(conn_id: str, *,
             parameters=[{"name": "cid", "value": {"stringValue": conn_id}}],
         )
     # else: ambiguous case, no write
+
+
+# === Push for new personal-tier AI sign-in findings (recorded-demo Track A) ===
+from _shared import push as push_mod
+
+_APNS_PLATFORM_APP_ARN = os.environ.get("APNS_PLATFORM_APP_ARN", "")
+
+
+def _fire_personal_tier_pushes(tenant_id: str, scan_id: str) -> None:
+    """For each newly-emitted personal-tier finding from THIS scan, fire one push.
+
+    Designed to be called after the scan's findings have been committed.
+    Failure here is non-fatal — the caller wraps in try/except so a push
+    glitch never fails an otherwise-successful scan.
+    """
+    if not _APNS_PLATFORM_APP_ARN:
+        return
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=("SELECT finding_id::text, title, evidence_packet->>'entra_upn' "
+             "FROM findings "
+             "WHERE tenant_id = CAST(:t AS UUID) AND scan_id = CAST(:s AS UUID) "
+             "  AND check_id = 'ai_signin_personal_tier'"),
+        parameters=[
+            {"name": "t", "value": {"stringValue": tenant_id}},
+            {"name": "s", "value": {"stringValue": scan_id}},
+        ],
+    )
+    tokens = push_mod.tokens_for_tenant(
+        tenant_id, rds=rds_data,
+        db_cluster_arn=DB_CLUSTER_ARN, db_secret_arn=DB_SECRET_ARN, db_name=DB_NAME,
+    )
+    if not tokens:
+        print(f"[entra-runner] personal-tier push: tenant={tenant_id} no device tokens")
+        return
+    for row in rs.get("records", []):
+        finding_id = row[0].get("stringValue")
+        title      = row[1].get("stringValue", "")
+        upn        = row[2].get("stringValue", "")
+        speakable_summary = f"Shadow AI — {upn} using personal-tier AI app"
+        push_mod.send_push_with_payload(
+            device_tokens=tokens,
+            platform_app_arn=_APNS_PLATFORM_APP_ARN,
+            body=speakable_summary,
+            payload={
+                "finding_id":        finding_id,
+                "kind_label":        "Shadow AI",
+                "speakable_summary": speakable_summary,
+            },
+        )
+        print(f"[entra-runner] personal-tier push: finding={finding_id} fired")
 
 
 def _update_scan(scan_id, status, stats=None, error=None):

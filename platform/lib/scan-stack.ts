@@ -209,10 +209,16 @@ export class ScanStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         ENTRA_SCANNER_SECRET_NAME: this.entraScannerSecret.secretName,
+        APNS_PLATFORM_APP_ARN:     process.env.APNS_PLATFORM_APP_ARN ?? '',
       },
     });
     props.dbCluster.grantDataApiAccess(this.shastaRunnerEntra);
     this.entraScannerSecret.grantRead(this.shastaRunnerEntra);
+    // APNs push on new personal-tier findings (Task 15).
+    this.shastaRunnerEntra.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['sns:CreatePlatformEndpoint', 'sns:Publish'],
+      resources: ['*'],
+    }));
 
     // ===== GCP scanner =====
     // Shared by the legacy GCP Lambda AND the new Fargate task. The
