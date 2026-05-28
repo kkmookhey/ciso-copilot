@@ -997,12 +997,19 @@ export class ApiStack extends cdk.Stack {
       memorySize: 1024,
       environment: {
         ...dbEnv,
+        // Redirect HOME so anything (npm, msal, etc.) that writes to ~ uses /tmp.
+        // Lambda's filesystem is read-only except for /tmp.
+        HOME:                  '/tmp',
+        NPM_CONFIG_CACHE:      '/tmp/.npm',
         ENTRA_TENANT_ID:       config.entraTenantId,
         ENTRA_CLIENT_ID:       config.entraClientId,
         ENTRA_CLIENT_SECRET:   config.entraClientSecret,
-        MCP_SLACK_COMMAND:     'npx -y @modelcontextprotocol/server-slack',
-        MCP_SLACK_FORWARD_ENV: 'SLACK_BOT_TOKEN',
+        // MCP servers installed via `npm install -g` land in /usr/local/bin —
+        // call them directly to avoid npx's home-directory cache lookup.
+        MCP_SLACK_COMMAND:     'mcp-server-slack',
+        MCP_SLACK_FORWARD_ENV: 'SLACK_BOT_TOKEN,SLACK_TEAM_ID',
         SLACK_BOT_TOKEN:       process.env.SLACK_BOT_TOKEN ?? '',
+        SLACK_TEAM_ID:         process.env.SLACK_TEAM_ID ?? '',
         // Task 9 — Atlassian MCP (JIRA)
         MCP_ATLASSIAN_COMMAND:     'mcp-atlassian',
         MCP_ATLASSIAN_FORWARD_ENV: 'JIRA_URL,JIRA_USERNAME,JIRA_API_TOKEN',
@@ -1010,7 +1017,7 @@ export class ApiStack extends cdk.Stack {
         JIRA_USERNAME:             process.env.JIRA_USERNAME ?? '',
         JIRA_API_TOKEN:            process.env.JIRA_API_TOKEN ?? '',
         // Task 10 — GitHub MCP
-        MCP_GITHUB_COMMAND:           'npx -y @modelcontextprotocol/server-github',
+        MCP_GITHUB_COMMAND:           'mcp-server-github',
         MCP_GITHUB_FORWARD_ENV:       'GITHUB_PERSONAL_ACCESS_TOKEN',
         GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? '',
       },
