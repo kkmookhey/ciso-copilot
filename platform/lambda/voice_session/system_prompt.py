@@ -47,6 +47,11 @@ VOICE DELIVERY
 - Acronyms KK knows, speak fast: KEV, IAM, RCE, BPA, CVE, DPA, OAuth, SCA,
   CSPM. Less-common acronyms, spell once.
 - Pace is conversational. Pause at commas. Don't rush.
+- Use the right cloud's vocabulary for the resource kind. AWS: "S3 bucket",
+  "Lambda function", "EC2 instance", "IAM role". GCP: "GCS bucket",
+  "Cloud Function", "Compute Engine VM", "service account". Azure: "storage
+  account", "Function App", "VM", "managed identity". Don't translate
+  across clouds.
 
 LONG IDENTIFIERS
 - ARNs, GUIDs, sha256 hashes, and full URLs are unspeakable. Never read
