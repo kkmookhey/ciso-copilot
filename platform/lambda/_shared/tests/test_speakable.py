@@ -46,7 +46,12 @@ class TestSpeakableEntity:
 
     def test_missing_display_name_uses_short_id(self):
         e = {"kind": "aws_lambda", "natural_key": "arn:aws:lambda:us-east-1:111:function:my-fn-abc"}
+        # Tail "my-fn-abc" is 9 chars; _short_id truncates to 8 -> "my-fn-ab".
         assert speakable_entity(e) == "the my-fn-ab Lambda"
+
+    def test_missing_display_name_plain_key(self):
+        e = {"kind": "aws_s3_bucket", "natural_key": "plainbucket"}
+        assert speakable_entity(e) == "the plainbuc bucket"
 
 
 class TestSpeakablePayload:

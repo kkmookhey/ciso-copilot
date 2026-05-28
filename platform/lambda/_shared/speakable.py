@@ -7,6 +7,7 @@ so Shasta never reads an ARN/UUID/sha256 aloud. The model speaks the
 another tool.
 """
 from __future__ import annotations
+import re
 from typing import Any
 
 
@@ -66,7 +67,6 @@ def _short_id(natural_key: str) -> str:
     """
     if not natural_key:
         return "unknown"
-    import re
     parts = re.split(r"[/:]", natural_key)
     tail = next((p for p in reversed(parts) if p), natural_key)
     return tail[:8]
