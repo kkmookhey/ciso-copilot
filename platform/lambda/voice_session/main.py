@@ -71,7 +71,11 @@ def handler(event: dict, context) -> dict:
                         # Don't let the model interrupt itself on echo from
                         # the iPhone speaker — iOS AEC isn't strong enough
                         # at speakerphone volume.
-                        "interrupt_response":  False,
+                        # When the user speaks while Shasta is mid-response,
+                        # let OpenAI cancel the stale response automatically.
+                        # Without this we hit "active response in progress"
+                        # 400s on every user interrupt.
+                        "interrupt_response":  True,
                     },
                 },
                 "output": {

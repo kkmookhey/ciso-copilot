@@ -62,7 +62,12 @@ def handle(args: dict, claims: dict) -> dict:
     })
     raw_content = cur.get("content", "")
     if cur.get("encoding") == "base64":
-        raw_content = base64.b64decode(raw_content).decode()
+        # GitHub MCP sometimes returns the base64 with embedded newlines and
+        # without trailing '=' padding. Strip whitespace and re-pad to a
+        # multiple of 4 before decoding so b64decode doesn't 400.
+        clean = "".join(raw_content.split())
+        clean += "=" * (-len(clean) % 4)
+        raw_content = base64.b64decode(clean).decode()
     new_content = _bump_version_in_requirements(raw_content, dependency, target_version)
     if new_content == raw_content:
         return {
