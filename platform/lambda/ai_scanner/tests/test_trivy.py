@@ -50,3 +50,34 @@ def test_run_trivy_invokes_subprocess(mock_run):
     assert "json" in cmd
     assert "/tmp/cloned_repo" in cmd
     assert result == {"Results": []}
+
+
+@patch("trivy.subprocess.run")
+def test_run_trivy_non_zero_exit_returns_empty(mock_run):
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="scan failed")
+    assert run_trivy("/tmp/repo") == {"Results": []}
+
+
+@patch("trivy.subprocess.run")
+def test_run_trivy_invalid_json_returns_empty(mock_run):
+    mock_run.return_value = MagicMock(returncode=0, stdout="not json", stderr="")
+    assert run_trivy("/tmp/repo") == {"Results": []}
+
+
+@patch("trivy.subprocess.run")
+def test_run_trivy_honors_custom_timeout(mock_run):
+    mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+    run_trivy("/tmp/repo", timeout=30)
+    assert mock_run.call_args.kwargs["timeout"] == 30
+
+
+def test_parse_logs_dropped_incomplete_rows(capsys):
+    raw = {"Results": [{"Target": "requirements.txt", "Vulnerabilities": [
+        {"PkgName": "ok", "InstalledVersion": "1.0", "VulnerabilityID": "CVE-1"},
+        {"PkgName": "missing-cve", "InstalledVersion": "2.0"},   # no CVE → dropped
+        {"InstalledVersion": "3.0", "VulnerabilityID": "CVE-2"},  # no pkg → dropped
+    ]}]}
+    findings = parse_trivy_findings(raw, repo_id="r-1")
+    assert len(findings) == 1
+    out = capsys.readouterr().out
+    assert "dropped 2 incomplete" in out

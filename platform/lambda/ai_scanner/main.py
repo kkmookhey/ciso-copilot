@@ -97,7 +97,9 @@ def _run_one(body: dict) -> None:
         all_findings = [f for r in results for f in r.findings] + corr_result.findings
 
         # === SCA pass via Trivy ===
-        trivy_raw = trivy_sca.run_trivy(str(workdir))
+        # Cap at 60s so we leave headroom for unified_writer.commit_scan under
+        # the 600s Lambda ceiling, after clone + 8 detectors + correlator.
+        trivy_raw = trivy_sca.run_trivy(str(workdir), timeout=60)
         sca_findings = trivy_sca.parse_trivy_findings(trivy_raw, repo_id=ctx.repo_full_name)
         all_findings.extend(sca_findings)
         print(f"[ai_scanner] trivy: {len(sca_findings)} sca_vuln findings emitted")

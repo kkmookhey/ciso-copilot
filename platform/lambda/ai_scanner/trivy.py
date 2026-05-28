@@ -7,6 +7,9 @@ import subprocess
 from typing import Any
 
 
+# Full severity map kept even though run_trivy filters to HIGH,CRITICAL — keeps
+# parse_trivy_findings robust if the --severity filter is widened later, or if
+# raw Trivy JSON is parsed by a different caller in the future.
 _SEVERITY_MAP = {
     "CRITICAL": "critical",
     "HIGH":     "high",
@@ -16,26 +19,32 @@ _SEVERITY_MAP = {
 }
 
 
-def run_trivy(repo_path: str) -> dict[str, Any]:
-    """Run trivy fs against a cloned repo path. Returns parsed JSON output."""
+def run_trivy(repo_path: str, *, timeout: int = 120) -> dict[str, Any]:
+    """Run trivy fs against a cloned repo path. Returns parsed JSON output.
+
+    `timeout` caps the subprocess wall time. Default 120s leaves headroom
+    under the AI scanner Lambda's 600s ceiling; callers running late in the
+    Lambda budget should pass a smaller value.
+    """
     proc = subprocess.run(
         ["trivy", "fs", "--format", "json", "--severity", "HIGH,CRITICAL",
          "--quiet", "--scanners", "vuln", repo_path],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=timeout,
     )
     if proc.returncode != 0:
-        print(f"trivy exited {proc.returncode}: {proc.stderr[:500]}")
+        print(f"[ai_scanner] trivy: exited {proc.returncode}: {proc.stderr[:500]}")
         return {"Results": []}
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as e:
-        print(f"trivy output unparseable: {e}; first 500 chars: {proc.stdout[:500]}")
+        print(f"[ai_scanner] trivy: output unparseable: {e}; first 500 chars: {proc.stdout[:500]}")
         return {"Results": []}
 
 
 def parse_trivy_findings(raw: dict[str, Any], *, repo_id: str) -> list[dict]:
     """Convert Trivy JSON to a list of finding rows ready for unified_writer."""
     out = []
+    dropped = 0
     for result in raw.get("Results", []):
         target = result.get("Target", "unknown")
         for v in result.get("Vulnerabilities", []):
@@ -43,6 +52,7 @@ def parse_trivy_findings(raw: dict[str, Any], *, repo_id: str) -> list[dict]:
             ver = v.get("InstalledVersion")
             cve = v.get("VulnerabilityID")
             if not (pkg and ver and cve):
+                dropped += 1
                 continue
             out.append({
                 "kind":      "sca_vuln",
@@ -58,4 +68,8 @@ def parse_trivy_findings(raw: dict[str, Any], *, repo_id: str) -> list[dict]:
                     "repo_id":       repo_id,
                 },
             })
+    if dropped:
+        # Surface schema drift early — a Trivy output change that nukes
+        # PkgName/InstalledVersion/VulnerabilityID will manifest here.
+        print(f"[ai_scanner] trivy: dropped {dropped} incomplete vuln rows (missing pkg/version/cve)")
     return out
