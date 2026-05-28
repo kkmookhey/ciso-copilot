@@ -7,6 +7,7 @@ Requires the Entra app to have DelegatedPermissionGrant.ReadWrite.All.
 from __future__ import annotations
 import datetime as dt
 import os
+import time
 
 import requests
 import msal
@@ -18,7 +19,9 @@ _GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 _TENANT_ID  = os.environ.get("ENTRA_TENANT_ID")
 _CLIENT_ID  = os.environ.get("ENTRA_CLIENT_ID")
 _CLIENT_SECRET = os.environ.get("ENTRA_CLIENT_SECRET")
-_token_cache: str | None = None
+# (token, expires_at_epoch). Re-minted when within 60s of expiry — Lambda
+# containers commonly survive longer than the 1h Graph token lifetime.
+_token_cache: tuple[str, float] | None = None
 
 
 @register("revoke_oauth_grant")
@@ -61,8 +64,8 @@ def _graph_delete(grant_id: str) -> None:
 
 def _graph_token() -> str:
     global _token_cache
-    if _token_cache:
-        return _token_cache
+    if _token_cache and _token_cache[1] > time.time() + 60:
+        return _token_cache[0]
     if not (_TENANT_ID and _CLIENT_ID and _CLIENT_SECRET):
         raise RuntimeError("ENTRA_TENANT_ID / ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET must be set")
     app = msal.ConfidentialClientApplication(
@@ -73,5 +76,7 @@ def _graph_token() -> str:
     result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
     if "access_token" not in result:
         raise RuntimeError(f"Graph token mint failed: {result.get('error_description')}")
-    _token_cache = result["access_token"]
-    return _token_cache
+    # Graph returns expires_in (seconds, typically 3599); cap to a safe minimum.
+    expires_in = int(result.get("expires_in", 3600))
+    _token_cache = (result["access_token"], time.time() + expires_in)
+    return _token_cache[0]
