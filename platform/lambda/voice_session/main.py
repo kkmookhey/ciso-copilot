@@ -17,6 +17,8 @@ import urllib.error
 
 import boto3
 
+from voice_session.system_prompt import render as render_system_prompt
+
 DB_CLUSTER_ARN     = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN      = os.environ["DB_SECRET_ARN"]
 DB_NAME            = os.environ["DB_NAME"]
@@ -51,7 +53,10 @@ def handler(event: dict, context) -> dict:
         "session": {
             "type":              "realtime",
             "model":             "gpt-realtime",
-            "instructions":      _system_prompt(user_email, tenant_name, connected),
+            "instructions":      render_system_prompt(
+                first_name=_first_name_from_email(user_email),
+                clouds=connected,
+            ),
             "output_modalities": ["audio"],
             "audio": {
                 "input": {
@@ -71,11 +76,12 @@ def handler(event: dict, context) -> dict:
                 },
                 "output": {
                     "format": {"type": "audio/pcm", "rate": 24000},
-                    "voice":  "alloy",
+                    "voice":  "coral",
                 },
             },
             "tools":       _tools(),
             "tool_choice": "auto",
+            "temperature": 0.7,
         },
     }
 
@@ -106,34 +112,6 @@ def handler(event: dict, context) -> dict:
         "expires_at":    body.get("expires_at"),
         "model":         session.get("model"),
     })
-
-
-# ============================================================================
-# System prompt
-# ============================================================================
-
-def _system_prompt(email: str, tenant: str, clouds: list[str]) -> str:
-    return (
-        f"You are CISO Copilot, the security assistant for {email or 'the user'} "
-        f"at {tenant or 'their organization'}.\n\n"
-        f"Connected clouds: {', '.join(clouds) if clouds else 'none yet'}.\n\n"
-        # Language directive: protects against echo-driven language drift on
-        # web clients without headphones — the mic can pick up the model's own
-        # speakerphone output and Whisper transcribes it as garbled non-English
-        # phonemes, which would otherwise cause the model to switch language.
-        "ALWAYS respond in English, unless the user explicitly asks you to "
-        "switch to another language by name. Ignore any input audio that "
-        "appears to be in a non-English language unless explicitly requested.\n\n"
-        "You answer in 2–4 spoken sentences unless asked for more detail. "
-        "You always reference specific resources by their identifier (ARN, "
-        "subscription, etc.) when relevant. You never speculate about "
-        "resources that aren't in the data — if you don't have it, call the "
-        "appropriate tool to fetch it.\n\n"
-        "You never make up findings, scores, or alerts. If a tool returns "
-        "nothing, say so plainly.\n\n"
-        "If the user asks for action, recommend a specific next step. "
-        "Do not lecture."
-    )
 
 
 # ============================================================================
@@ -325,3 +303,16 @@ def _resp(status: int, body: dict) -> dict:
         "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }
+
+
+def _first_name_from_email(email: str | None) -> str:
+    """Best-effort first name from email prefix. 'kkmookhey@gmail.com' -> 'KK'."""
+    if not email or "@" not in email:
+        return "the user"
+    prefix = email.split("@")[0]
+    # Strip common dot/underscore separators; take the first segment.
+    head = prefix.replace("_", ".").split(".")[0]
+    # KK is a known special case (initials, uppercase).
+    if head.lower() in {"kk", "kkmookhey"}:
+        return "KK"
+    return head.capitalize()
