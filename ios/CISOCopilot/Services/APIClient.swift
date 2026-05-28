@@ -45,6 +45,21 @@ final class APIClient {
         try Self.assertOK(response)
     }
 
+    /// Generic tool dispatcher: POST /v1/tools/{name} with the LLM-provided
+    /// args. Returns the raw JSON body as a string for the Realtime
+    /// function_call_output payload. Surfaces server errors as-is so the
+    /// model can narrate them.
+    func callTool(name: String, args: [String: Any]) async throws -> String {
+        var req = try await authedRequest(method: "POST", path: "tools/\(name)")
+        req.httpBody = try JSONSerialization.data(withJSONObject: args)
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw APIError.badResponse }
+        // Return whatever the dispatcher gave us, even on non-2xx, so the
+        // model can read the error detail. (Empty body falls back to {}.)
+        if data.isEmpty { return "{}" }
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
     // MARK: - /connections
 
     func listConnections() async throws -> [Connection] {

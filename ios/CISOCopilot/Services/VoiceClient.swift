@@ -123,18 +123,35 @@ final class VoiceClient: NSObject {
         let s = RTCAudioSession.sharedInstance()
         s.lockForConfiguration()
         defer { s.unlockForConfiguration() }
-        // .videoChat (FaceTime-style) keeps the VPIO echo-cancellation but
-        // runs the chain at a louder output level than .voiceChat — which
-        // was making Shasta inaudible on iPhone even at max volume.
+        // Category options: defaultToSpeaker (avoid earpiece), allow Bluetooth.
         try s.setCategory(
             .playAndRecord,
-            with: [.defaultToSpeaker, .allowBluetoothA2DP]
+            with: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth]
         )
+        // .videoChat (FaceTime-style) keeps VPIO echo-cancellation but at
+        // a louder output level than .voiceChat. AEC is critical when the
+        // phone is on a desk in speaker mode — without it, Shasta hears
+        // her own voice and gets into a feedback loop.
         try s.setMode(.videoChat)
         try s.setActive(true)
-        // Force speaker routing — .defaultToSpeaker isn't always honored
-        // when the route is initially established via the receiver.
-        try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+        // Force speaker AFTER activation — .defaultToSpeaker isn't honored
+        // when an established route already points at the receiver. Call
+        // this on RTCAudioSession (not AVAudioSession) so it respects the
+        // configuration lock WebRTC is holding.
+        try s.overrideOutputAudioPort(.speaker)
+        // Re-assert the speaker route whenever iOS changes it (AirPods
+        // plug/unplug, proximity sensor, etc.). One-shot overrides get
+        // reverted by iOS on route changes.
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            let rs = RTCAudioSession.sharedInstance()
+            rs.lockForConfiguration()
+            defer { rs.unlockForConfiguration() }
+            try? rs.overrideOutputAudioPort(.speaker)
+        }
     }
 
     private func setupPeerConnection() throws {
@@ -357,7 +374,12 @@ final class VoiceClient: NSObject {
                 result = try jsonString(["clouds": slim])
 
             default:
-                result = #"{"error":"unknown_tool"}"#
+                // Forward unknown tools to the tools dispatcher Lambda
+                // (POST /v1/tools/{name}). Covers all wow-demo tools:
+                // slack_dm, create_jira_ticket, revoke_oauth_grant,
+                // create_pr_with_bump, tail_lambda_logs_for_pattern,
+                // run_forensic_scan.
+                result = try await callToolsDispatcher(name: name, args: args)
             }
         } catch {
             result = #"{"error":"\#(error.localizedDescription)"}"#
@@ -377,6 +399,14 @@ final class VoiceClient: NSObject {
     private func jsonString(_ obj: Any) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: obj)
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    /// Forward a tool call to the server-side dispatcher
+    /// (POST /v1/tools/{name}). The response body is returned to OpenAI as
+    /// the function_call_output so the model can narrate the result.
+    private func callToolsDispatcher(name: String, args: [String: Any]) async throws -> String {
+        guard let api else { return #"{"error":"voice client not bound"}"# }
+        return try await api.callTool(name: name, args: args)
     }
 
     // MARK: - Errors

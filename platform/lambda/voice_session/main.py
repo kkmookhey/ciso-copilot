@@ -215,6 +215,92 @@ def _tools() -> list[dict]:
                 "required": ["title", "severity"],
             },
         },
+        # ===== Wow-demo action tools (dispatched via POST /v1/tools/{name}) =====
+        {
+            "type":        "function",
+            "name":        "slack_dm",
+            "description": "Send a Slack DM to a user via email lookup. Use when the user says 'message X', 'Slack them', or 'let X know'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_lookup": {"type": "string", "description": "Email address of the target Slack user."},
+                    "message":     {"type": "string", "description": "Plain-text body of the DM."},
+                },
+                "required": ["user_lookup", "message"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "create_jira_ticket",
+            "description": "Create a JIRA issue in a specified project. Use when the user says 'open a JIRA', 'file a ticket', or 'track this in JIRA'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_key":     {"type": "string", "description": "JIRA project key (e.g. 'KAN', 'ITSEC')."},
+                    "summary":         {"type": "string", "description": "One-line summary of the issue."},
+                    "description":     {"type": "string", "description": "Optional fuller description."},
+                    "assignee_lookup": {"type": "string", "description": "Optional assignee email."},
+                },
+                "required": ["project_key", "summary"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "revoke_oauth_grant",
+            "description": "Revoke an Entra OAuth permission grant for a user/app pair. Use when the user says 'revoke X's access' or 'cut off the consent'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_object_id": {"type": "string", "description": "Entra user object id (GUID)."},
+                    "app_id":         {"type": "string", "description": "Entra app id (GUID) whose grant should be revoked."},
+                },
+                "required": ["user_object_id", "app_id"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "create_pr_with_bump",
+            "description": "Open a GitHub PR that bumps a dependency pin in a manifest. Use when the user says 'open a PR to bump X' or 'patch the langchain version'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo":             {"type": "string", "description": "owner/repo on GitHub (e.g. 'kkmookhey/wow-demo-pricing-system')."},
+                    "dependency":       {"type": "string", "description": "Package name to bump (e.g. 'langchain')."},
+                    "target_version":   {"type": "string", "description": "New version pin (e.g. '0.0.354')."},
+                    "reviewer_lookup":  {"type": "string", "description": "Optional reviewer email/handle for the PR body."},
+                    "manifest_path":    {"type": "string", "description": "Optional manifest path (default 'requirements.txt')."},
+                },
+                "required": ["repo", "dependency", "target_version"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "tail_lambda_logs_for_pattern",
+            "description": "Search a Lambda function's recent CloudWatch logs for a regex pattern. Use when the user says 'check the logs for X' or 'look for exploit signature Y'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "function_name": {"type": "string", "description": "Lambda function name (not ARN)."},
+                    "regex":         {"type": "string", "description": "Regex pattern to filter log lines."},
+                    "window_hours":  {"type": "integer", "description": "Lookback window in hours (default 72)."},
+                },
+                "required": ["function_name", "regex"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "run_forensic_scan",
+            "description": "Kick off a forensic scan on a resource. Returns immediately with an ETA; a push notification follows when results are ready. Use when the user says 'run a forensic scan' or 'check for compromise'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_arn":      {"type": "string", "description": "ARN of the resource to scan (Lambda, EC2, etc)."},
+                    "check_kind":      {"type": "string", "description": "Kind of check: supply_chain_active_exploit | role_chain | data_exfil."},
+                    "conversation_id": {"type": "string", "description": "Conversation id so the callback push can resume this thread."},
+                },
+                "required": ["target_arn", "check_kind", "conversation_id"],
+            },
+        },
     ]
 
 
