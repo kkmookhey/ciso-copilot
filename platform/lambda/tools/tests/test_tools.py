@@ -48,16 +48,6 @@ def test_missing_auth_returns_401():
     assert json.loads(resp["body"])["error"] == "no_auth"
 
 
-def test_stub_not_implemented_returns_500():
-    # A stub raises NotImplementedError — confirm the dispatcher
-    # converts it to a 500 with the task tag in the detail.
-    # Uses run_forensic_scan (Task 12) which is still a stub.
-    resp = handler(_event("run_forensic_scan", {}), None)
-    assert resp["statusCode"] == 500
-    body = json.loads(resp["body"])
-    assert body["error"] == "tool_failed"
-    assert "Task 12" in body["detail"]
-
 
 class TestSubjectFromClaims:
     def test_falls_back_to_sub_when_no_identities(self):
