@@ -48,6 +48,16 @@ def test_missing_auth_returns_401():
     assert json.loads(resp["body"])["error"] == "no_auth"
 
 
+def test_tool_raises_returns_500_with_detail():
+    # revoke_oauth_grant raises KeyError on missing args — confirm the
+    # dispatcher converts that to a 500 with the exception detail.
+    resp = handler(_event("revoke_oauth_grant", {}), None)
+    assert resp["statusCode"] == 500
+    body = json.loads(resp["body"])
+    assert body["error"] == "tool_failed"
+    assert body["tool"] == "revoke_oauth_grant"
+    assert "detail" in body
+
 
 class TestSubjectFromClaims:
     def test_falls_back_to_sub_when_no_identities(self):

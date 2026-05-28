@@ -36,3 +36,20 @@ def test_no_matches(mock_logs, mock_sleep):
     }, {"sub": "x"})
     assert result["matches"] == []
     assert "no matches" in result["speakable"].lower() or "nothing" in result["speakable"].lower()
+
+
+@patch("tools.tail_lambda_logs.time.sleep")
+@patch("tools.tail_lambda_logs._logs")
+def test_regex_with_slash_is_escaped(mock_logs, mock_sleep):
+    # An LLM-supplied regex containing "/" must not break out of the
+    # Insights /.../ delimiter and inject extra query clauses.
+    mock_logs.start_query.return_value = {"queryId": "q-789"}
+    mock_logs.get_query_results.return_value = {"status": "Complete", "results": []}
+    handle({
+        "function_name": "prod-ai-router",
+        "regex":         "path/with/slashes",
+        "window_hours":  72,
+    }, {"sub": "x"})
+    query = mock_logs.start_query.call_args.kwargs["queryString"]
+    assert r"path\/with\/slashes" in query
+    assert "/path/with/slashes/" not in query

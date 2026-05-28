@@ -21,9 +21,12 @@ def handle(args: dict, claims: dict) -> dict:
     start_ts = end_ts - (hours * 3600)
     log_group = f"/aws/lambda/{fn_name}"
 
+    # Escape forward slashes so an LLM-supplied regex can't break out of the
+    # Insights /.../ delimiter and inject extra query clauses.
+    safe_regex = regex.replace("/", r"\/")
     insights_query = (
         f"fields @timestamp, @message | "
-        f"filter @message like /{regex}/ | "
+        f"filter @message like /{safe_regex}/ | "
         f"sort @timestamp desc | limit 100"
     )
 
