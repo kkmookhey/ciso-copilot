@@ -283,8 +283,8 @@ follow-up slice.
 |---|---|---|---|
 | **1** | coral voice config; peer/expert system prompt; iOS launch-from-push handler scaffold | `_shared/mcp_client.py`; tool-registry layer; `_shared/speakable.py` | Trivy embedded in AI scanner Docker image; emit Trivy findings as `findings` rows |
 | **2** | iOS auto-voice-on-launch with seeded Realtime context (developer message at session start) | Slack MCP wired end-to-end against KK's workspace; `slack_dm` tool works | CVE-vs-AI-inventory matcher Lambda (joins Trivy findings with `ai_framework→ai_agent` edges) |
-| **3** | Agent-initiated callback push (tool-completion → APNs) | Atlassian MCP wired; `create_jira_ticket` works | GitHub MCP wired; `create_pr_with_bump` works |
-| **4** | Push triggers for new `ai_signin_personal_tier` findings + critical AI-supply-chain matches; `revoke_oauth_grant` tool | E2E dry run of Demo A on KK's iPhone | E2E dry run of Demo B on KK's iPhone |
+| **3** | Agent-initiated callback push (tool-completion → APNs) | Atlassian MCP wired; `create_jira_ticket` works | GitHub MCP wired; `create_pr_with_bump` works; `tail_lambda_logs_for_pattern` (CloudWatch Logs Insights query) |
+| **4** | Push triggers for new `ai_signin_personal_tier` findings + critical AI-supply-chain matches; `revoke_oauth_grant` tool; `run_forensic_scan` stub (returns staged result after delay via callback push) | E2E dry run of Demo A on KK's iPhone | E2E dry run of Demo B on KK's iPhone |
 | **5** | Coral voice cadence + system prompt iteration | Record Demo A + Demo B | Edit + post |
 
 Day 4 converges to integration testing; Day 5 is the actual recording.
@@ -561,7 +561,9 @@ Signatures and per-tool source-of-truth for the implementation plan.
 - `revoke_oauth_grant(user_object_id: str, app_id: str) -> {revoked: bool, revoked_at: str}`.
   Microsoft Graph DELETE `/oauth2PermissionGrants/{id}`.
 - `slack_dm(user_lookup: str, message: str, button: Optional[ButtonSpec]) -> {ts: str, channel: str}`.
-  Via Slack MCP `postMessage`.
+  Via Slack MCP `postMessage`. `ButtonSpec` is `{text, action_url}` matching
+  Slack's `actions` block shape; for the demo the button is non-functional
+  (renders correctly, no-op on click).
 - `create_jira_ticket(project_key: str, summary: str, description: str, assignee_lookup: str) -> {key: str, url: str}`.
   Via Atlassian MCP `createIssue`.
 
