@@ -22,6 +22,9 @@ rsync -a \
   --exclude='.pytest_cache' --exclude='.ruff_cache' \
   "$SHASTA_SRC/" .build/shasta/
 
+echo "==> staging _shared/ (push.py + deps)"
+cp -r ../_shared .build/_shared
+
 echo "==> staging scanner_core framework_registry into app/"
 cp ../scanner_core/framework_registry.py app/framework_registry.py
 cp ../scanner_core/ai_framework_registry.json app/ai_framework_registry.json

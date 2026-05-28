@@ -15,6 +15,17 @@ RUN dnf install -y git && dnf clean all
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
+# Trivy for SCA dependency scanning.
+# Static binary; ~80MB; supports requirements.txt / package.json / pom.xml etc.
+# v0.55 was delisted from get.trivy.dev between plan write-up and build; v0.70
+# is the current release. install.sh detects the OS arch and fetches the right
+# static binary. The Lambda AL2023 Python base image doesn't ship tar/gzip, so
+# install them first.
+RUN dnf install -y tar gzip && dnf clean all && \
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+      | sh -s -- -b /usr/local/bin v0.70.0 && \
+    trivy --version
+
 # Source.
 COPY . ${LAMBDA_TASK_ROOT}/
 

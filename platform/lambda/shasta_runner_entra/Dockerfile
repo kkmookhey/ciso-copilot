@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir \
 COPY .build/shasta /tmp/shasta
 RUN cd /tmp/shasta && pip install --no-cache-dir --no-deps . && rm -rf /tmp/shasta
 
+COPY .build/_shared/ ${LAMBDA_TASK_ROOT}/_shared/
+
 COPY app/ ${LAMBDA_TASK_ROOT}/
 
 CMD ["main.handler"]

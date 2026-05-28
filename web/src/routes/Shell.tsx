@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { api, type MeResponse } from "../lib/api";
 import { isSignedIn, signOut } from "../lib/cognito";
 import { ModuleRail } from "../chat/ModuleRail";
+import { FloatingChrome } from "../components/FloatingChrome";
 
 /// Auth gate + nav chrome for the post-signin views. Redirects to /signin if
 /// not signed in, /pending if tenant status != approved.
@@ -32,6 +33,7 @@ export function Shell() {
                      padding: "32px 40px" }}>
         <Outlet />
       </main>
+      <FloatingChrome />
     </div>
   );
 }

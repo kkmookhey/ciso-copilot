@@ -17,6 +17,8 @@ import urllib.error
 
 import boto3
 
+from system_prompt import render as render_system_prompt
+
 DB_CLUSTER_ARN     = os.environ["DB_CLUSTER_ARN"]
 DB_SECRET_ARN      = os.environ["DB_SECRET_ARN"]
 DB_NAME            = os.environ["DB_NAME"]
@@ -51,7 +53,10 @@ def handler(event: dict, context) -> dict:
         "session": {
             "type":              "realtime",
             "model":             "gpt-realtime",
-            "instructions":      _system_prompt(user_email, tenant_name, connected),
+            "instructions":      render_system_prompt(
+                first_name=_first_name_from_email(user_email),
+                clouds=connected,
+            ),
             "output_modalities": ["audio"],
             "audio": {
                 "input": {
@@ -66,16 +71,22 @@ def handler(event: dict, context) -> dict:
                         # Don't let the model interrupt itself on echo from
                         # the iPhone speaker — iOS AEC isn't strong enough
                         # at speakerphone volume.
-                        "interrupt_response":  False,
+                        # When the user speaks while Shasta is mid-response,
+                        # let OpenAI cancel the stale response automatically.
+                        # Without this we hit "active response in progress"
+                        # 400s on every user interrupt.
+                        "interrupt_response":  True,
                     },
                 },
                 "output": {
                     "format": {"type": "audio/pcm", "rate": 24000},
-                    "voice":  "alloy",
+                    "voice":  "coral",
                 },
             },
             "tools":       _tools(),
             "tool_choice": "auto",
+            # OpenAI Realtime GA (2026) removed session.temperature — tone
+            # is now controlled via voice + system prompt only.
         },
     }
 
@@ -106,34 +117,6 @@ def handler(event: dict, context) -> dict:
         "expires_at":    body.get("expires_at"),
         "model":         session.get("model"),
     })
-
-
-# ============================================================================
-# System prompt
-# ============================================================================
-
-def _system_prompt(email: str, tenant: str, clouds: list[str]) -> str:
-    return (
-        f"You are CISO Copilot, the security assistant for {email or 'the user'} "
-        f"at {tenant or 'their organization'}.\n\n"
-        f"Connected clouds: {', '.join(clouds) if clouds else 'none yet'}.\n\n"
-        # Language directive: protects against echo-driven language drift on
-        # web clients without headphones — the mic can pick up the model's own
-        # speakerphone output and Whisper transcribes it as garbled non-English
-        # phonemes, which would otherwise cause the model to switch language.
-        "ALWAYS respond in English, unless the user explicitly asks you to "
-        "switch to another language by name. Ignore any input audio that "
-        "appears to be in a non-English language unless explicitly requested.\n\n"
-        "You answer in 2–4 spoken sentences unless asked for more detail. "
-        "You always reference specific resources by their identifier (ARN, "
-        "subscription, etc.) when relevant. You never speculate about "
-        "resources that aren't in the data — if you don't have it, call the "
-        "appropriate tool to fetch it.\n\n"
-        "You never make up findings, scores, or alerts. If a tool returns "
-        "nothing, say so plainly.\n\n"
-        "If the user asks for action, recommend a specific next step. "
-        "Do not lecture."
-    )
 
 
 # ============================================================================
@@ -236,6 +219,92 @@ def _tools() -> list[dict]:
                 "required": ["title", "severity"],
             },
         },
+        # ===== Wow-demo action tools (dispatched via POST /v1/tools/{name}) =====
+        {
+            "type":        "function",
+            "name":        "slack_dm",
+            "description": "Send a Slack DM to a user. user_lookup can be either an email (preferred) or a name fragment (e.g. 'Venkat', 'Ratanshi'). When given a name, the tool fuzzy-matches against the workspace's user list — if multiple people match, it returns 'ambiguous_user' with candidates so you can re-ask. Use when the user says 'message X', 'Slack them', or 'let X know'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_lookup": {"type": "string", "description": "Email address OR name fragment of the target Slack user."},
+                    "message":     {"type": "string", "description": "Plain-text body of the DM."},
+                },
+                "required": ["user_lookup", "message"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "create_jira_ticket",
+            "description": "Create a JIRA issue in a specified project. Use when the user says 'open a JIRA', 'file a ticket', or 'track this in JIRA'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_key":     {"type": "string", "description": "JIRA project key (e.g. 'KAN', 'ITSEC')."},
+                    "summary":         {"type": "string", "description": "One-line summary of the issue."},
+                    "description":     {"type": "string", "description": "Optional fuller description."},
+                    "assignee_lookup": {"type": "string", "description": "Optional assignee email."},
+                },
+                "required": ["project_key", "summary"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "revoke_oauth_grant",
+            "description": "Revoke an Entra OAuth permission grant for a user/app pair. Use when the user says 'revoke X's access' or 'cut off the consent'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_object_id": {"type": "string", "description": "Entra user object id (GUID)."},
+                    "app_id":         {"type": "string", "description": "Entra app id (GUID) whose grant should be revoked."},
+                },
+                "required": ["user_object_id", "app_id"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "create_pr_with_bump",
+            "description": "Open a GitHub PR that bumps a dependency pin in a manifest. Use when the user says 'open a PR to bump X' or 'patch the langchain version'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo":             {"type": "string", "description": "owner/repo on GitHub (e.g. 'kkmookhey/wow-demo-pricing-system')."},
+                    "dependency":       {"type": "string", "description": "Package name to bump (e.g. 'langchain')."},
+                    "target_version":   {"type": "string", "description": "New version pin (e.g. '0.0.354')."},
+                    "reviewer_lookup":  {"type": "string", "description": "Optional reviewer email/handle for the PR body."},
+                    "manifest_path":    {"type": "string", "description": "Optional manifest path (default 'requirements.txt')."},
+                },
+                "required": ["repo", "dependency", "target_version"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "tail_lambda_logs_for_pattern",
+            "description": "Search a Lambda function's recent CloudWatch logs for a regex pattern. Use when the user says 'check the logs for X' or 'look for exploit signature Y'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "function_name": {"type": "string", "description": "Lambda function name (not ARN)."},
+                    "regex":         {"type": "string", "description": "Regex pattern to filter log lines."},
+                    "window_hours":  {"type": "integer", "description": "Lookback window in hours (default 72)."},
+                },
+                "required": ["function_name", "regex"],
+            },
+        },
+        {
+            "type":        "function",
+            "name":        "run_forensic_scan",
+            "description": "Kick off a forensic scan on a resource. Returns immediately with an ETA; a push notification follows when results are ready. Use when the user says 'run a forensic scan' or 'check for compromise'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_arn":      {"type": "string", "description": "ARN of the resource to scan (Lambda, EC2, etc)."},
+                    "check_kind":      {"type": "string", "description": "Kind of check: supply_chain_active_exploit | role_chain | data_exfil."},
+                    "conversation_id": {"type": "string", "description": "Conversation id so the callback push can resume this thread."},
+                },
+                "required": ["target_arn", "check_kind", "conversation_id"],
+            },
+        },
     ]
 
 
@@ -325,3 +394,16 @@ def _resp(status: int, body: dict) -> dict:
         "headers":    {"content-type": "application/json", "access-control-allow-origin": "*"},
         "body":       json.dumps(body),
     }
+
+
+def _first_name_from_email(email: str | None) -> str:
+    """Best-effort first name from email prefix. 'kkmookhey@gmail.com' -> 'KK'."""
+    if not email or "@" not in email:
+        return "the user"
+    prefix = email.split("@")[0]
+    # Strip common dot/underscore separators; take the first segment.
+    head = prefix.replace("_", ".").split(".")[0]
+    # KK is a known special case (initials, uppercase).
+    if head.lower() in {"kk", "kkmookhey"}:
+        return "KK"
+    return head.capitalize()

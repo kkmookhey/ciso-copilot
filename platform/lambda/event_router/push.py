@@ -1,4 +1,10 @@
-"""Push rule evaluation + SNS Mobile Push call."""
+"""Push rule evaluation + SNS Mobile Push call.
+
+Canonical source: platform/lambda/_shared/push.py
+This file mirrors _shared/push.py for the event_router Lambda asset bundle.
+event_router is zipped by CDK via fromAsset (no build.sh), so _shared/ is
+not available at runtime — this copy is intentional. Keep in sync with _shared/push.py.
+"""
 from __future__ import annotations
 import json
 import boto3
@@ -37,8 +43,20 @@ def format_push_body(*, kind: str, severity: str, title: str,
 
 
 def send_push(*, device_tokens: list[str], platform_app_arn: str, body: str) -> None:
-    """Create per-device endpoints lazily and publish via SNS Mobile Push."""
-    payload = {"aps": {"alert": body, "sound": "default"}}
+    """Body-only push. Delegates to send_push_with_payload with empty payload."""
+    send_push_with_payload(device_tokens=device_tokens,
+                           platform_app_arn=platform_app_arn,
+                           body=body, payload={})
+
+
+def send_push_with_payload(*, device_tokens: list[str], platform_app_arn: str,
+                            body: str, payload: dict) -> None:
+    """Push with custom user-info payload — needed for the iOS app to deep-link
+    into BriefingView with finding_id + speakable_summary."""
+    aps_payload = {
+        "aps": {"alert": body, "sound": "default"},
+        **payload,
+    }
     for token in device_tokens:
         ep = sns.create_platform_endpoint(
             PlatformApplicationArn=platform_app_arn,
@@ -46,6 +64,35 @@ def send_push(*, device_tokens: list[str], platform_app_arn: str, body: str) -> 
         )
         sns.publish(
             TargetArn=ep["EndpointArn"],
-            Message=json.dumps({"APNS_SANDBOX": json.dumps(payload)}),
+            Message=json.dumps({"APNS_SANDBOX": json.dumps(aps_payload)}),
             MessageStructure="json",
         )
+
+
+def tokens_for_tenant(tenant_id: str, *, rds, db_cluster_arn: str,
+                       db_secret_arn: str, db_name: str) -> list[str]:
+    """APNs device tokens for all users in a tenant. Returns [] when none are
+    registered (graceful no-op for push)."""
+    rs = rds.execute_statement(
+        resourceArn=db_cluster_arn, secretArn=db_secret_arn, database=db_name,
+        sql=("SELECT device_token FROM users WHERE tenant_id = CAST(:t AS UUID) "
+             "AND device_token IS NOT NULL"),
+        parameters=[{"name": "t", "value": {"stringValue": tenant_id}}],
+    )
+    return [r[0].get("stringValue", "") for r in rs.get("records", []) if r[0].get("stringValue")]
+
+
+def notify_tool_completion(*, tenant_id: str, conversation_id: str, body: str,
+                            payload: dict, rds, db_cluster_arn: str,
+                            db_secret_arn: str, db_name: str,
+                            platform_app_arn: str) -> None:
+    """Used by forensic-scan callback (and any other agent-initiated tool
+    that takes long enough to background)."""
+    tokens = tokens_for_tenant(tenant_id, rds=rds,
+                                db_cluster_arn=db_cluster_arn,
+                                db_secret_arn=db_secret_arn,
+                                db_name=db_name)
+    full_payload = {"conversation_id": conversation_id, **payload}
+    send_push_with_payload(device_tokens=tokens,
+                            platform_app_arn=platform_app_arn,
+                            body=body, payload=full_payload)

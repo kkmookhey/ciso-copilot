@@ -173,6 +173,41 @@ xcrun devicectl device install app --device <IOS_DEVICE_UDID> \
   Same gotcha lives in the router's `_normalize` / `_classify_kind` /
   `_source_event_id` / `_extract_states` — they all key on `detail-type`,
   not `source`, for this exact reason.
+- **Aurora schema gotchas the wow-demo sprint surfaced** (pre-flight
+  any new SQL against these):
+  - `findings` PK is `finding_id` (not `id`).
+  - `findings.check_id` is the rule identifier; there is **no `kind`
+    column** on findings. Matcher SQL paid for this twice.
+  - `findings.status` enum: `fail` / `pass` / `partial` / `not_assessed`
+    / `not_applicable`. **No `open`.**
+  - `findings.conn_id` NOT NULL, FK → `cloud_connections.conn_id` (not
+    `ai_connections`). AI-side synthetic findings must look up a real
+    cloud connection (most demos use the Entra one).
+  - `findings.scan_id` FK → `scans.scan_id` (not `ai_scans`).
+  - `findings.frameworks` must be a JSON **object** (`{}`), never an
+    array. iOS Finding decoder rejects arrays.
+  - `edges.source_entity_id` / `target_entity_id` (not `source_id` /
+    `target_id`).
+  - `entities` has no `parent_id` column. Containment is expressed via
+    `edges.kind` (`uses`, `imports`, `runs`, etc.).
+  - `threat_indicators.indicator_value` (not `value`).
+  - AI graph emits `github_repo --uses-> ai_framework` **directly**.
+    The hypothesized `ai_agent` intermediate from spec docs does not
+    exist in the actual schema.
+- **Lambda runtime is read-only except `/tmp`.** Anything that writes
+  to `~` (npm, npx, msal token cache, etc.) fails with `EROFS`. Set
+  `HOME=/tmp` (and `NPM_CONFIG_CACHE=/tmp/.npm` for Node Lambdas) on
+  every container Lambda that shells out. Prefer direct binaries over
+  `npx -y …`.
+- **CDK `lambda.Code.fromAsset(directory)` bundles flat** — there is no
+  package preservation. If your `main.py` does `from <pkg>.X import Y`
+  it'll fail at cold start with `ModuleNotFoundError`. Either use bare
+  `from X import Y` (zip Lambdas) or `COPY *.py LAMBDA_TASK_ROOT/<pkg>/`
+  + `CMD ["<pkg>.main.handler"]` (container Lambdas).
+- **OpenAI Realtime GA (2026) dropped `session.temperature`.** Returns
+  400 `unknown_parameter`. Tone control = voice (coral) + system prompt.
+  Also set `turn_detection.interrupt_response: True` or every user
+  interrupt 400s with "active response in progress".
 
 ## Things you must NOT do
 

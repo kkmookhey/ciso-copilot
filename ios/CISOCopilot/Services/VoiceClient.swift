@@ -54,6 +54,10 @@ final class VoiceClient: NSObject {
     private var pendingToolArgs: [String: String] = [:]
     private var pendingToolNames: [String: String] = [:]
 
+    /// If set before start(), this developer message is injected into the
+    /// conversation once the data channel opens, triggering Shasta to speak first.
+    private var pendingSeedMessage: String?
+
     override init() {
         RTCInitializeSSL()
         self.factory = RTCPeerConnectionFactory(
@@ -64,6 +68,13 @@ final class VoiceClient: NSObject {
     }
 
     // MARK: - Public API
+
+    /// Start a session and, once the data channel opens, inject a developer
+    /// message so Shasta speaks the briefing without waiting for user input.
+    func start(seedDeveloperMessage: String) async {
+        pendingSeedMessage = seedDeveloperMessage
+        await start()
+    }
 
     func start() async {
         guard state == .idle || state == .error else { return }
@@ -112,9 +123,35 @@ final class VoiceClient: NSObject {
         let s = RTCAudioSession.sharedInstance()
         s.lockForConfiguration()
         defer { s.unlockForConfiguration() }
-        try s.setCategory(.playAndRecord, with: [.defaultToSpeaker])
-        try s.setMode(.voiceChat)
+        // Category options: defaultToSpeaker (avoid earpiece), allow Bluetooth.
+        try s.setCategory(
+            .playAndRecord,
+            with: [.defaultToSpeaker, .allowBluetoothA2DP, .allowBluetooth]
+        )
+        // .videoChat (FaceTime-style) keeps VPIO echo-cancellation but at
+        // a louder output level than .voiceChat. AEC is critical when the
+        // phone is on a desk in speaker mode — without it, Shasta hears
+        // her own voice and gets into a feedback loop.
+        try s.setMode(.videoChat)
         try s.setActive(true)
+        // Force speaker AFTER activation — .defaultToSpeaker isn't honored
+        // when an established route already points at the receiver. Call
+        // this on RTCAudioSession (not AVAudioSession) so it respects the
+        // configuration lock WebRTC is holding.
+        try s.overrideOutputAudioPort(.speaker)
+        // Re-assert the speaker route whenever iOS changes it (AirPods
+        // plug/unplug, proximity sensor, etc.). One-shot overrides get
+        // reverted by iOS on route changes.
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            let rs = RTCAudioSession.sharedInstance()
+            rs.lockForConfiguration()
+            defer { rs.unlockForConfiguration() }
+            try? rs.overrideOutputAudioPort(.speaker)
+        }
     }
 
     private func setupPeerConnection() throws {
@@ -285,6 +322,23 @@ final class VoiceClient: NSObject {
         dc.sendData(RTCDataBuffer(data: data, isBinary: false))
     }
 
+    /// If a seed message is pending and the data channel is now open, send it
+    /// as a user-role conversation item and trigger a response so Shasta speaks first.
+    private func sendSeedIfPending() {
+        guard let seed = pendingSeedMessage,
+              dataChannel?.readyState == .open else { return }
+        pendingSeedMessage = nil
+        sendEvent([
+            "type": "conversation.item.create",
+            "item": [
+                "type":    "message",
+                "role":    "user",
+                "content": [["type": "input_text", "text": seed]],
+            ],
+        ])
+        sendEvent(["type": "response.create"])
+    }
+
     // MARK: - Tool dispatch
 
     private func dispatchTool(callId: String, name: String, argsJson: String) async {
@@ -320,7 +374,12 @@ final class VoiceClient: NSObject {
                 result = try jsonString(["clouds": slim])
 
             default:
-                result = #"{"error":"unknown_tool"}"#
+                // Forward unknown tools to the tools dispatcher Lambda
+                // (POST /v1/tools/{name}). Covers all wow-demo tools:
+                // slack_dm, create_jira_ticket, revoke_oauth_grant,
+                // create_pr_with_bump, tail_lambda_logs_for_pattern,
+                // run_forensic_scan.
+                result = try await callToolsDispatcher(name: name, args: args)
             }
         } catch {
             result = #"{"error":"\#(error.localizedDescription)"}"#
@@ -340,6 +399,14 @@ final class VoiceClient: NSObject {
     private func jsonString(_ obj: Any) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: obj)
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    /// Forward a tool call to the server-side dispatcher
+    /// (POST /v1/tools/{name}). The response body is returned to OpenAI as
+    /// the function_call_output so the model can narrate the result.
+    private func callToolsDispatcher(name: String, args: [String: Any]) async throws -> String {
+        guard let api else { return #"{"error":"voice client not bound"}"# }
+        return try await api.callTool(name: name, args: args)
     }
 
     // MARK: - Errors
@@ -383,7 +450,10 @@ extension VoiceClient: RTCPeerConnectionDelegate {
 // MARK: - RTCDataChannelDelegate
 
 extension VoiceClient: RTCDataChannelDelegate {
-    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
+    nonisolated func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        guard dataChannel.readyState == .open else { return }
+        Task { @MainActor [weak self] in self?.sendSeedIfPending() }
+    }
     nonisolated func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         guard let event = try? JSONSerialization.jsonObject(with: buffer.data) as? [String: Any] else { return }
         Task { @MainActor [weak self] in self?.handleEvent(event) }

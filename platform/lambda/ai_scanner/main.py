@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
+import boto3
+
 import scan_runner
+import trivy as trivy_sca
 import unified_writer
 from detectors import (
     framework, model_usage, mcp_server, agentic_workflow,
@@ -27,6 +31,9 @@ from detectors.base import EntityEmission
 logging.basicConfig(level=logging.INFO, force=True)
 log = logging.getLogger("ai_scanner")
 log.setLevel(logging.INFO)
+
+_sqs = boto3.client("sqs")
+_MATCHER_Q = os.environ.get("AI_SUPPLY_CHAIN_MATCHER_QUEUE_URL")
 
 DETECTORS = [
     framework, model_usage, mcp_server, agentic_workflow,
@@ -95,6 +102,18 @@ def _run_one(body: dict) -> None:
         all_edges    = [e for r in results for e in r.edges] + corr_result.edges
         all_findings = [f for r in results for f in r.findings] + corr_result.findings
 
+        # === SCA pass via Trivy ===
+        # Cap at 60s so we leave headroom for unified_writer.commit_scan under
+        # the 600s Lambda ceiling, after clone + 8 detectors + correlator.
+        trivy_raw = trivy_sca.run_trivy(str(workdir), timeout=60)
+        sca_findings = trivy_sca.parse_trivy_findings(
+            trivy_raw,
+            tenant_id=ctx.tenant_id,
+            repo_full_name=ctx.repo_full_name,
+        )
+        all_findings.extend(sca_findings)
+        print(f"[ai_scanner] trivy: {len(sca_findings)} sca_vuln findings emitted")
+
         unified_writer.commit_scan(ctx,
                                     entities=all_entities,
                                     edges=all_edges,
@@ -102,6 +121,18 @@ def _run_one(body: dict) -> None:
         print(f"[ai_scanner] scan {scan_id} committed: "
               f"{len(all_entities)} entities, {len(all_edges)} edges, "
               f"{len(all_findings)} findings")
+
+        # Enqueue the supply-chain matcher so it can join sca_vuln findings
+        # with the ai_framework→ai_agent graph and KEV threat indicators.
+        if _MATCHER_Q:
+            _sqs.send_message(
+                QueueUrl=_MATCHER_Q,
+                MessageBody=json.dumps({
+                    "tenant_id": ctx.tenant_id,
+                    "scan_id":   scan_id,
+                }),
+            )
+            print(f"[ai_scanner] matcher enqueued tenant={ctx.tenant_id} scan={scan_id}")
 
     except scan_runner.RepoTooLarge as e:
         print(f"[ai_scanner] scan {scan_id} aborted: repo too large")

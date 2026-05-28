@@ -11,6 +11,7 @@ export class EcrStack extends cdk.Stack {
   public readonly shastaRunnerEntra: ecr.Repository;
   public readonly shastaRunnerGcp:   ecr.Repository;
   public readonly aiScanner:         ecr.Repository;
+  public readonly toolsLambda:       ecr.Repository;
 
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -29,11 +30,13 @@ export class EcrStack extends cdk.Stack {
     this.shastaRunnerEntra = repo('ShastaRunnerEntra', 'shasta-runner-entra');
     this.shastaRunnerGcp   = repo('ShastaRunnerGcp',   'shasta-runner-gcp');
     this.aiScanner         = repo('AiScanner',         'ai-scanner');
+    this.toolsLambda       = repo('ToolsLambda',       'tools-lambda');
 
     new cdk.CfnOutput(this, 'ShastaRunnerRepoUri',      { value: this.shastaRunner.repositoryUri });
     new cdk.CfnOutput(this, 'ShastaRunnerAzureRepoUri', { value: this.shastaRunnerAzure.repositoryUri });
     new cdk.CfnOutput(this, 'ShastaRunnerEntraRepoUri', { value: this.shastaRunnerEntra.repositoryUri });
     new cdk.CfnOutput(this, 'ShastaRunnerGcpRepoUri',   { value: this.shastaRunnerGcp.repositoryUri });
-    new cdk.CfnOutput(this, 'AiScannerRepoUri',        { value: this.aiScanner.repositoryUri });
+    new cdk.CfnOutput(this, 'AiScannerRepoUri',         { value: this.aiScanner.repositoryUri });
+    new cdk.CfnOutput(this, 'ToolsLambdaRepoUri',       { value: this.toolsLambda.repositoryUri });
   }
 }

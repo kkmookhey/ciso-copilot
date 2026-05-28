@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigw from 'aws-cdk-lib/aws-apigateway';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as events from 'aws-cdk-lib/aws-events';
@@ -40,6 +41,7 @@ interface ApiStackProps extends cdk.StackProps {
   aiScanQueue:        sqs.IQueue;
   cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
   webRedirectUri:     string;   // e.g. https://<cdn>/callback
+  toolsLambdaRepo:    ecr.IRepository;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -461,8 +463,21 @@ export class ApiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     };
 
-    // GET /me  — JWT-authed
-    api.root.addResource('me').addMethod('GET', new apigw.LambdaIntegration(meFn), authedOpts);
+    // /me — GET caller's user+tenant + POST device-token registration.
+    const deviceTokenFn = new lambda.Function(this, 'DeviceTokenRegisterFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'device_token_register')),
+      timeout: cdk.Duration.seconds(10),
+      environment: { ...dbEnv },
+    });
+    props.dbCluster.grantDataApiAccess(deviceTokenFn);
+
+    const meRes = api.root.addResource('me');
+    meRes.addMethod('GET', new apigw.LambdaIntegration(meFn), authedOpts);
+    meRes.addResource('device-token').addMethod(
+      'POST', new apigw.LambdaIntegration(deviceTokenFn), authedOpts,
+    );
 
     // /admin namespace — shared between the email-link decision endpoint
     // (token-authed via query string, no Cognito) and the in-app admin
@@ -982,6 +997,104 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
+    // ========================================================================
+    // Wow-demo Task 6 — POST /v1/tools/{tool_name} dispatcher
+    // Task 8 — converted to container Lambda so it can shell out to npx for
+    // the Anthropic-reference Slack + GitHub MCP servers.
+    // ========================================================================
+    const toolsFn = new lambda.DockerImageFunction(this, 'ToolsFn', {
+      code: lambda.DockerImageCode.fromEcr(props.toolsLambdaRepo, { tagOrDigest: 'latest' }),
+      // 60s covers Task 11's tail_lambda_logs_for_pattern, which polls
+      // CloudWatch Logs Insights for up to 30s before returning.
+      timeout:    cdk.Duration.seconds(60),
+      memorySize: 1024,
+      environment: {
+        ...dbEnv,
+        // Redirect HOME so anything (npm, msal, etc.) that writes to ~ uses /tmp.
+        // Lambda's filesystem is read-only except for /tmp.
+        HOME:                  '/tmp',
+        NPM_CONFIG_CACHE:      '/tmp/.npm',
+        ENTRA_TENANT_ID:       config.entraTenantId,
+        ENTRA_CLIENT_ID:       config.entraClientId,
+        ENTRA_CLIENT_SECRET:   config.entraClientSecret,
+        // MCP servers installed via `npm install -g` land in /usr/local/bin —
+        // call them directly to avoid npx's home-directory cache lookup.
+        MCP_SLACK_COMMAND:     'mcp-server-slack',
+        MCP_SLACK_FORWARD_ENV: 'SLACK_BOT_TOKEN,SLACK_TEAM_ID',
+        SLACK_BOT_TOKEN:       process.env.SLACK_BOT_TOKEN ?? '',
+        SLACK_TEAM_ID:         process.env.SLACK_TEAM_ID ?? '',
+        // Task 9 — Atlassian MCP (JIRA)
+        MCP_ATLASSIAN_COMMAND:     'mcp-atlassian',
+        MCP_ATLASSIAN_FORWARD_ENV: 'JIRA_URL,JIRA_USERNAME,JIRA_API_TOKEN',
+        JIRA_URL:                  process.env.JIRA_URL ?? '',
+        JIRA_USERNAME:             process.env.JIRA_USERNAME ?? '',
+        JIRA_API_TOKEN:            process.env.JIRA_API_TOKEN ?? '',
+        // Task 10 — GitHub MCP
+        MCP_GITHUB_COMMAND:           'mcp-server-github',
+        MCP_GITHUB_FORWARD_ENV:       'GITHUB_PERSONAL_ACCESS_TOKEN',
+        GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? '',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(toolsFn);
+
+    // Task 11 — tail_lambda_logs_for_pattern needs CloudWatch Logs Insights
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['logs:StartQuery', 'logs:GetQueryResults'],
+      resources: ['*'],
+    }));
+
+    const toolsRes = api.root.addResource('tools');
+    toolsRes.addResource('{tool_name}').addMethod(
+      'POST', new apigw.LambdaIntegration(toolsFn), authedOpts,
+    );
+
+    // ========================================================================
+    // Wow-demo Task 17 — forensic_callback Lambda
+    // Triggered by one-time EventBridge rule scheduled by run_forensic_scan
+    // (Task 12). Looks up tenant from conversation_id, fires APNs push with
+    // the 'clean' result, then deletes the rule so EB doesn't accumulate stale
+    // rules. PREREQUISITE: run `./build.sh` in lambda/forensic_callback/ before
+    // `cdk deploy`. build.sh vendors _shared/push.py into dist/.
+    // ========================================================================
+    const forensicCallbackFn = new lambda.Function(this, 'ForensicCallbackFn', {
+      functionName: 'ciso-copilot-forensic-callback',
+      runtime:      lambda.Runtime.PYTHON_3_12,
+      handler:      'main.handler',
+      // Zip is built by lambda/forensic_callback/build.sh into dist/.
+      code:         lambda.Code.fromAsset(
+                      path.join(__dirname, '..', 'lambda', 'forensic_callback', 'dist', 'forensic_callback.zip')
+                    ),
+      timeout:      cdk.Duration.seconds(15),
+      environment: {
+        ...dbEnv,
+        APNS_PLATFORM_APP_ARN: process.env.APNS_PLATFORM_APP_ARN ?? '',
+      },
+    });
+    props.dbCluster.grantDataApiAccess(forensicCallbackFn);
+    // Allow EventBridge to invoke this Lambda.
+    forensicCallbackFn.grantInvoke(new iam.ServicePrincipal('events.amazonaws.com'));
+    // Push via SNS.
+    forensicCallbackFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['sns:CreatePlatformEndpoint', 'sns:Publish'],
+      resources: ['*'],
+    }));
+
+    // Wire the ARN into ToolsFn so run_forensic_scan can schedule against it.
+    toolsFn.addEnvironment('FORENSIC_CALLBACK_FN_ARN', forensicCallbackFn.functionArn);
+    // ToolsFn needs EB put/delete-rule permissions to schedule + clean up rules.
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   [
+        'events:PutRule',
+        'events:PutTargets',
+        'events:RemoveTargets',
+        'events:DeleteRule',
+      ],
+      resources: ['*'],
+    }));
+    // ToolsFn also needs to pass the Lambda's role to EventBridge.
+    forensicCallbackFn.grantInvoke(toolsFn);
+
+    new cdk.CfnOutput(this, 'ForensicCallbackFnName', { value: forensicCallbackFn.functionName });
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });
     new cdk.CfnOutput(this, 'GcpScriptUrl',     { value: gcpScriptUrl });
