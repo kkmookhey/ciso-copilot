@@ -1017,6 +1017,12 @@ export class ApiStack extends cdk.Stack {
     });
     props.dbCluster.grantDataApiAccess(toolsFn);
 
+    // Task 11 — tail_lambda_logs_for_pattern needs CloudWatch Logs Insights
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['logs:StartQuery', 'logs:GetQueryResults'],
+      resources: ['*'],
+    }));
+
     const toolsRes = api.root.addResource('tools');
     toolsRes.addResource('{tool_name}').addMethod(
       'POST', new apigw.LambdaIntegration(toolsFn), authedOpts,
