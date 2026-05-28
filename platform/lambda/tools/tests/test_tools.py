@@ -51,12 +51,12 @@ def test_missing_auth_returns_401():
 def test_stub_not_implemented_returns_500():
     # A stub raises NotImplementedError — confirm the dispatcher
     # converts it to a 500 with the task tag in the detail.
-    # Uses create_jira_ticket (Task 9) which is still a stub.
-    resp = handler(_event("create_jira_ticket", {}), None)
+    # Uses create_pr_with_bump (Task 10) which is still a stub.
+    resp = handler(_event("create_pr_with_bump", {}), None)
     assert resp["statusCode"] == 500
     body = json.loads(resp["body"])
     assert body["error"] == "tool_failed"
-    assert "Task 9" in body["detail"]
+    assert "Task 10" in body["detail"]
 
 
 class TestSubjectFromClaims:

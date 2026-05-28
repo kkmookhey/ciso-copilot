@@ -1003,7 +1003,16 @@ export class ApiStack extends cdk.Stack {
         MCP_SLACK_COMMAND:     'npx -y @modelcontextprotocol/server-slack',
         MCP_SLACK_FORWARD_ENV: 'SLACK_BOT_TOKEN',
         SLACK_BOT_TOKEN:       process.env.SLACK_BOT_TOKEN ?? '',
-        // Atlassian and GitHub env vars added in Tasks 9 + 10.
+        // Task 9 — Atlassian MCP (JIRA)
+        MCP_ATLASSIAN_COMMAND:     'mcp-atlassian',
+        MCP_ATLASSIAN_FORWARD_ENV: 'JIRA_URL,JIRA_USERNAME,JIRA_API_TOKEN',
+        JIRA_URL:                  process.env.JIRA_URL ?? '',
+        JIRA_USERNAME:             process.env.JIRA_USERNAME ?? '',
+        JIRA_API_TOKEN:            process.env.JIRA_API_TOKEN ?? '',
+        // Task 10 — GitHub MCP
+        MCP_GITHUB_COMMAND:           'npx -y @modelcontextprotocol/server-github',
+        MCP_GITHUB_FORWARD_ENV:       'GITHUB_PERSONAL_ACCESS_TOKEN',
+        GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? '',
       },
     });
     props.dbCluster.grantDataApiAccess(toolsFn);
