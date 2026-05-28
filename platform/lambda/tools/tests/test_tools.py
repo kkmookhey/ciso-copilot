@@ -49,13 +49,14 @@ def test_missing_auth_returns_401():
 
 
 def test_stub_not_implemented_returns_500():
-    # Every stub raises NotImplementedError — confirm the dispatcher
+    # A stub raises NotImplementedError — confirm the dispatcher
     # converts it to a 500 with the task tag in the detail.
-    resp = handler(_event("revoke_oauth_grant", {}), None)
+    # Uses slack_dm (Task 8) which is still a stub.
+    resp = handler(_event("slack_dm", {}), None)
     assert resp["statusCode"] == 500
     body = json.loads(resp["body"])
     assert body["error"] == "tool_failed"
-    assert "Task 7" in body["detail"]
+    assert "Task 8" in body["detail"]
 
 
 class TestSubjectFromClaims:

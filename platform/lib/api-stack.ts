@@ -995,7 +995,10 @@ export class ApiStack extends cdk.Stack {
       memorySize: 512,
       environment: {
         ...dbEnv,
-        // Tool-specific MCP_*/ENTRA_*/JIRA_*/GITHUB_* env vars wired in Tasks 7-11.
+        ENTRA_TENANT_ID:    config.entraTenantId,
+        ENTRA_CLIENT_ID:    config.entraClientId,
+        ENTRA_CLIENT_SECRET: config.entraClientSecret,
+        // Tool-specific MCP_*/JIRA_*/GITHUB_* env vars wired in Tasks 8-11.
       },
     });
     props.dbCluster.grantDataApiAccess(toolsFn);
