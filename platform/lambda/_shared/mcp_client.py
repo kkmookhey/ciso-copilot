@@ -16,7 +16,7 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Callable
 
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -45,11 +45,6 @@ class MCPClient:
         entry = self.resolve(shasta_tool_name)
         mcp_args = entry.args_mapping(args)
         return _invoke_mcp_tool(server=entry.server, tool=entry.tool, args=mcp_args)
-
-
-# Module-level cache: one ClientSession per server (created lazily, reused
-# across Lambda invocations within the same container).
-_sessions: dict[str, ClientSession] = {}
 
 
 def _invoke_mcp_tool(*, server: str, tool: str, args: dict) -> dict:
@@ -94,7 +89,15 @@ def _server_params_from_env(server: str) -> StdioServerParameters:
     if not cmd:
         raise RuntimeError(f"{cmd_env} not set — cannot reach MCP server '{server}'")
     parts = cmd.split()
-    # Forward any tokens listed in MCP_<SERVER>_FORWARD_ENV (comma-separated).
+    # Forward env vars listed in MCP_<SERVER>_FORWARD_ENV (comma-separated).
+    # Raise early on missing required tokens — otherwise the subprocess fails
+    # with an opaque auth error deep inside the MCP server.
     forward = os.environ.get(f"MCP_{server.upper()}_FORWARD_ENV", "")
-    forwarded_env = {k: os.environ[k] for k in forward.split(",") if k and k in os.environ}
+    forward_keys = [k for k in forward.split(",") if k]
+    missing = [k for k in forward_keys if k not in os.environ]
+    if missing:
+        raise RuntimeError(
+            f"MCP server '{server}' requires env vars not set: {missing}"
+        )
+    forwarded_env = {k: os.environ[k] for k in forward_keys}
     return StdioServerParameters(command=parts[0], args=parts[1:], env=forwarded_env or None)
