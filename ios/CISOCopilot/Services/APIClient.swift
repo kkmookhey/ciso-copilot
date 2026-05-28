@@ -35,6 +35,16 @@ final class APIClient {
         return try decoder.decode(MeResponse.self, from: data)
     }
 
+    /// Register the APNs device token from didRegisterForRemoteNotifications.
+    /// Called by RootView when the AppDelegate posts the device-token-ready
+    /// notification (AppDelegate has no @Environment access to APIClient).
+    func registerDeviceToken(_ hexToken: String) async throws {
+        var req = try await authedRequest(method: "POST", path: "me/device-token")
+        req.httpBody = try encoder.encode(["token": hexToken])
+        let (_, response) = try await session.data(for: req)
+        try Self.assertOK(response)
+    }
+
     // MARK: - /connections
 
     func listConnections() async throws -> [Connection] {

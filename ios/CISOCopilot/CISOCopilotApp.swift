@@ -34,11 +34,41 @@ struct CISOCopilotApp: App {
     }
 }
 
+extension Notification.Name {
+    /// AppDelegate broadcasts this when APNs hands us a fresh device token.
+    /// RootView observes and POSTs to /me/device-token via APIClient
+    /// (AppDelegate has no @Environment access).
+    static let deviceTokenReady = Notification.Name("deviceTokenReady")
+}
+
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Ask for notification permission, then register for APNs. The token
+        // is delivered to didRegisterForRemoteNotificationsWithDeviceToken.
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
         return true
+    }
+
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        NotificationCenter.default.post(
+            name: .deviceTokenReady,
+            object: hex
+        )
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NSLog("[apns] registration failed: \(error)")
     }
 
     // User tapped the notification (foreground OR cold start).

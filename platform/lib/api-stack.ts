@@ -463,8 +463,21 @@ export class ApiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     };
 
-    // GET /me  — JWT-authed
-    api.root.addResource('me').addMethod('GET', new apigw.LambdaIntegration(meFn), authedOpts);
+    // /me — GET caller's user+tenant + POST device-token registration.
+    const deviceTokenFn = new lambda.Function(this, 'DeviceTokenRegisterFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'device_token_register')),
+      timeout: cdk.Duration.seconds(10),
+      environment: { ...dbEnv },
+    });
+    props.dbCluster.grantDataApiAccess(deviceTokenFn);
+
+    const meRes = api.root.addResource('me');
+    meRes.addMethod('GET', new apigw.LambdaIntegration(meFn), authedOpts);
+    meRes.addResource('device-token').addMethod(
+      'POST', new apigw.LambdaIntegration(deviceTokenFn), authedOpts,
+    );
 
     // /admin namespace — shared between the email-link decision endpoint
     // (token-authed via query string, no Cognito) and the in-app admin

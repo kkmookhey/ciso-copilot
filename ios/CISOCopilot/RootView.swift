@@ -28,6 +28,20 @@ struct RootView: View {
                 tenantStatus = nil
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .deviceTokenReady)) { note in
+            // AppDelegate captured an APNs token. POST it to /me/device-token
+            // so subsequent server-side pushes can reach this device.
+            guard let hex = note.object as? String,
+                  case .signedIn = auth.state else { return }
+            Task {
+                do {
+                    try await api.registerDeviceToken(hex)
+                    print("[apns] token registered (prefix=\(hex.prefix(8)))")
+                } catch {
+                    print("[apns] token registration failed: \(error)")
+                }
+            }
+        }
     }
 
     @ViewBuilder
