@@ -223,11 +223,11 @@ def _tools() -> list[dict]:
         {
             "type":        "function",
             "name":        "slack_dm",
-            "description": "Send a Slack DM to a user via email lookup. Use when the user says 'message X', 'Slack them', or 'let X know'.",
+            "description": "Send a Slack DM to a user. user_lookup can be either an email (preferred) or a name fragment (e.g. 'Venkat', 'Ratanshi'). When given a name, the tool fuzzy-matches against the workspace's user list — if multiple people match, it returns 'ambiguous_user' with candidates so you can re-ask. Use when the user says 'message X', 'Slack them', or 'let X know'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_lookup": {"type": "string", "description": "Email address of the target Slack user."},
+                    "user_lookup": {"type": "string", "description": "Email address OR name fragment of the target Slack user."},
                     "message":     {"type": "string", "description": "Plain-text body of the DM."},
                 },
                 "required": ["user_lookup", "message"],
