@@ -12,6 +12,7 @@ import { ModuleRail } from "./ModuleRail";
 import { ConversationRail } from "./ConversationRail";
 import { ChatCenter } from "./ChatCenter";
 import { SourceSideSheet } from "./SourceSideSheet";
+import { FloatingChrome } from "../components/FloatingChrome";
 import { chatReducer, initialState } from "./state";
 import * as chatApi from "./chatApi";
 import { executeTool } from "./tools";
@@ -248,6 +249,7 @@ export function ChatShell() {
         syncWarning={syncWarning}
       />
       <SourceSideSheet />
+      <FloatingChrome />
     </div>
   );
 }
