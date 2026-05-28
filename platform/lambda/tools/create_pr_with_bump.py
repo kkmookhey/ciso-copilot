@@ -1,39 +1,23 @@
 # platform/lambda/tools/create_pr_with_bump.py
-"""Open a PR that bumps a single dependency pin in a manifest file."""
+"""Open a PR that bumps a single dependency pin in a manifest file.
+
+Goes direct to the GitHub REST API (PAT in env) rather than through
+the @modelcontextprotocol/server-github MCP server, because that server's
+get_file_contents returns malformed base64 (count-not-mod-4) for short
+manifest files. Direct REST is simpler and more reliable.
+"""
 from __future__ import annotations
 import base64
+import os
 import re
+from typing import Any
 
-from _shared.mcp_client import MCPClient, ToolRegistryEntry
+import requests
+
 from tools.main import register
 
 
-_mcp_client = MCPClient()
-_mcp_client.register("github_get_file", ToolRegistryEntry(
-    server="github",
-    tool="get_file_contents",
-    args_mapping=lambda a: {"owner": a["owner"], "repo": a["repo"], "path": a["path"]},
-))
-_mcp_client.register("github_create_branch", ToolRegistryEntry(
-    server="github",
-    tool="create_branch",
-    args_mapping=lambda a: {"owner": a["owner"], "repo": a["repo"],
-                            "branch": a["branch"], "from_branch": a.get("from_branch", "main")},
-))
-_mcp_client.register("github_put_file", ToolRegistryEntry(
-    server="github",
-    tool="create_or_update_file",
-    args_mapping=lambda a: {"owner": a["owner"], "repo": a["repo"], "path": a["path"],
-                            "content": a["content"], "message": a["message"],
-                            "branch": a["branch"], "sha": a.get("sha")},
-))
-_mcp_client.register("github_create_pr", ToolRegistryEntry(
-    server="github",
-    tool="create_pull_request",
-    args_mapping=lambda a: {"owner": a["owner"], "repo": a["repo"],
-                            "title": a["title"], "head": a["head"],
-                            "base": a.get("base", "main"), "body": a.get("body", "")},
-))
+_GH_BASE = "https://api.github.com"
 
 
 def _bump_version_in_requirements(content: str, pkg: str, new_version: str) -> str:
@@ -42,9 +26,31 @@ def _bump_version_in_requirements(content: str, pkg: str, new_version: str) -> s
     return pattern.sub(f"{pkg}=={new_version}", content)
 
 
+def _headers() -> dict[str, str]:
+    pat = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN") or ""
+    if not pat:
+        raise RuntimeError("GITHUB_PERSONAL_ACCESS_TOKEN not set")
+    return {
+        "Authorization": f"Bearer {pat}",
+        "Accept":        "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _gh(method: str, path: str, **kwargs) -> dict[str, Any]:
+    r = requests.request(method, f"{_GH_BASE}{path}", headers=_headers(), timeout=15, **kwargs)
+    if r.status_code >= 400:
+        try:
+            detail = r.json()
+        except Exception:
+            detail = r.text[:300]
+        raise RuntimeError(f"GitHub {method} {path} → {r.status_code}: {detail}")
+    return r.json() if r.content else {}
+
+
 @register("create_pr_with_bump")
 def handle(args: dict, claims: dict) -> dict:
-    repo_full      = args["repo"]                              # "owner/repo"
+    repo_full      = args["repo"]
     dependency     = args["dependency"]
     target_version = args["target_version"]
     manifest_path  = args.get("manifest_path", "requirements.txt")
@@ -57,17 +63,15 @@ def handle(args: dict, claims: dict) -> dict:
               f"`{dependency}` in active runtime use.\n\n"
               f"Reviewer suggested: {reviewer or 'unassigned'}.")
 
-    cur = _mcp_client.call("github_get_file", {
-        "owner": owner, "repo": repo, "path": manifest_path,
-    })
-    raw_content = cur.get("content", "")
-    if cur.get("encoding") == "base64":
-        # GitHub MCP sometimes returns the base64 with embedded newlines and
-        # without trailing '=' padding. Strip whitespace and re-pad to a
-        # multiple of 4 before decoding so b64decode doesn't 400.
-        clean = "".join(raw_content.split())
-        clean += "=" * (-len(clean) % 4)
-        raw_content = base64.b64decode(clean).decode()
+    # 1. Read current manifest.
+    cur = _gh("GET", f"/repos/{owner}/{repo}/contents/{manifest_path}")
+    if cur.get("encoding") != "base64" or not cur.get("content"):
+        return {
+            "created":   False,
+            "reason":    "manifest_not_readable",
+            "speakable": f"Could not read {manifest_path} from {repo_full}.",
+        }
+    raw_content = base64.b64decode(cur["content"]).decode()
     new_content = _bump_version_in_requirements(raw_content, dependency, target_version)
     if new_content == raw_content:
         return {
@@ -76,21 +80,33 @@ def handle(args: dict, claims: dict) -> dict:
             "speakable": f"No pin for {dependency} found in {manifest_path}.",
         }
 
-    _mcp_client.call("github_create_branch", {
-        "owner": owner, "repo": repo, "branch": branch, "from_branch": "main",
-    })
-    _mcp_client.call("github_put_file", {
-        "owner": owner, "repo": repo, "path": manifest_path,
-        "content": new_content, "message": title, "branch": branch,
-        "sha": cur.get("sha"),
-    })
-    pr = _mcp_client.call("github_create_pr", {
-        "owner": owner, "repo": repo, "title": title,
-        "head": branch, "base": "main", "body": body,
-    })
+    # 2. Find default branch SHA so the new branch can fork from it.
+    default_branch = _gh("GET", f"/repos/{owner}/{repo}").get("default_branch", "main")
+    base_ref = _gh("GET", f"/repos/{owner}/{repo}/git/ref/heads/{default_branch}")
+    base_sha = base_ref["object"]["sha"]
+
+    # 3. Create branch (idempotent — ignore "already exists").
+    try:
+        _gh("POST", f"/repos/{owner}/{repo}/git/refs",
+            json={"ref": f"refs/heads/{branch}", "sha": base_sha})
+    except RuntimeError as e:
+        if "Reference already exists" not in str(e):
+            raise
+
+    # 4. Commit the bumped manifest onto the new branch.
+    new_b64 = base64.b64encode(new_content.encode()).decode()
+    _gh("PUT", f"/repos/{owner}/{repo}/contents/{manifest_path}",
+        json={"message": title, "content": new_b64,
+              "branch": branch, "sha": cur["sha"]})
+
+    # 5. Open the PR.
+    pr = _gh("POST", f"/repos/{owner}/{repo}/pulls",
+             json={"title": title, "head": branch,
+                   "base": default_branch, "body": body})
+
     return {
         "created":   True,
         "pr_number": pr.get("number"),
         "url":       pr.get("html_url"),
-        "speakable": f"PR opened — link is in your Slack.",
+        "speakable": f"PR opened — bump {dependency} to {target_version}, number {pr.get('number')}.",
     }

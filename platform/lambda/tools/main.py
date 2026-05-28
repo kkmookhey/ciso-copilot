@@ -84,6 +84,12 @@ def handler(event: dict, context) -> dict:
     if not subject_from_claims(claims):
         return _resp(401, {"error": "no_auth"})
 
+    # Log the inbound args so we can see exactly what the model passed.
+    # Redact obvious secrets just in case.
+    safe_args = {k: ("<redacted>" if "token" in k.lower() or "secret" in k.lower()
+                                    or "password" in k.lower() else v)
+                 for k, v in (args or {}).items()}
+    print(f"[tools] dispatch {tool_name} args={json.dumps(safe_args)[:500]}")
     try:
         result = _DISPATCH[tool_name](args, claims)
         return _resp(200, result)
