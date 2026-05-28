@@ -23,7 +23,7 @@ struct BriefingView: View {
             .cornerRadius(12)
 
             // Voice surface lands here in Task 18.
-            Text("Connecting Shasta...")
+            Text("Voice briefing — coming in Task 18.")
                 .foregroundColor(.secondary)
                 .padding()
 

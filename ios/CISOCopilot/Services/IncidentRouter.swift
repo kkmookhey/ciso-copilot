@@ -21,12 +21,14 @@ class IncidentRouter: ObservableObject {
     @objc private func handleNavigate(_ note: Notification) {
         guard let findingId = note.object as? String else { return }
         let context = note.userInfo as? [String: Any] ?? [:]
-        DispatchQueue.main.async {
-            self.activeIncident = IncidentContext(findingId: findingId, payload: context)
+        DispatchQueue.main.async { [weak self] in
+            self?.activeIncident = IncidentContext(findingId: findingId, payload: context)
         }
     }
 
     func clear() { activeIncident = nil }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 }
 
 struct IncidentContext: Equatable {
