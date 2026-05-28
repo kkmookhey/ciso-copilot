@@ -81,7 +81,8 @@ def handler(event: dict, context) -> dict:
             },
             "tools":       _tools(),
             "tool_choice": "auto",
-            "temperature": 0.7,  # warm delivery; lower keeps it disciplined for the recording window
+            # OpenAI Realtime GA (2026) removed session.temperature — tone
+            # is now controlled via voice + system prompt only.
         },
     }
 
