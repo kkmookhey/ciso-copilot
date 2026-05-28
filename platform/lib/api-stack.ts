@@ -982,6 +982,27 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
+    // ========================================================================
+    // Wow-demo Task 6 — POST /v1/tools/{tool_name} dispatcher
+    // ========================================================================
+    const toolsFn = new lambda.Function(this, 'ToolsFn', {
+      runtime:    lambda.Runtime.PYTHON_3_12,
+      handler:    'main.handler',
+      code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'tools')),
+      timeout:    cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        // Tool-specific MCP_*/ENTRA_*/JIRA_*/GITHUB_* env vars wired in Tasks 7-11.
+      },
+    });
+    props.dbCluster.grantDataApiAccess(toolsFn);
+
+    const toolsRes = api.root.addResource('tools');
+    toolsRes.addResource('{tool_name}').addMethod(
+      'POST', new apigw.LambdaIntegration(toolsFn), authedOpts,
+    );
+
     new cdk.CfnOutput(this, 'ApiUrl',           { value: api.url });
     new cdk.CfnOutput(this, 'EntraCallbackUrl', { value: entraCallbackUrl });
     new cdk.CfnOutput(this, 'GcpScriptUrl',     { value: gcpScriptUrl });
