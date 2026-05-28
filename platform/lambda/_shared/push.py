@@ -1,13 +1,11 @@
-"""Push rule evaluation + SNS Mobile Push call.
-
-Canonical source: platform/lambda/_shared/push.py
-This file mirrors _shared/push.py for the event_router Lambda asset bundle.
-event_router is zipped by CDK via fromAsset (no build.sh), so _shared/ is
-not available at runtime — this copy is intentional. Keep in sync with _shared/push.py.
+"""Push rule evaluation + SNS Mobile Push call. Shared across event_router,
+the AI supply chain matcher, the Entra runner (personal-tier triggers), and
+the forensic-scan callback Lambda.
 """
 from __future__ import annotations
 import json
 import boto3
+
 
 sns = boto3.client("sns")
 
@@ -43,7 +41,7 @@ def format_push_body(*, kind: str, severity: str, title: str,
 
 
 def send_push(*, device_tokens: list[str], platform_app_arn: str, body: str) -> None:
-    """Body-only push. Delegates to send_push_with_payload with empty payload."""
+    """Body-only push. Legacy callers (event_router) use this."""
     send_push_with_payload(device_tokens=device_tokens,
                            platform_app_arn=platform_app_arn,
                            body=body, payload={})
