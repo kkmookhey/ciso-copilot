@@ -56,8 +56,7 @@ SELECT
   trivy.evidence_packet->>'version'                     AS version,
   trivy.evidence_packet->>'cve'                         AS cve,
   framework.id::text                                    AS framework_entity_id,
-  agent.id::text                                        AS agent_entity_id,
-  agent.display_name                                    AS agent_name,
+  repo.id::text                                         AS repo_entity_id,
   repo.display_name                                     AS repo_full_name
 FROM findings trivy
 JOIN entities framework
@@ -67,27 +66,24 @@ JOIN entities framework
 JOIN edges e
   ON e.tenant_id = trivy.tenant_id
  AND e.target_entity_id = framework.id
- AND e.kind = 'imports'
-JOIN entities agent
-  ON agent.id = e.source_entity_id
- AND agent.kind = 'ai_agent'
-LEFT JOIN entities repo
-  ON repo.id = agent.parent_id
+ AND e.kind = 'uses'
+JOIN entities repo
+  ON repo.id = e.source_entity_id
  AND repo.kind = 'github_repo'
 JOIN threat_indicators kev
   ON kev.kind = 'cve'
  AND kev.source = 'kev'
  AND kev.indicator_value = trivy.evidence_packet->>'cve'
 WHERE trivy.tenant_id = CAST(:t AS UUID)
-  AND trivy.check_id = 'sca_vuln'
+  AND trivy.check_id LIKE 'sca_vuln:%'
   AND trivy.severity IN ('critical', 'high')
   AND NOT EXISTS (
     SELECT 1 FROM findings prior
     WHERE prior.tenant_id = trivy.tenant_id
       AND prior.check_id = 'ai_supply_chain_active'
-      AND prior.evidence_packet->>'package'        = trivy.evidence_packet->>'package'
-      AND prior.evidence_packet->>'cve'            = trivy.evidence_packet->>'cve'
-      AND prior.evidence_packet->>'agent_entity_id' = agent.id::text
+      AND prior.evidence_packet->>'package' = trivy.evidence_packet->>'package'
+      AND prior.evidence_packet->>'cve'     = trivy.evidence_packet->>'cve'
+      AND prior.evidence_packet->>'repo_entity_id' = repo.id::text
   )
 """
 
@@ -133,9 +129,8 @@ def _find_matches(*, tenant_id: str) -> list[dict[str, Any]]:
             "version":             _str(row, 2),
             "cve":                 _str(row, 3),
             "framework_entity_id": _str(row, 4),
-            "agent_entity_id":     _str(row, 5),
-            "agent_name":          _str(row, 6),
-            "repo_full_name":      _str(row, 7),
+            "repo_entity_id":      _str(row, 5),
+            "repo_full_name":      _str(row, 6),
         })
     return out
 
@@ -146,27 +141,26 @@ def _str(row: list, i: int) -> str:
 
 def _emit_finding(*, tenant_id: str, scan_id: str, match: dict) -> str:
     finding_id = str(uuid.uuid4())
-    # check_id encodes the unique match: one row per (CVE, agent) pair.
-    check_id   = f"ai_supply_chain_active:{match['cve']}:{match['agent_entity_id']}"
+    # check_id encodes the unique match: one row per (CVE, repo) pair.
+    check_id   = f"ai_supply_chain_active:{match['cve']}:{match['repo_entity_id']}"
+    repo_label = match.get("repo_full_name") or "unknown repo"
     title      = (f"{match['package']} {match['version']} ({match['cve']}) "
-                  f"actively imported by {match['agent_name']}")
+                  f"actively used by {repo_label}")
     description = (
         f"KEV-listed vulnerability {match['cve']} in {match['package']} "
-        f"{match['version']} is actively imported by the AI agent "
-        f"'{match['agent_name']}' in repo {match['repo_full_name'] or 'unknown'}. "
-        "This represents a confirmed AI supply-chain risk: the vulnerable package "
-        "is in production use by a live agentic workflow."
+        f"{match['version']} is actively used by {repo_label}. "
+        "This represents a confirmed AI supply-chain risk: the vulnerable framework "
+        "is in production use by a connected AI repository."
     )
     evidence = json.dumps({
         "package":             match["package"],
         "version":             match["version"],
         "cve":                 match["cve"],
-        "agent_name":          match["agent_name"],
-        "agent_entity_id":     match["agent_entity_id"],
         "framework_entity_id": match["framework_entity_id"],
+        "repo_entity_id":      match["repo_entity_id"],
         "repo_full_name":      match["repo_full_name"],
         "kev_listed":          True,
-        "actively_imported":   True,
+        "actively_used":       True,
     })
     _rds.execute_statement(
         resourceArn=DB_CLUSTER_ARN,
@@ -216,9 +210,10 @@ def _fire_push(*, tenant_id: str, finding_id: str, match: dict) -> None:
         db_secret_arn=DB_SECRET_ARN,
         db_name=DB_NAME,
     )
+    repo_label = match.get("repo_full_name") or "your AI repo"
     body = (
-        f"AI Supply Chain · Critical — KEV CVE in your live "
-        f"{match['agent_name']} ({match['package']})"
+        f"AI Supply Chain · Critical — KEV CVE {match['cve']} in "
+        f"{match['package']} {match['version']} (used by {repo_label})"
     )
     push_mod.send_push_with_payload(
         device_tokens=tokens,

@@ -64,7 +64,10 @@ def parse_trivy_findings(raw: dict[str, Any], *, tenant_id: str,
             description = (v.get("Description") or "")[:1000]
             out.append(FindingEmission(
                 tenant_id=tenant_id,
-                finding_type="sca_vuln",
+                # check_id encodes the CVE so each vuln gets a distinct
+                # natural-key row in findings instead of dedupe-collapsing
+                # to one "sca_vuln" entry.
+                finding_type=f"sca_vuln:{cve}",
                 severity=_SEVERITY_MAP.get(v.get("Severity", "UNKNOWN"), "info"),
                 title=f"{pkg} {ver} — {cve}",
                 description=description or f"{pkg} {ver} affected by {cve}.",
