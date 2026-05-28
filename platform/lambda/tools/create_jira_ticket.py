@@ -27,7 +27,11 @@ def handle(args: dict, claims: dict) -> dict:
     summary     = args["summary"]
 
     result = _mcp_client.call("jira_create_issue", args)
-    key = result.get("key")
+    # mcp-atlassian wraps the created issue under result["issue"] (verified
+    # against the live MCP server); older shapes had key at top level. Handle
+    # both defensively.
+    issue = result.get("issue") or {}
+    key = issue.get("key") or result.get("key")
     if not key:
         return {
             "created":   False,
@@ -36,9 +40,14 @@ def handle(args: dict, claims: dict) -> dict:
             "speakable": "JIRA returned no issue key — check the project key and assignee.",
         }
     base = os.environ.get("JIRA_URL", "").rstrip("/")
+    assignee = args.get("assignee_lookup")
+    if assignee:
+        speakable = f"JIRA {key} opened, assigned to {assignee.split('@')[0]}."
+    else:
+        speakable = f"JIRA {key} opened."
     return {
         "created":   True,
         "key":       key,
         "url":       f"{base}/browse/{key}" if base else key,
-        "speakable": f"JIRA {key} opened, assigned to {(args.get('assignee_lookup') or 'unassigned').split('@')[0]}.",
+        "speakable": speakable,
     }
