@@ -25,6 +25,9 @@ COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 RUN pip install --no-cache-dir -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 # App code + vendored _shared/ (staged by build.sh before docker build).
-COPY . ${LAMBDA_TASK_ROOT}/
+# Preserve the tools/ package structure so `from tools.main import register`
+# resolves at runtime (matches the test-time import path).
+COPY *.py ${LAMBDA_TASK_ROOT}/tools/
+COPY _shared/ ${LAMBDA_TASK_ROOT}/_shared/
 
-CMD ["main.handler"]
+CMD ["tools.main.handler"]
