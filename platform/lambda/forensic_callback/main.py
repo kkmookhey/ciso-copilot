@@ -21,30 +21,43 @@ _events = boto3.client("events")
 def handler(event: dict, context) -> dict:
     scan_id         = event["scan_id"]
     target_arn      = event["target_arn"]
-    conversation_id = event["conversation_id"]
+    conversation_id = event.get("conversation_id") or ""
     self_delete     = event.get("self_delete_rule")
 
-    rs = _rds.execute_statement(
-        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
-        sql=(
-            "SELECT tenant_id::text FROM conversations "
-            "WHERE id = CAST(:c AS UUID) LIMIT 1"
-        ),
-        parameters=[{"name": "c", "value": {"stringValue": conversation_id}}],
-    )
-    rows = rs.get("records", [])
-    if not rows:
-        print(f"[forensic_callback] no conversation {conversation_id}")
+    # Prefer tenant_id passed by the caller (run_forensic_scan resolves it
+    # from the user's JWT claims). Fall back to conversation lookup only
+    # if the caller didn't pre-resolve.
+    tenant_id = event.get("tenant_id") or ""
+    if not tenant_id and conversation_id:
+        rs = _rds.execute_statement(
+            resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+            sql=(
+                "SELECT tenant_id::text FROM conversations "
+                "WHERE id = CAST(:c AS UUID) LIMIT 1"
+            ),
+            parameters=[{"name": "c", "value": {"stringValue": conversation_id}}],
+        )
+        rows = rs.get("records", [])
+        if rows:
+            tenant_id = rows[0][0].get("stringValue") or ""
+    if not tenant_id:
+        print(f"[forensic_callback] no tenant_id resolvable (conv={conversation_id})")
         return {"ok": False}
-    tenant_id = rows[0][0].get("stringValue")
 
     # Demo result is staged 'clean'.
     body = "Forensic scan complete — no anomalous activity detected."
+    # iOS AppDelegate routes to BriefingView only when finding_id is set.
+    # Prefer the original finding_id (voice agent currently passes it as
+    # conversation_id since OpenAI Realtime doesn't expose its session id);
+    # fall back to scan_id so we always route somewhere.
+    routing_id = conversation_id or scan_id
     push_mod.notify_tool_completion(
         tenant_id=tenant_id,
         conversation_id=conversation_id,
         body=body,
         payload={
+            "finding_id":        routing_id,
+            "kind_label":        "Forensic scan",
             "scan_id":           scan_id,
             "target_arn":        target_arn,
             "speakable_summary": body,

@@ -6,15 +6,17 @@
 > still hurts. Product docs sit at the repo root: README → ARCHITECTURE
 > → ROADMAP.
 >
-> Last updated: 2026-05-27 (ICICI Lombard demo done — went well. The
-> AI demo polish + 4 prod bug fixes session shipped as PR #29 →
-> `fa39589` on main. 2026-05-26: Secrets extraction —
-> Phase 2 Slice A — PR #26 (`f853e36`). AI page UX polish — PR #27
-> (`d569fc5`). Docs trio + branding pass + MIT license switch shipped.
-> SOC Slice 1c shipped + manual gate verified. 2026-05-25 batch
-> shipped SOC Slice 1 + CME-v2 across PRs #17–#21. iOS device
-> install + Tier 2 doc sanitization + Tier 3 gitleaks audit all
-> shipped end-of-session. Repo unblocked for MIT-public flip.)
+> Last updated: 2026-05-28 (Wow-demo voice-first agentic investigation
+> shipped end-to-end as PR #32 = 43 commits on `feat/wow-demo`. Demo B
+> verified end-to-end against KK's AWS + GitHub + Slack + JIRA + KK iPhone
+> — real `KAN-N`, real PR on `kkmookhey/wow-demo-pricing-system`, real
+> Slack DMs from `shasta_slack`. Demo A backend ready; needs Task 19
+> data staging. Tasks 19 + 21 remain. Previous: 2026-05-27 ICICI
+> Lombard demo + 4 prod bug fixes (#29). 2026-05-26: Secrets extraction
+> Phase 2 Slice A (#26), AI page UX (#27), docs trio + branding + MIT
+> license. SOC Slice 1c + manual gate verified. 2026-05-25: SOC Slice 1
+> + CME-v2 (#17–#21). iOS device install + Tier 2 doc sanitization +
+> Tier 3 gitleaks audit. Repo public on MIT.)
 
 > **Configuration note.** Commands in this doc use `$VAR` references
 > for per-deployment identifiers (account ID, ARNs, domains). Source
@@ -24,6 +26,90 @@
 > `aws cloudformation describe-stacks --stack-name <Stack> --query
 > 'Stacks[0].Outputs'`. See `platform/.env.example` for the full key
 > list.
+
+## 🚀 Wow Demo — voice-first agentic investigation shipped (2026-05-28, PR #32)
+
+The 5-day wow-demo plan (`docs/superpowers/specs/2026-05-27-wow-demo-voice-investigation-design.md`)
+shipped on `feat/wow-demo` in a single ~24h push. **43 commits.** Both demos
+work end-to-end against real backends; recording artifacts are real, not
+staged.
+
+### What's live and verified end-to-end
+
+| Layer | Verification |
+|---|---|
+| `voice_session` Lambda | coral voice + Shasta persona (peer/expert, chill cadence, cloud-correct vocabulary, hardcoded KAN + Ratanshi); `interrupt_response: True`; OpenAI Realtime GA (`gpt-realtime`); `temperature` removed (GA dropped it). 6 wow-demo tools registered. |
+| `tools` Lambda (container, ECR `tools-lambda`) | `POST /v1/tools/{tool_name}` dispatcher with canonical `subject_from_claims` + arg-logging. Direct integrations: Slack Web API (email-or-name lookup), GitHub REST API, Microsoft Graph (msal), CloudWatch Logs Insights, EventBridge one-shot. mcp-atlassian for JIRA (the one MCP path that worked). |
+| `device_token_register` Lambda | new `POST /me/device-token` — closes the HANDOFF-flagged Slice 1 follow-up. iOS AppDelegate → NotificationCenter → RootView → API. |
+| `ai_supply_chain_matcher` Lambda + SQS queue | joins `findings.check_id='sca_vuln:*'` + `entities.kind='ai_framework'` matched by package name + `edges.kind='uses'` (the real graph; the plan's hypothetical `ai_agent` intermediate doesn't exist) + KEV. Emits `ai_supply_chain_active` at CRITICAL. Conn_id is looked up from the triggering scan row. |
+| `forensic_callback` Lambda | EventBridge one-shot → push with `finding_id` for iOS deep-link routing. Tenant resolved from caller's JWT at `run_forensic_scan` time. |
+| `ai_scanner` image with Trivy v0.70 | v0.55 was delisted from `get.trivy.dev` between plan and build — bumped to v0.70 + `dnf install tar gzip` (AL2023 doesn't ship them). Trivy emits 14 sca_vuln findings per scan on the demo repo; each with a distinct `check_id=sca_vuln:<CVE>` so findings don't dedupe-collapse. |
+| `shasta_runner_entra` | personal-tier push trigger live — will fire push on each new `ai_signin_personal_tier` finding once Task 19 stages signins. |
+| iOS app on KK iPhone 16 Pro Max | `IncidentRouter` + `BriefingView` + auto-mount `VoiceClient.start(seedDeveloperMessage:)`. APNs registered. `.videoChat` mode + `overrideOutputAudioPort(.speaker)` + route-change observer for speakerphone volume. Generic dispatchTool forwards unknown function names to `POST /v1/tools/{name}` so new server-side tools don't need iOS rebuilds. |
+| Web | `FloatingChrome` (refer-a-friend + report-a-bug) on every authed shell. Brand lockup links to transilience.ai. |
+
+### Demo B (AI Supply Chain) — fully shoot-ready
+
+- Repo: github.com/kkmookhey/wow-demo-pricing-system with `langchain==0.0.184` + `services/pricing/agent.py` (LLMChain runtime use)
+- `ai_supply_chain_active` finding (CRITICAL) in DB targeting langchain CVE-2026-45134
+- KEV row: `threat_indicators` has `CVE-2026-45134` (kind=cve, source=kev, confidence 95)
+- Smoke-tested live: real `KAN-5` + `KAN-7` JIRA tickets, real Slack DMs from `shasta_slack` bot to KK + Ratanshi + Venkat, real PR `#1` on the demo repo (closed). Forensic-scan staged result fires push at `~60s` ETA.
+- Shooting script lives in this session's chat log (search "Demo B — AI Supply Chain — shooting script").
+
+### Demo A (Shadow AI) — backend ready, data staging pending
+
+Task 19 needs Ratanshi (or any real Entra user KK controls) signing into chatgpt.com via "Sign in with Microsoft" 3x. Then a manual Entra scan triggers the push automatically via Task 15's `_fire_personal_tier_pushes`. The matcher / forensic-callback / tool dispatch all run the same as Demo B from there.
+
+### Production bugs caught + fixed during deploy (the load-bearing ones)
+
+- Trivy v0.55 delisted from get.trivy.dev → v0.70 + AL2023 `tar/gzip` prereq
+- Lambda runtime is read-only except `/tmp` → `npx -y` failed with EROFS on `/home/sbx_user*/.npm`. Switched to direct `mcp-server-{slack,github}` binaries + `HOME=/tmp` + `NPM_CONFIG_CACHE=/tmp/.npm`
+- voice_session zip-asset bundles flat → `from voice_session.system_prompt import …` broke at cold start. Bare `from system_prompt import …`
+- tools container `COPY . LAMBDA_TASK_ROOT/` flattened the `tools/` package → moved files under `LAMBDA_TASK_ROOT/tools/` with `CMD ["tools.main.handler"]`
+- OpenAI Realtime GA dropped `session.temperature` (returned 400 invalid_parameter) → removed
+- iOS sheet content doesn't inherit parent `@Environment` → BriefingView crashed on push tap. Spread `auth + api` into the sheet
+- mcp-atlassian wraps the new issue under `result["issue"]["key"]`, not at top level → handle both shapes
+- GitHub MCP `get_file_contents` returned malformed base64 (45 data chars — fundamentally invalid) for short manifests → bypassed MCP, direct REST. Same move worked for Slack (`@modelcontextprotocol/server-slack` doesn't expose `lookupByEmail`)
+- Slack MCP needed `SLACK_TEAM_ID` env var alongside the bot token
+- `entities.parent_id` doesn't exist — matcher SQL rewritten to use the real `github_repo --uses-> ai_framework` edge
+- `findings.kind` doesn't exist — column is `check_id`. Three matcher SQL fixes
+- `findings.conn_id` has FK to `cloud_connections` not `ai_connections` — matcher now looks up triggering scan's conn_id; `findings.scan_id` FK is to `scans`, not `ai_scans`
+- Trivy findings emitted with same `check_id="sca_vuln"` → unique-key collapsed 14 CVEs to 1 row. Encoded CVE into check_id (`sca_vuln:CVE-...`)
+- New `ai_supply_chain_active` findings with `resource_arn=null, frameworks={}` broke iOS Risks tab JSON decode → cleaned up shape (proper framework mapping + real resource_arn)
+- Voice: `interrupt_response: False` caused "active response in progress" 400s every time user interrupted Shasta → flipped to True
+- iPhone speakerphone too quiet → `.voiceChat` → `.videoChat` + explicit `overrideOutputAudioPort(.speaker)` on `RTCAudioSession` (not `AVAudioSession`) inside the WebRTC config lock + route-change observer
+- Model invented `ratanshi@transilience.io` and defaulted JIRA to `ITSEC` (from the spec's example) → KNOWN PEOPLE block in system prompt pins the real values
+- iOS APNs registration was a Slice 1 HANDOFF deferred follow-up — implemented end-to-end this session
+- run_forensic_scan stored `conversation_id` but OpenAI Realtime doesn't expose its session id to the tool layer → resolve `tenant_id` from caller's claims at `run_forensic_scan` time, pass it through to `forensic_callback`. Push payload now includes `finding_id` (falls back to conversation_id or scan_id) so iOS routes to BriefingView.
+
+### Aurora schema gotchas surfaced (worth folding into CLAUDE.md)
+
+- `findings` PK is `finding_id` (not `id`)
+- `findings.check_id` is the rule identifier — there is no `kind` column
+- `findings.status` enum: `fail` / `pass` / `partial` / `not_assessed` / `not_applicable` — no `open`
+- `findings.conn_id` NOT NULL, FK to `cloud_connections` (not `ai_connections`)
+- `findings.scan_id` FK to `scans` (not `ai_scans`). The unified scans table is what AI findings reference
+- `findings.frameworks` must be a JSON object (`{}`), not array — iOS decoder rejects arrays
+- `edges.source_entity_id` / `target_entity_id` (not `source_id`/`target_id`)
+- `entities` has no `parent_id` column — containment is expressed via `edges.kind='uses'/'imports'/etc.`
+- `threat_indicators.indicator_value` (not `value`)
+- AI graph emits `github_repo --uses-> ai_framework` directly. There is no `ai_agent` intermediate in the actual schema, despite what the plan assumed
+- For voice session: `temperature` removed from session config; OpenAI Realtime GA's `interrupt_response: True` is critical for usable interaction
+
+### What remains for the recording
+
+- **Task 19 (Demo A data staging)** — KK manual: stage Ratanshi as a personal-tier ChatGPT user in Entra. ~30-60 min including propagation.
+- **Task 21 (voice cadence iteration + record)** — Shoot Demo B now (script ready); shoot Demo A after Task 19; edit + post.
+
+### PR
+
+[#32](https://github.com/kkmookhey/ciso-copilot/pull/32) — 43 commits awaiting merge after recording verifies the demos look right.
+
+### Branch state
+
+`feat/wow-demo` is ahead of `main` by 43 commits. Two unrelated WIP files in `web/src/` from earlier branding sprint were folded into the funnel-chrome commit. Working tree clean.
+
+---
 
 ## 🚀 Phase 2 Tier 3 — gitleaks history audit clean (2026-05-27)
 
