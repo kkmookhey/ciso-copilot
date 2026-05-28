@@ -28,8 +28,9 @@ def test_render_substitutes_first_name():
 
 def test_render_handles_empty_clouds():
     p = render(first_name="KK", clouds=[])
-    # Should still render; empty clouds line is fine.
+    # Should still render with the empty-clouds fallback.
     assert "KK" in p
+    assert "none connected yet" in p
 
 
 def test_prompt_stays_under_4000_chars():

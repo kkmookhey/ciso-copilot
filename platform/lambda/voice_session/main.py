@@ -81,7 +81,7 @@ def handler(event: dict, context) -> dict:
             },
             "tools":       _tools(),
             "tool_choice": "auto",
-            "temperature": 0.7,
+            "temperature": 0.7,  # warm delivery; lower keeps it disciplined for the recording window
         },
     }
 
