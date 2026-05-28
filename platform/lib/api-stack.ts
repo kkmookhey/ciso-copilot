@@ -989,7 +989,9 @@ export class ApiStack extends cdk.Stack {
       runtime:    lambda.Runtime.PYTHON_3_12,
       handler:    'main.handler',
       code:       lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'tools')),
-      timeout:    cdk.Duration.seconds(30),
+      // 60s covers Task 11's tail_lambda_logs_for_pattern, which polls
+      // CloudWatch Logs Insights for up to 30s before returning.
+      timeout:    cdk.Duration.seconds(60),
       memorySize: 512,
       environment: {
         ...dbEnv,

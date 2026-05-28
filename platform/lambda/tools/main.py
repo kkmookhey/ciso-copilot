@@ -11,6 +11,12 @@ Routes POST /v1/tools/{tool_name} to one of:
 Each handler returns either a paired {speakable, identifier} result dict OR
 a non-2xx error. The voice_session Lambda calls these by HTTP from the
 Realtime tool-call dispatch on the iOS client side.
+
+Auth: any tool that needs to JOIN users.sso_subject MUST resolve the subject
+via subject_from_claims(claims) — NOT claims.get("sub") directly. For
+federated logins the Cognito-pool sub is not the upstream IdP sub, so a bare
+sub-based JOIN silently 401s every Microsoft/Google user. The canonical
+pattern lives here and is mirrored from voice_session._subject_from_claims.
 """
 from __future__ import annotations
 import json
@@ -20,6 +26,27 @@ from typing import Callable
 
 # Tools register themselves into _DISPATCH at module import time.
 _DISPATCH: dict[str, Callable[[dict, dict], dict]] = {}
+
+
+def subject_from_claims(claims: dict) -> str | None:
+    """Resolve the upstream-IdP subject for users.sso_subject JOINs.
+
+    For federated logins (Microsoft/Google), `claims.sub` is the Cognito-
+    user-pool sub — NOT the upstream IdP sub. `identities[0].userId` is the
+    upstream value. Returns None when neither is present (caller should
+    return 401).
+    """
+    raw = claims.get("identities")
+    if raw:
+        try:
+            ids = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(ids, dict):
+                ids = [ids]
+            if ids:
+                return ids[0].get("userId") or claims.get("sub")
+        except (TypeError, ValueError):
+            pass
+    return claims.get("sub")
 
 
 def register(name: str):
@@ -53,7 +80,8 @@ def handler(event: dict, context) -> dict:
         return _resp(400, {"error": "invalid_json"})
 
     claims = (event.get("requestContext") or {}).get("authorizer", {}).get("claims") or {}
-    if not claims.get("sub"):
+    # Use the canonical subject extraction so federated users aren't 401'd.
+    if not subject_from_claims(claims):
         return _resp(401, {"error": "no_auth"})
 
     try:
