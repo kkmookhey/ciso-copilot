@@ -78,7 +78,7 @@ admin enables once per tenant.
 - Per-user OAuth + token storage for all four (read+write where
   vendor MCP supports it; read-only for M365)
 - Admin-installed Slack workspace bot for autonomous broadcasts
-- Shared `mcp_client` Python package for Lambda
+- Shared `mcp_oauth` Python package for Lambda
 - `/v1/connectors/*` Lambda for OAuth orchestration
 - `/settings/connectors` web page (one-time setup UX, role-gated admin block)
 - Tools dispatcher extension for the namespaced `kind__tool` routing
@@ -120,7 +120,7 @@ Five components. First three are net-new; last two extend wow-demo code.
                                  │                  │ + tenant_bot_connectors  │
                                  ▼                  └──────────────────────────┘
                   ┌─────────────────────────────┐         ▲
-                  │   mcp_client (Python pkg)   │─────────┘ lookup by
+                  │   mcp_oauth (Python pkg)   │─────────┘ lookup by
                   │   • get_session(subject,    │           subject_from_claims
                   │     tool_kind) -> Session   │
                   │   • Streamable HTTP +       │
@@ -146,14 +146,14 @@ Five components. First three are net-new; last two extend wow-demo code.
 2. **Aurora schema additions** — `user_connectors` (per analyst, per
    tool) + `tenant_bot_connectors` (admin-installed workspace bot, just
    Slack for v1).
-3. **`mcp_client` shared Python package** — thin wrapper over `pip install mcp`
+3. **`mcp_oauth` shared Python package** — thin wrapper over `pip install mcp`
    + per-vendor OAuth refresh. Gives the tools layer one call:
    `get_session(subject_from_claims, "slack") -> MCPClientSession`.
-   Lives in `platform/lambda/_shared/mcp_client/`, bundled into multiple
+   Lives in `platform/lambda/_shared/mcp_oauth/`, bundled into multiple
    Lambda images.
 4. **`tools/` Lambda (extends wow-demo's tools dispatcher)** — drops the
    shared `SLACK_BOT_TOKEN`/`JIRA_URL`/etc. env vars. Each tool call
-   resolves via `mcp_client.get_session()`. Same dispatcher contract for
+   resolves via `mcp_oauth.get_session()`. Same dispatcher contract for
    voice + web buttons.
 5. **`findings_subscriber` Lambda (new)** — SQS-fed from `findings_writer`
    whenever a CRITICAL finding lands. Looks up the tenant's admin Slack
@@ -223,12 +223,31 @@ CREATE TABLE tenant_bot_connectors (
 
 ### Token encryption
 
-KMS-derived column-level encryption using `pgcrypto`'s `pgp_sym_encrypt`.
-One KMS CMK per environment (`alias/cisocopilot-connector-tokens`).
-Lambda calls `kms:GenerateDataKey` once per cold start, caches the
-plaintext data key in module-level memory, uses it to encrypt/decrypt
-token bytes. Cheaper than Secrets-Manager-per-row at scale; reads stay
-sub-millisecond.
+KMS-derived column-level encryption using authenticated symmetric
+encryption (Fernet over a KMS-derived 256-bit data key — same security
+posture as `pgp_sym_encrypt` but doesn't require pg-side key handling).
+One KMS CMK per environment (`alias/cisocopilot-connector-tokens`),
+**owned by `CisoCopilotData` stack** (`platform/lib/data-stack.ts`),
+granted encrypt/decrypt to the connectors Lambda and decrypt-only to
+the tools and voice_session Lambdas. Lambda calls `kms:GenerateDataKey`
+once per cold start, caches the plaintext data key in module-level
+memory (safe because the CMK is per-environment, not per-tenant),
+uses it to encrypt/decrypt token bytes. Cheaper than
+Secrets-Manager-per-row at scale; reads stay sub-millisecond.
+
+### CDK stack ownership
+
+- **`CisoCopilotData` stack** owns: KMS CMK
+  (`alias/cisocopilot-connector-tokens`), DynamoDB
+  `cisocopilot-pkce-verifiers` table (TTL attribute `ttl`).
+- **`CisoCopilotApi` stack** owns: the new `connectors` Lambda
+  function, the `/v1/connectors/*` API Gateway routes (Cognito-authed
+  except `GET /callback/{kind}` which is open — the state JWT +
+  CSRF cookie are the gate), env-var wiring for SSM-backed
+  vendor client IDs/secrets and the state-JWT signing key.
+- Vendor OAuth app credentials (e.g.,
+  `/cisocopilot/connectors/slack/{client-id,client-secret}`) live in
+  SSM SecureString and are put out-of-band per environment.
 
 ### Subject resolution
 
@@ -287,6 +306,27 @@ Browser                /v1/connectors           Vendor AS (Slack/Atlassian/Googl
    │   connectors?ok=slack    │                            │
 ```
 
+### CSRF binding (defense against forged callbacks)
+
+The state JWT carries `tenant_id + user_id` but those values come from
+whichever session initiated the OAuth flow. Without a binding to the
+victim's browser session, an attacker can mint a valid state JWT from
+their *own* `/connect/slack` call, then trick a logged-in admin into
+visiting `/v1/connectors/callback/slack?code=ATTACKER_CODE&state=ATTACKER_STATE`
+— the callback would happily bind the attacker's Slack account to the
+victim's tenant.
+
+**Required mitigation.** At `/v1/connectors/connect/{kind}` time, the
+Lambda generates a 32-byte random `csrf_token`, sets it as an
+`HttpOnly; Secure; SameSite=Lax; Path=/v1/connectors` cookie on the
+initiate response, and includes `sha256(csrf_token)` in the state JWT
+as a new claim `csrf_token_hash`. At callback time, the Lambda reads
+the cookie from the request, recomputes its sha256, and verifies it
+matches `state.csrf_token_hash`. Mismatch → reject. Cookie cleared on
+successful callback.
+
+This is the same pattern Cognito uses for its OAuth callback.
+
 ### State parameter
 
 Signed JWT, `HS256` with a per-environment secret in SSM
@@ -294,7 +334,9 @@ Signed JWT, `HS256` with a per-environment secret in SSM
 
 ```json
 { "tenant_id": "...", "user_id": "...", "provider": "slack",
-  "pkce_verifier_hash": "sha256(...)", "nonce": "...", "exp": ... }
+  "pkce_verifier_hash": "sha256(...)",
+  "csrf_token_hash": "sha256(...)",
+  "nonce": "...", "exp": ... }
 ```
 
 The PKCE *verifier* itself lives in DynamoDB (table:
@@ -324,11 +366,34 @@ populates `tenant_bot_connectors.broadcast_channel_id`.
 
 ### Refresh strategy
 
-**Just-in-time, not background**. `mcp_client.get_session()` checks
-`access_expires_at - now() < 60s` and refreshes inline before opening
-the MCP session. Simpler than a background EventBridge cron, no race
-on revoked-during-refresh. Cost: ~50-100ms added to the first call
-after expiry.
+**Just-in-time, not background**. `mcp_oauth.get_session()` checks
+`access_expires_at IS NULL OR access_expires_at - now() < interval '60 seconds'`
+and refreshes inline before opening the MCP session. The NULL branch
+handles legacy Slack workspace installs that didn't return an expiry —
+we treat NULL as "always refresh on use" rather than crash. Simpler
+than a background EventBridge cron, no race on revoked-during-refresh.
+Cost: ~50-100ms added to the first call after expiry.
+
+**Slack-specific requirements**: the Shasta Slack App must have
+`token_rotation_enabled=true` in its manifest. With rotation on,
+Slack issues short-lived (12h) access tokens AND **single-use rotating
+refresh tokens** — the same hard requirement Atlassian has. Without
+rotation, neither expiry nor refresh tokens come back, and the
+just-in-time path degrades to "never refresh, eventually break."
+Documented in `docs/connectors/slack-app-setup.md` for self-hosted
+operators.
+
+**Concurrent-refresh race mitigation**: two Lambda invocations for the
+same user can both detect "expires in <60s" and both call the vendor's
+refresh endpoint. For single-use rotating refresh tokens (Slack,
+Atlassian), the loser's new token is invalidated server-side, causing
+the next API call to 401. **Required mitigation**: wrap the
+refresh + UPDATE in a Postgres advisory lock keyed by
+`hashtext(conn_id::text)` so only one invocation refreshes at a time;
+the other waits, re-reads the freshly-rotated row, and proceeds. This
+must be implemented inside `mcp_oauth.session.refresh_if_near_expiry`,
+not left to an "open question." (Earlier draft tracked this in §12
+risks; promoted here because it's load-bearing.)
 
 ### Revoke
 
@@ -351,10 +416,30 @@ session start; we don't hardcode). **Voice agent's tool registry is
 session-scoped** — built fresh on each session bootstrap from the
 analyst's currently-connected vendors.
 
+**Sync/async contract.** Lambda handlers in this codebase are sync
+(see `tools/main.py`, `voice_session/main.py`). The MCP SDK is asyncio.
+The `mcp_oauth` package therefore exposes BOTH:
+
+- **Sync helpers** (`lookup_user_connector`, `refresh_if_near_expiry`,
+  `_resolve_user_id`, `encrypt_token`, `decrypt_token`) — called
+  directly from sync handlers. These wrap the Aurora Data API
+  (sync via boto3) and KMS calls.
+- **Async context managers** (`get_session`, `get_admin_session`) and
+  the `discover_tools(...)` coroutine — these wrap MCP SDK calls. Sync
+  call sites bridge to async via `asyncio.run(_call_mcp(...))` per
+  invocation. This matches the existing wow-demo `_shared/mcp_client.py`
+  pattern (`_invoke_mcp_tool` → `asyncio.run(_async_invoke(...))`),
+  which is safe in Lambda because each invocation is single-threaded.
+
+The dispatcher in `tools/main.py` handles the bridge once, in the
+`kind__tool` branch; downstream tool handlers stay sync. The
+`voice_session` bootstrap runs `discover_tools` via a single
+`asyncio.run()` at session-config build time.
+
 ### Shared package API
 
 ```python
-# platform/lambda/_shared/mcp_client/__init__.py
+# platform/lambda/_shared/mcp_oauth/__init__.py
 from contextlib import asynccontextmanager
 from typing import Literal
 
@@ -386,7 +471,7 @@ async def discover_tools(subject: str, *, tenant_id: str) -> dict[ProviderKind, 
 subject  = _subject_from_claims(jwt)
 tenant   = _resolve_tenant_id(jwt)
 
-connected = await mcp_client.discover_tools(subject, tenant_id=tenant)
+connected = await mcp_oauth.discover_tools(subject, tenant_id=tenant)
 # {"slack": [Tool(name="send_message", …)], "atlassian": [Tool(name="create_issue", …)]}
 
 openai_tools = []
@@ -408,7 +493,7 @@ Dispatcher decodes the namespace prefix:
 # tools/main.py — added branch
 kind, tool_name = name.split("__", 1) if "__" in name else (None, name)
 if kind in PROVIDER_KINDS:
-    async with mcp_client.get_session(subject, kind, tenant_id=tenant) as s:
+    async with mcp_oauth.get_session(subject, kind, tenant_id=tenant) as s:
         return await s.call_tool(tool_name, args)
 # else: existing Shasta-native tool handler (run_forensic_scan, etc.)
 ```
@@ -442,7 +527,7 @@ const slackConnected = connectors.some(
 ```
 
 Server-side path is identical to voice — same `tools/` Lambda, same
-dispatcher, same `mcp_client.get_session()`.
+dispatcher, same `mcp_oauth.get_session()`.
 
 ### Call site 3 — autonomous rule (`findings_subscriber`)
 
@@ -451,8 +536,11 @@ dispatcher, same `mcp_client.get_session()`.
 async def handle(event):
     for record in event["Records"]:
         body = json.loads(record["body"])
-        # 1. Idempotency check
-        if seen_finding(body["finding_id"]):
+        # 1. Idempotency check — keyed on (finding_id, scan_id) so a
+        #    finding that flips fail → pass → fail across scans
+        #    re-broadcasts on the second fail (status mutation is legal
+        #    per the findings.status enum).
+        if seen_finding(body["finding_id"], body["scan_id"]):
             continue
         # 2. Global kill switch
         if not _global_enabled():  # SSM, cached 60s
@@ -464,7 +552,7 @@ async def handle(event):
         # 4. Re-read finding (subscriber may lag writer)
         finding = load_finding(body["finding_id"])
         # 5. Send
-        async with mcp_client.get_admin_session(body["tenant_id"], "slack") as s:
+        async with mcp_oauth.get_admin_session(body["tenant_id"], "slack") as s:
             await s.call_tool("slack_send_message", {
                 "channel": bot.broadcast_channel_id,
                 "blocks": format_finding_card(finding),
@@ -561,14 +649,15 @@ findings_writer Lambda ──INSERT findings row──▶ Aurora
         │ if row.severity == 'critical' AND row.status == 'fail':
         ▼
    SQS standard queue (autonomous_broadcast_queue)
-        │  message body: { finding_id, tenant_id }
+        │  message body: { finding_id, scan_id, tenant_id }
         ▼
 findings_subscriber Lambda
-   ├─ idempotency check (DynamoDB connector_broadcast_seen, 7d TTL)
+   ├─ idempotency check (DynamoDB connector_broadcast_seen, 7d TTL,
+   │   key = sha256(tenant_id||finding_id||scan_id) — see note below)
    ├─ kill-switch checks (SSM global, then per-tenant toggle)
    ├─ load tenant_bot_connectors row
    ├─ re-read finding from Aurora
-   └─ mcp_client.get_admin_session(tenant_id, 'slack')
+   └─ mcp_oauth.get_admin_session(tenant_id, 'slack')
        → call_tool('slack_send_message', { channel, blocks })
 ```
 
@@ -650,7 +739,7 @@ slice 2). No horizontal phases.
 
 - DB: `user_connectors`, `tenant_bot_connectors` (with
   `autonomous_rule_enabled`) tables + KMS key + `pgcrypto` helpers
-- Shared package: `platform/lambda/_shared/mcp_client/` — base
+- Shared package: `platform/lambda/_shared/mcp_oauth/` — base
   `get_session()`, `providers/slack.py`, DynamoDB PKCE-verifier store
 - Lambda: `/v1/connectors/*` Lambda — `initiate/callback/revoke/list`
   with Slack OAuth flow
@@ -732,7 +821,7 @@ load-bearing pair; slices 3-5 should accelerate.
 
 ### Unit tests
 
-- `mcp_client` package: PKCE generation, state JWT signing/verification,
+- `mcp_oauth` package: PKCE generation, state JWT signing/verification,
   token encryption round-trip, refresh logic boundary conditions.
 - `findings_subscriber`: idempotency dedup, kill-switch precedence,
   throttling counter.
@@ -799,14 +888,10 @@ load-bearing pair; slices 3-5 should accelerate.
   could break early implementations. Mitigation: pin to `mcp` SDK
   version that matches the spec rev each vendor's server implements
   (currently `2025-11-25`); plan to revisit in 6 months.
-- **Concurrent token refresh race**: two Lambda invocations for the
-  same user could both detect "expires in <60s" and both call the
-  vendor's refresh endpoint. For rotating refresh tokens (Slack,
-  Atlassian) this can invalidate the loser's new token, causing the
-  next call to 401. Mitigation: wrap the refresh + UPDATE in a Postgres
-  advisory lock keyed by `hashtext(conn_id::text)` so only one
-  invocation refreshes at a time; the other waits and re-reads the
-  fresh access token. Add to `mcp_client.get_session()`.
+- (The concurrent-refresh race that earlier lived here is now a
+  load-bearing requirement in §6 "Refresh strategy" — kept out of the
+  risks list because the spec mandates the mitigation rather than
+  leaving it to discretion.)
 
 ## 13. Cross-references
 
