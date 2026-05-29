@@ -80,3 +80,34 @@ class TestSubjectFromClaims:
             "identities": '[{"userId": "upstream-id", "providerName": "Google"}]',
         }
         assert subject_from_claims(claims) == "upstream-id"
+
+
+def test_namespaced_mcp_tool_dispatched_via_mcp_oauth(monkeypatch):
+    import contextlib
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+
+    ev = {
+        "pathParameters": {"tool_name": "slack__send_message"},
+        "body": json.dumps({"channel": "C0X", "text": "hi"}),
+        "requestContext": {"authorizer": {"claims": {
+            "sub": "subject-1", "custom:tenant_id": "t-uuid"
+        }}},
+    }
+
+    fake_session = AsyncMock()
+    fake_session.call_tool.return_value = MagicMock(
+        content=[MagicMock(text=json.dumps({"ok": True, "ts": "1.0"}))]
+    )
+
+    @contextlib.asynccontextmanager
+    async def fake_get_session(*a, **kw):
+        yield fake_session
+
+    monkeypatch.setattr("mcp_oauth.get_session", fake_get_session)
+
+    from tools.main import handler
+    resp = handler(ev, None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["ok"] is True

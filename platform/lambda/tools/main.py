@@ -19,6 +19,7 @@ sub-based JOIN silently 401s every Microsoft/Google user. The canonical
 pattern lives here and is mirrored from voice_session._subject_from_claims.
 """
 from __future__ import annotations
+import asyncio
 import json
 import traceback
 from typing import Callable
@@ -26,6 +27,42 @@ from typing import Callable
 
 # Tools register themselves into _DISPATCH at module import time.
 _DISPATCH: dict[str, Callable[[dict, dict], dict]] = {}
+
+
+# MCP-namespaced tool dispatch. Names look like `{kind}__{tool_name}`
+# (e.g. `slack__send_message`). Routed through mcp_oauth.get_session with
+# the caller's per-user token rather than the local _DISPATCH registry.
+_MCP_PROVIDER_KINDS = {"slack", "atlassian", "google", "microsoft"}
+
+
+def _is_namespaced_mcp(name: str) -> tuple[str | None, str | None]:
+    if "__" not in name:
+        return None, None
+    kind, _, rest = name.partition("__")
+    if kind not in _MCP_PROVIDER_KINDS:
+        return None, None
+    return kind, rest
+
+
+async def _call_mcp_tool(*, kind: str, tool_name: str, args: dict,
+                          subject: str, tenant_id: str) -> dict:
+    from mcp_oauth import get_session
+    async with get_session(subject, kind, tenant_id=tenant_id) as session:
+        result = await session.call_tool(tool_name, args)
+    return _extract_mcp_result(result)
+
+
+def _extract_mcp_result(result) -> dict:
+    if not getattr(result, "content", None):
+        return {}
+    first = result.content[0]
+    text = getattr(first, "text", None)
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
 
 
 def subject_from_claims(claims: dict) -> str | None:
@@ -68,7 +105,8 @@ from tools import run_forensic_scan   # noqa: F401,E402
 
 def handler(event: dict, context) -> dict:
     tool_name = (event.get("pathParameters") or {}).get("tool_name")
-    if tool_name not in _DISPATCH:
+    kind, mcp_tool = _is_namespaced_mcp(tool_name or "")
+    if not kind and tool_name not in _DISPATCH:
         return _resp(404, {"error": "unknown_tool", "tool": tool_name})
 
     body_raw = event.get("body")
@@ -90,6 +128,36 @@ def handler(event: dict, context) -> dict:
                                     or "password" in k.lower() else v)
                  for k, v in (args or {}).items()}
     print(f"[tools] dispatch {tool_name} args={json.dumps(safe_args)[:500]}")
+
+    # MCP-namespaced tool? Route via mcp_oauth.
+    if kind:
+        tenant_id = claims.get("custom:tenant_id")
+        if not tenant_id:
+            return _resp(400, {"error": "missing_tenant_id"})
+        subject = subject_from_claims(claims)
+        try:
+            result = asyncio.run(_call_mcp_tool(
+                kind=kind, tool_name=mcp_tool, args=args,
+                subject=subject, tenant_id=tenant_id,
+            ))
+            return _resp(200, result)
+        except Exception as e:
+            from mcp_oauth.session import ConnectorMissingError, ConnectorRevokedError
+            if isinstance(e, ConnectorMissingError):
+                return _resp(409, {
+                    "error":   "connector_missing",
+                    "kind":    kind,
+                    "message": f"Connect your {kind.title()} in Settings to use this.",
+                })
+            if isinstance(e, ConnectorRevokedError):
+                return _resp(409, {
+                    "error":   "connector_revoked",
+                    "kind":    kind,
+                    "message": f"Your {kind.title()} connection expired — reconnect in Settings.",
+                })
+            print(f"[tools] mcp call {tool_name} failed: {type(e).__name__}: {e}")
+            return _resp(502, {"error": "mcp_failed", "detail": str(e)[:200]})
+
     try:
         result = _DISPATCH[tool_name](args, claims)
         return _resp(200, result)
