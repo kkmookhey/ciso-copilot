@@ -21,6 +21,7 @@ import { ChatShell } from "./chat/Shell";
 import { ContactDeepScan } from "./routes/ContactDeepScan";
 import Scan from "./routes/Scan";
 import Soc from "./routes/Soc";
+import { Settings } from "./routes/Settings/Settings";
 
 export default function App() {
   return (
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/ai/connections/:id/repos" element={<RepoPicker />} />
           <Route path="/ai/inventory"             element={<AIInventory />} />
           <Route path="/ai/inventory/:asset_id"   element={<AssetDetail />} />
+          <Route path="/settings"   element={<Settings />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
