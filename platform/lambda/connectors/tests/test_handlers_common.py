@@ -22,8 +22,11 @@ def test_revoke_marks_row_revoked(monkeypatch):
                     return None
             return R()
     from connectors import handlers_common as h
+    from connectors import handlers_slack as hs
     monkeypatch.setattr(h, "_db", lambda: FakeDB())
     monkeypatch.setattr(h, "decrypt_token", lambda b: "xoxp-A")
+    monkeypatch.setattr(hs, "_resolve_user_context",
+                        lambda claims: ("t-uuid", "u-uuid"))
     monkeypatch.setattr(h.requests, "post", lambda *a, **kw: type("R", (), {
         "json": staticmethod(lambda: {"ok": True}),
         "raise_for_status": staticmethod(lambda: None),
@@ -33,13 +36,10 @@ def test_revoke_marks_row_revoked(monkeypatch):
     ev = {
         "httpMethod": "DELETE",
         "rawPath": "/connectors/00000000-0000-0000-0000-000000000001",
-        "requestContext": {"authorizer": {"claims": {
-            "sub": "subject-1", "custom:tenant_id": "t-uuid"
-        }}},
+        "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
     }
     resp = m.handler(ev, None)
     assert resp["statusCode"] == 200
-    # First the SELECT, then the UPDATE
     assert any("UPDATE user_connectors" in s for s, _ in calls)
 
 
@@ -66,15 +66,16 @@ def test_list_me_returns_active_connectors(monkeypatch):
             }
             return R()
     from connectors import handlers_common as h
+    from connectors import handlers_slack as hs
     monkeypatch.setattr(h, "_db", lambda: FakeDB())
+    monkeypatch.setattr(hs, "_resolve_user_context",
+                        lambda claims: ("t-uuid", "u-1"))
 
     from connectors import main as m
     ev = {
         "httpMethod": "GET",
         "rawPath": "/connectors/me",
-        "requestContext": {"authorizer": {"claims": {
-            "sub": "subject-1", "custom:tenant_id": "t-uuid"
-        }}},
+        "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
     }
     resp = m.handler(ev, None)
     assert resp["statusCode"] == 200

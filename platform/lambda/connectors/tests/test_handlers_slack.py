@@ -12,14 +12,13 @@ def test_initiate_returns_authorize_url_and_sets_csrf_cookie(monkeypatch):
     monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
 
     with patch("connectors.handlers_slack.pkce.store_verifier") as store, \
-         patch("connectors.handlers_slack._resolve_user_id", return_value="u-uuid"):
+         patch("connectors.handlers_slack._resolve_user_context",
+               return_value=("t-uuid", "u-uuid")):
         from connectors import main as m
         ev = {
             "httpMethod": "POST",
             "rawPath": "/connectors/connect/slack",
-            "requestContext": {"authorizer": {"claims": {
-                "sub": "subject-1", "custom:tenant_id": "t-uuid"
-            }}},
+            "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
         }
         resp = m.handler(ev, None)
     assert resp["statusCode"] == 200

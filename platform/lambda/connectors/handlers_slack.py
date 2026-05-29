@@ -11,18 +11,24 @@ from mcp_oauth.providers import slack as slack_provider
 from mcp_oauth.session import _db
 
 
-def _resolve_user_id(subject: str, tenant_id: str) -> str:
-    from mcp_oauth.session import _db
+def _resolve_user_context(claims: dict) -> tuple[str | None, str | None]:
+    """Returns (tenant_id, user_id) by JOINing users on sso_subject.
+
+    Canonical pattern from voice_session.main._resolve_user_context — the
+    Cognito JWT in this codebase does NOT carry a `custom:tenant_id`
+    claim. Tenant + user are derived from the upstream IdP subject.
+    """
+    subject = subject_from_claims(claims)
+    if not subject:
+        return None, None
     row = _db().execute("""
-        SELECT user_id FROM users
-        WHERE tenant_id = :tid AND sso_subject = :sub
-    """, [
-        {"name": "tid", "value": {"stringValue": tenant_id}},
-        {"name": "sub", "value": {"stringValue": subject}},
-    ]).fetchone()
+        SELECT tenant_id, user_id FROM users
+        WHERE sso_subject = :sub
+        LIMIT 1
+    """, [{"name": "sub", "value": {"stringValue": subject}}]).fetchone()
     if not row:
-        raise RuntimeError(f"no users row for subject={subject}")
-    return str(row["user_id"])
+        return None, None
+    return str(row["tenant_id"]), str(row["user_id"])
 
 
 @_route("POST", r"^/connectors/connect/slack$")
@@ -38,11 +44,9 @@ def initiate_slack(event, claims, _params):
     """
     import hashlib
     import secrets
-    subject = subject_from_claims(claims)
-    tenant_id = claims.get("custom:tenant_id")
-    if not tenant_id:
-        return _resp(400, {"error": "missing_tenant_id"})
-    user_id = _resolve_user_id(subject, tenant_id)
+    tenant_id, user_id = _resolve_user_context(claims)
+    if not tenant_id or not user_id:
+        return _resp(401, {"error": "no_tenant_or_user"})
 
     client_id = os.environ["SLACK_CLIENT_ID"]
     redirect_uri = f"{os.environ['CONNECTORS_REDIRECT_BASE']}/callback/slack"

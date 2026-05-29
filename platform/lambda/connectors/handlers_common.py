@@ -15,9 +15,10 @@ _REVOKE_URLS = {
 
 @_route("DELETE", r"^/connectors/(?P<conn_id>[0-9a-f-]{36})$")
 def revoke_connection(event, claims, params):
-    tenant_id = claims.get("custom:tenant_id")
+    from connectors.handlers_slack import _resolve_user_context
+    tenant_id, _user_id = _resolve_user_context(claims)
     if not tenant_id:
-        return _resp(400, {"error": "missing_tenant_id"})
+        return _resp(401, {"error": "no_tenant_or_user"})
     conn_id = params["conn_id"]
 
     db = _db()
@@ -54,22 +55,12 @@ def revoke_connection(event, claims, params):
 
 @_route("GET", r"^/connectors/me$")
 def list_me(event, claims, _params):
-    tenant_id = claims.get("custom:tenant_id")
-    subject = subject_from_claims(claims)
-    if not tenant_id:
-        return _resp(400, {"error": "missing_tenant_id"})
-
-    db = _db()
-    u = db.execute("""
-        SELECT user_id FROM users
-        WHERE tenant_id = :tid AND sso_subject = :sub
-    """, [
-        {"name": "tid", "value": {"stringValue": tenant_id}},
-        {"name": "sub", "value": {"stringValue": subject}},
-    ]).fetchone()
-    if not u:
+    from connectors.handlers_slack import _resolve_user_context
+    tenant_id, user_id = _resolve_user_context(claims)
+    if not tenant_id or not user_id:
         return _resp(200, {"connectors": []})
 
+    db = _db()
     rows = db.execute("""
         SELECT conn_id, oauth_provider, vendor_user_id, vendor_workspace_id,
                status, created_at, scopes
@@ -79,7 +70,7 @@ def list_me(event, claims, _params):
         ORDER BY created_at DESC
     """, [
         {"name": "tid", "value": {"stringValue": tenant_id}},
-        {"name": "uid", "value": {"stringValue": str(u["user_id"])}},
+        {"name": "uid", "value": {"stringValue": user_id}},
     ])
 
     raw = rows._resp.get("records") or []
