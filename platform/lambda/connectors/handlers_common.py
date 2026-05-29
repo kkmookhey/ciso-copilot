@@ -13,7 +13,7 @@ _REVOKE_URLS = {
 }
 
 
-@_route("DELETE", r"^/v1/connectors/(?P<conn_id>[0-9a-f-]{36})$")
+@_route("DELETE", r"^/connectors/(?P<conn_id>[0-9a-f-]{36})$")
 def revoke_connection(event, claims, params):
     tenant_id = claims.get("custom:tenant_id")
     if not tenant_id:
@@ -52,7 +52,7 @@ def revoke_connection(event, claims, params):
     return _resp(200, {"revoked": True, "conn_id": conn_id})
 
 
-@_route("GET", r"^/v1/connectors/me$")
+@_route("GET", r"^/connectors/me$")
 def list_me(event, claims, _params):
     tenant_id = claims.get("custom:tenant_id")
     subject = subject_from_claims(claims)

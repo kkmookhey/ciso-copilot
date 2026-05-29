@@ -25,7 +25,7 @@ def _resolve_user_id(subject: str, tenant_id: str) -> str:
     return str(row["user_id"])
 
 
-@_route("POST", r"^/v1/connectors/connect/slack$")
+@_route("POST", r"^/connectors/connect/slack$")
 def initiate_slack(event, claims, _params):
     """Initiate Slack OAuth.
 
@@ -87,7 +87,7 @@ def _read_cookie(event: dict, name: str) -> str | None:
     return None
 
 
-@_route("GET", r"^/v1/connectors/callback/slack$")
+@_route("GET", r"^/connectors/callback/slack$")
 def callback_slack(event, claims, _params):
     import hashlib as _hashlib, base64 as _b64
     qs = event.get("queryStringParameters") or {}

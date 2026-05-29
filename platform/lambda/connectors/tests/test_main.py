@@ -15,14 +15,14 @@ def _ev(*, method, path, claims=None, body=None, query=None):
 def test_unknown_route_returns_404():
     from connectors.main import handler
 
-    resp = handler(_ev(method="GET", path="/v1/connectors/something-bad"), None)
+    resp = handler(_ev(method="GET", path="/connectors/something-bad"), None)
     assert resp["statusCode"] == 404
 
 
 def test_no_auth_returns_401():
     from connectors.main import handler
 
-    ev = _ev(method="GET", path="/v1/connectors/me")
+    ev = _ev(method="GET", path="/connectors/me")
     ev["requestContext"]["authorizer"]["claims"] = {}
     resp = handler(ev, None)
     assert resp["statusCode"] == 401

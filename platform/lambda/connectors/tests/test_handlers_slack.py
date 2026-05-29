@@ -16,7 +16,7 @@ def test_initiate_returns_authorize_url_and_sets_csrf_cookie(monkeypatch):
         from connectors import main as m
         ev = {
             "httpMethod": "POST",
-            "rawPath": "/v1/connectors/connect/slack",
+            "rawPath": "/connectors/connect/slack",
             "requestContext": {"authorizer": {"claims": {
                 "sub": "subject-1", "custom:tenant_id": "t-uuid"
             }}},
@@ -96,7 +96,7 @@ def test_callback_inserts_user_connector(monkeypatch):
     from connectors import main as m
     ev = {
         "httpMethod": "GET",
-        "rawPath": "/v1/connectors/callback/slack",
+        "rawPath": "/connectors/callback/slack",
         "queryStringParameters": {"code": "ac-1", "state": state_tok},
         "headers": {"cookie": f"shasta_oauth_csrf={csrf_token}"},
         "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
@@ -122,7 +122,7 @@ def test_callback_rejects_missing_csrf_cookie(monkeypatch):
     from connectors import main as m
     ev = {
         "httpMethod": "GET",
-        "rawPath": "/v1/connectors/callback/slack",
+        "rawPath": "/connectors/callback/slack",
         "queryStringParameters": {"code": "ac-1", "state": state_tok},
         "headers": {},  # NO cookie
         "requestContext": {"authorizer": {"claims": {"sub": "s"}}},

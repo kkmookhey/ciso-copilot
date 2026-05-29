@@ -32,7 +32,7 @@ def test_revoke_marks_row_revoked(monkeypatch):
     from connectors import main as m
     ev = {
         "httpMethod": "DELETE",
-        "rawPath": "/v1/connectors/00000000-0000-0000-0000-000000000001",
+        "rawPath": "/connectors/00000000-0000-0000-0000-000000000001",
         "requestContext": {"authorizer": {"claims": {
             "sub": "subject-1", "custom:tenant_id": "t-uuid"
         }}},
@@ -71,7 +71,7 @@ def test_list_me_returns_active_connectors(monkeypatch):
     from connectors import main as m
     ev = {
         "httpMethod": "GET",
-        "rawPath": "/v1/connectors/me",
+        "rawPath": "/connectors/me",
         "requestContext": {"authorizer": {"claims": {
             "sub": "subject-1", "custom:tenant_id": "t-uuid"
         }}},
