@@ -153,7 +153,13 @@ def callback_slack(event, claims, _params):
     expires_at = now + dt.timedelta(seconds=int(tokens["expires_in"]))
 
     db = _db()
-    # Upsert: if a revoked/error row exists, overwrite it.
+    # Aurora Data API does NOT accept arrayValue input parameters
+    # ("Array parameters are not supported" — turns out the plan
+    # review's H-8 was wrong about the workaround). The standard
+    # pattern is to bind a PG array literal as a string and cast
+    # in the SQL with :scopes::text[]. Slack scopes don't contain
+    # commas, braces, or quotes so a naive {a,b,c} literal is safe.
+    scopes_literal = "{" + ",".join(tokens["scopes"]) + "}"
     db.execute("""
         INSERT INTO user_connectors (
             tenant_id, user_id, oauth_provider, mcp_server_url,
@@ -163,8 +169,8 @@ def callback_slack(event, claims, _params):
         ) VALUES (
             :tid, :uid, :provider, :mcp,
             :vu, :vw,
-            :a, :r, :e,
-            :scopes, 'active'
+            :a, :r, CAST(:e AS TIMESTAMPTZ),
+            :scopes::text[], 'active'
         )
         ON CONFLICT (tenant_id, user_id, oauth_provider) DO UPDATE SET
             access_token_enc = EXCLUDED.access_token_enc,
@@ -184,11 +190,7 @@ def callback_slack(event, claims, _params):
         {"name": "a", "value": {"blobValue": access_enc}},
         {"name": "r", "value": {"blobValue": refresh_enc}},
         {"name": "e", "value": {"stringValue": expires_at.isoformat()}},
-        # Aurora Data API: TEXT[] columns require arrayValue payloads,
-        # not stringValue with PG array-literal syntax. Latter fails with
-        # "expression of type text vs column of type text[]".
-        {"name": "scopes",
-         "value": {"arrayValue": {"stringValues": list(tokens["scopes"])}}},
+        {"name": "scopes", "value": {"stringValue": scopes_literal}},
     ])
 
     web_base = os.environ["WEB_BASE_URL"]
