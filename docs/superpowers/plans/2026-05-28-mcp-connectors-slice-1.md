@@ -441,54 +441,58 @@ the only public surface used by writers/readers."
 ```python
 # platform/lambda/_shared/tests/test_mcp_oauth_state.py
 from __future__ import annotations
-import os
-import time
 
+import jwt
 import pytest
+
+
+def _kw():
+    """Common args including the new csrf_token_hash claim (spec B3)."""
+    return dict(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        provider="slack",
+        pkce_verifier_hash="hash-abc",
+        csrf_token_hash="csrf-hash-abc",
+        nonce="nonce-1",
+    )
 
 
 def test_state_round_trips(monkeypatch):
     monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
     from mcp_oauth.state import sign_state, verify_state
 
-    token = sign_state(
-        tenant_id="tenant-1",
-        user_id="user-1",
-        provider="slack",
-        pkce_verifier_hash="hash-abc",
-    )
+    token = sign_state(**_kw())
     claims = verify_state(token)
     assert claims["tenant_id"] == "tenant-1"
     assert claims["provider"] == "slack"
     assert claims["pkce_verifier_hash"] == "hash-abc"
-    assert "nonce" in claims
+    assert claims["csrf_token_hash"] == "csrf-hash-abc"
+    assert claims["nonce"] == "nonce-1"
 
 
 def test_state_rejects_expired(monkeypatch):
+    """No real sleep — drive `time.time` so PyJWT sees the token as past-exp."""
     monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
-    from mcp_oauth.state import sign_state, verify_state
+    from mcp_oauth import state as st
 
-    token = sign_state(
-        tenant_id="t", user_id="u", provider="slack",
-        pkce_verifier_hash="h", ttl_seconds=1,
-    )
-    time.sleep(2)
-    with pytest.raises(Exception):  # jwt.ExpiredSignatureError
-        verify_state(token)
+    fake_time = [1_000_000.0]
+    monkeypatch.setattr("mcp_oauth.state.time.time", lambda: fake_time[0])
+
+    token = st.sign_state(ttl_seconds=300, **_kw())
+    fake_time[0] += 301  # jump past expiry
+    with pytest.raises(jwt.ExpiredSignatureError):
+        st.verify_state(token)
 
 
 def test_state_rejects_tampered(monkeypatch):
     monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
     from mcp_oauth.state import sign_state, verify_state
 
-    token = sign_state(
-        tenant_id="t", user_id="u", provider="slack",
-        pkce_verifier_hash="h",
-    )
-    # Flip the last char of the signature segment
+    token = sign_state(**_kw())
     head, payload, sig = token.split(".")
     bad = ".".join([head, payload, sig[:-1] + ("A" if sig[-1] != "A" else "B")])
-    with pytest.raises(Exception):
+    with pytest.raises(jwt.InvalidSignatureError):
         verify_state(bad)
 ```
 
@@ -505,10 +509,19 @@ Expected: ImportError on `mcp_oauth.state`.
 
 ```python
 # platform/lambda/_shared/mcp_oauth/state.py
-"""Signed-JWT state parameter for OAuth callbacks."""
+"""Signed-JWT state parameter for OAuth callbacks.
+
+Carries enough to validate the callback without a DB round-trip:
+  - tenant_id, user_id, provider: what to insert into user_connectors
+  - pkce_verifier_hash: must match the SHA256 of the verifier fetched
+    from DDB (spec §6 PKCE)
+  - csrf_token_hash: must match SHA256 of the CSRF cookie set at
+    initiate time (spec §6 CSRF binding)
+  - nonce: keys the PKCE verifier in DDB; caller passes it in so we
+    don't decode our own signed JWT just to read it back
+"""
 from __future__ import annotations
 import os
-import secrets
 import time
 import jwt
 
@@ -521,14 +534,16 @@ def _secret() -> str:
 
 
 def sign_state(*, tenant_id: str, user_id: str, provider: str,
-               pkce_verifier_hash: str, ttl_seconds: int = 300) -> str:
+               pkce_verifier_hash: str, csrf_token_hash: str,
+               nonce: str, ttl_seconds: int = 300) -> str:
     now = int(time.time())
     payload = {
         "tenant_id": tenant_id,
         "user_id": user_id,
         "provider": provider,
         "pkce_verifier_hash": pkce_verifier_hash,
-        "nonce": secrets.token_urlsafe(16),
+        "csrf_token_hash": csrf_token_hash,
+        "nonce": nonce,
         "iat": now,
         "exp": now + ttl_seconds,
     }
@@ -919,31 +934,77 @@ def test_lookup_missing_raises(monkeypatch):
 def test_refresh_if_near_expiry(monkeypatch):
     from mcp_oauth import session as sess
 
+    near_expiry = _now() + dt.timedelta(seconds=10)  # < 60s threshold
     fresh_row = {
         "conn_id": "c-1",
         "access_token_enc": b"e1",
         "refresh_token_enc": b"e2",
-        "access_expires_at": _now() + dt.timedelta(seconds=10),  # < 60s threshold
+        "access_expires_at": near_expiry,
         "mcp_server_url": "https://mcp.slack.com/mcp",
     }
-    monkeypatch.setattr(sess, "decrypt_token", lambda b: "old-access" if b == b"e1" else "old-refresh")
+    monkeypatch.setattr(sess, "decrypt_token",
+                         lambda b: "old-access" if b == b"e1" else "old-refresh")
     monkeypatch.setattr(sess, "encrypt_token", lambda t: ("E:" + t).encode())
-
     monkeypatch.setattr(sess, "_provider_refresh", lambda kind, refresh: {
         "access_token": "new-access",
         "refresh_token": "new-refresh",
         "expires_in": 43200,
     })
 
+    # Sequence: advisory lock (no rows) → re-read row → UPDATE (no rows).
     fake_db = MagicMock()
+    fake_db.execute.return_value.fetchone.side_effect = [
+        None,                       # SELECT pg_advisory_xact_lock returns no rows
+        {                            # re-read returns row still near expiry
+            "conn_id": "c-1",
+            "access_token_enc": b"e1",
+            "refresh_token_enc": b"e2",
+            "access_expires_at": near_expiry,
+        },
+        None,                       # UPDATE returns no rows
+    ]
     monkeypatch.setattr(sess, "_db", lambda: fake_db)
 
-    new_access = sess.refresh_if_near_expiry(fresh_row, kind="slack", tenant_id="t", user_id="u")
+    new_access = sess.refresh_if_near_expiry(
+        fresh_row, kind="slack", tenant_id="t", user_id="u",
+    )
     assert new_access == "new-access"
-    # Verify advisory lock acquired AND row updated
     sqls = [c.args[0] for c in fake_db.execute.call_args_list]
     assert any("pg_advisory_xact_lock" in s for s in sqls)
     assert any("UPDATE user_connectors" in s for s in sqls)
+
+
+def test_refresh_when_access_expires_at_is_null(monkeypatch):
+    """NULL expiry — spec §6 NULL-safe predicate. Must trigger refresh,
+    not blow up on None arithmetic."""
+    from mcp_oauth import session as sess
+
+    null_row = {
+        "conn_id": "c-2",
+        "access_token_enc": b"e1",
+        "refresh_token_enc": b"e2",
+        "access_expires_at": None,
+        "mcp_server_url": "https://mcp.slack.com/mcp",
+    }
+    monkeypatch.setattr(sess, "decrypt_token",
+                         lambda b: "x-access" if b == b"e1" else "x-refresh")
+    monkeypatch.setattr(sess, "encrypt_token", lambda t: ("E:" + t).encode())
+    monkeypatch.setattr(sess, "_provider_refresh", lambda kind, refresh: {
+        "access_token": "new", "refresh_token": "nr", "expires_in": 43200,
+    })
+    fake_db = MagicMock()
+    fake_db.execute.return_value.fetchone.side_effect = [
+        None,
+        {"access_token_enc": b"e1", "refresh_token_enc": b"e2",
+         "access_expires_at": None, "conn_id": "c-2"},
+        None,
+    ]
+    monkeypatch.setattr(sess, "_db", lambda: fake_db)
+
+    new_access = sess.refresh_if_near_expiry(
+        null_row, kind="slack", tenant_id="t", user_id="u",
+    )
+    assert new_access == "new"
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1033,9 +1094,23 @@ class _Result:
 
 
 def _zip_record(meta, record) -> dict:
+    """Aurora Data API returns one of:
+       {"stringValue": ...}, {"longValue": ...}, {"booleanValue": ...},
+       {"blobValue": ...}, {"isNull": True},
+       {"arrayValue": {"stringValues"|"longValues"|...: [...]}}.
+    Unwrap to native Python values."""
     out = {}
     for col, cell in zip(meta, record):
-        out[col["name"]] = next(iter(cell.values()))
+        if "isNull" in cell:
+            out[col["name"]] = None
+        elif "arrayValue" in cell:
+            av = cell["arrayValue"]
+            out[col["name"]] = (
+                av.get("stringValues") or av.get("longValues")
+                or av.get("booleanValues") or av.get("doubleValues") or []
+            )
+        else:
+            out[col["name"]] = next(iter(cell.values()))
     return out
 
 
@@ -1071,19 +1146,31 @@ def _provider_refresh(kind: ProviderKind, refresh_token_plaintext: str) -> dict:
     raise NotImplementedError(f"refresh not implemented for {kind}")
 
 
+def _seconds_until(expires_at) -> float | None:
+    """Returns None if expires_at is NULL — caller treats NULL as 'always refresh'."""
+    if expires_at is None:
+        return None
+    if isinstance(expires_at, str):
+        expires_at = dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    return (expires_at - dt.datetime.now(dt.timezone.utc)).total_seconds()
+
+
 def refresh_if_near_expiry(row: dict, *, kind: ProviderKind,
                             tenant_id: str, user_id: str,
                             threshold_seconds: int = 60) -> str:
-    """Returns plaintext access_token. Refreshes inline if within threshold."""
-    expires_at = row["access_expires_at"]
-    if isinstance(expires_at, str):
-        expires_at = dt.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-    now = dt.datetime.now(dt.timezone.utc)
-    if (expires_at - now).total_seconds() > threshold_seconds:
+    """Returns plaintext access_token. Refreshes inline when:
+       (a) access_expires_at IS NULL (no expiry returned by vendor — legacy
+           non-rotating Slack apps), OR
+       (b) access_expires_at - now() < threshold_seconds.
+    Matches spec §6 NULL-safe predicate."""
+    remaining = _seconds_until(row["access_expires_at"])
+    if remaining is not None and remaining > threshold_seconds:
         return decrypt_token(row["access_token_enc"])
 
     # Concurrent-refresh race mitigation: Postgres advisory lock keyed by conn_id.
-    # Only one Lambda invocation refreshes; others wait and re-read.
+    # Slack and Atlassian use single-use rotating refresh tokens — without this
+    # lock, two simultaneous invocations both refresh and one's new token is
+    # invalidated server-side (spec §6 "Concurrent-refresh race").
     db = _db()
     lock_key = int(hashlib.sha256(str(row["conn_id"]).encode()).hexdigest()[:15], 16)
     db.execute("SELECT pg_advisory_xact_lock(:k)", [
@@ -1096,11 +1183,10 @@ def refresh_if_near_expiry(row: dict, *, kind: ProviderKind,
         FROM user_connectors WHERE conn_id = :cid
     """, [{"name": "cid", "value": {"stringValue": str(row["conn_id"])}}]).fetchone()
 
-    re_expires_at = refreshed["access_expires_at"]
-    if isinstance(re_expires_at, str):
-        re_expires_at = dt.datetime.fromisoformat(re_expires_at.replace("Z", "+00:00"))
-    if (re_expires_at - now).total_seconds() > threshold_seconds:
+    re_remaining = _seconds_until(refreshed["access_expires_at"])
+    if re_remaining is not None and re_remaining > threshold_seconds:
         return decrypt_token(refreshed["access_token_enc"])
+    now = dt.datetime.now(dt.timezone.utc)
 
     # Still expired — actually refresh.
     refresh_plain = decrypt_token(refreshed["refresh_token_enc"])
@@ -1199,24 +1285,30 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_discover_caches_per_workspace(monkeypatch):
+    """Verify the 5-min cache: identical signature → second call hits
+    cache, no second MCP round-trip."""
+    import contextlib
     from mcp_oauth.session import _discover_tools_for_user, _tool_cache
 
     _tool_cache.clear()
     fake_session = AsyncMock()
-    fake_session.list_tools.return_value = MagicMock(tools=[
-        MagicMock(name="send_message"),
-    ])
-    monkeypatch.setattr("mcp_oauth.session._open_session_for_user",
-                        AsyncMock(return_value=fake_session))
-    # Force the same workspace+scopes signature for two calls.
+    fake_session.list_tools.return_value = MagicMock(
+        tools=[MagicMock(name="send_message")],
+    )
+
+    @contextlib.asynccontextmanager
+    async def fake_open(*args, **kwargs):
+        yield fake_session
+
+    monkeypatch.setattr("mcp_oauth.session._open_session_for_user", fake_open)
     monkeypatch.setattr("mcp_oauth.session._cache_signature",
                         lambda row: "T0123:hash-x")
 
-    tools1 = await _discover_tools_for_user("u-1", kind="slack", tenant_id="t", row={"x": 1})
-    tools2 = await _discover_tools_for_user("u-1", kind="slack", tenant_id="t", row={"x": 1})
-
+    tools1 = await _discover_tools_for_user("u-1", kind="slack",
+                                              tenant_id="t", row={"x": 1})
+    tools2 = await _discover_tools_for_user("u-1", kind="slack",
+                                              tenant_id="t", row={"x": 1})
     assert tools1 == tools2
-    # Only one MCP round-trip
     assert fake_session.list_tools.call_count == 1
 ```
 
@@ -1251,33 +1343,38 @@ def _cache_signature(row: dict) -> str:
     return f"{workspace}:{scopes_hash}"
 
 
-async def _open_session_for_user(user_id: str, *, kind: ProviderKind, tenant_id: str, row: dict):
-    """Bypass the lookup-row step when caller already has the row."""
-    access_token = refresh_if_near_expiry(row, kind=kind, tenant_id=tenant_id, user_id=user_id)
+@contextlib.asynccontextmanager
+async def _open_session_for_user(user_id: str, *, kind: ProviderKind,
+                                   tenant_id: str, row: dict):
+    """Async context manager that yields a connected MCP ClientSession.
+
+    Bypass the lookup-row step when caller already has the row.
+    Caller invokes as: `async with _open_session_for_user(...) as session: ...`
+    """
+    access_token = refresh_if_near_expiry(
+        row, kind=kind, tenant_id=tenant_id, user_id=user_id,
+    )
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
     headers = {"Authorization": f"Bearer {access_token}"}
-
-    @contextlib.asynccontextmanager
-    async def _ctx():
-        async with streamablehttp_client(row["mcp_server_url"], headers=headers) as (read, write, _):
-            async with ClientSession(read, write) as s:
-                await s.initialize()
-                yield s
-
-    return _ctx()
+    async with streamablehttp_client(row["mcp_server_url"], headers=headers) as (read, write, _):
+        async with ClientSession(read, write) as s:
+            await s.initialize()
+            yield s
 
 
 async def _discover_tools_for_user(user_id: str, *, kind: ProviderKind,
                                     tenant_id: str, row: dict) -> list:
+    import time as _time
     sig = _cache_signature(row)
     cached = _tool_cache.get(f"{kind}:{sig}")
-    now = __import__("time").time()
+    now = _time.time()
     if cached and now - cached[0] < _TOOL_CACHE_TTL:
         return cached[1]
 
-    ctx = await _open_session_for_user(user_id, kind=kind, tenant_id=tenant_id, row=row)
-    async with ctx as session:
+    async with _open_session_for_user(
+        user_id, kind=kind, tenant_id=tenant_id, row=row,
+    ) as session:
         result = await session.list_tools()
     tools = list(result.tools)
     _tool_cache[f"{kind}:{sig}"] = (now, tools)
@@ -1557,7 +1654,8 @@ import os
 from unittest.mock import patch, MagicMock
 
 
-def test_initiate_returns_authorize_url(monkeypatch):
+def test_initiate_returns_authorize_url_and_sets_csrf_cookie(monkeypatch):
+    import hashlib
     monkeypatch.setenv("SLACK_CLIENT_ID", "abc")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "xyz")
     monkeypatch.setenv("CONNECTORS_REDIRECT_BASE", "https://app.shasta.io/v1/connectors")
@@ -1578,6 +1676,21 @@ def test_initiate_returns_authorize_url(monkeypatch):
     body = json.loads(resp["body"])
     assert body["authorize_url"].startswith("https://slack.com/oauth/v2/authorize?")
     store.assert_called_once()
+
+    # CSRF cookie present, HttpOnly, Secure, SameSite=Lax (spec §6 CSRF binding)
+    set_cookie = resp["headers"]["set-cookie"]
+    assert "shasta_oauth_csrf=" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Secure" in set_cookie
+    assert "SameSite=Lax" in set_cookie
+
+    # Cookie value's SHA256 must match the csrf_token_hash inside the state JWT.
+    state_tok = body["authorize_url"].split("state=")[1].split("&")[0]
+    import urllib.parse, jwt
+    state_tok = urllib.parse.unquote(state_tok)
+    claims = jwt.decode(state_tok, options={"verify_signature": False})
+    cookie_val = set_cookie.split("shasta_oauth_csrf=")[1].split(";")[0]
+    assert hashlib.sha256(cookie_val.encode()).hexdigest() == claims["csrf_token_hash"]
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1618,6 +1731,17 @@ def _resolve_user_id(subject: str, tenant_id: str) -> str:
 
 @_route("POST", r"^/v1/connectors/connect/slack$")
 def initiate_slack(event, claims, _params):
+    """Initiate Slack OAuth.
+
+    Generates: PKCE verifier+challenge, CSRF random token, fresh nonce.
+    Stores: PKCE verifier in DDB keyed by nonce.
+    Sets: shasta_oauth_csrf cookie (HttpOnly, Secure, SameSite=Lax) so the
+          callback can prove the redirecting browser is the one that
+          started the flow (spec §6 CSRF binding).
+    Returns: { authorize_url } for the web client to redirect to.
+    """
+    import hashlib
+    import secrets
     subject = subject_from_claims(claims)
     tenant_id = claims.get("custom:tenant_id")
     if not tenant_id:
@@ -1628,22 +1752,31 @@ def initiate_slack(event, claims, _params):
     redirect_uri = f"{os.environ['CONNECTORS_REDIRECT_BASE']}/callback/slack"
 
     verifier, challenge = pkce.generate_pair()
+    nonce = secrets.token_urlsafe(16)
+    csrf_token = secrets.token_urlsafe(32)
+    csrf_token_hash = hashlib.sha256(csrf_token.encode()).hexdigest()
+
+    pkce.store_verifier(nonce=nonce, verifier=verifier)
+
     state = state_jwt.sign_state(
         tenant_id=tenant_id,
         user_id=user_id,
         provider="slack",
         pkce_verifier_hash=pkce.challenge_hash(challenge),
+        csrf_token_hash=csrf_token_hash,
+        nonce=nonce,
     )
-    # Extract nonce from the signed state so we can key the verifier store
-    import jwt as _jwt
-    nonce = _jwt.decode(state, options={"verify_signature": False})["nonce"]
-    pkce.store_verifier(nonce=nonce, verifier=verifier)
 
     url = slack_provider.build_authorize_url(
         client_id=client_id, redirect_uri=redirect_uri,
         state=state, code_challenge=challenge,
     )
-    return _resp(200, {"authorize_url": url})
+
+    cookie = (
+        f"shasta_oauth_csrf={csrf_token}; HttpOnly; Secure; "
+        f"SameSite=Lax; Path=/v1/connectors; Max-Age=600"
+    )
+    return _resp(200, {"authorize_url": url}, headers={"set-cookie": cookie})
 ```
 
 - [ ] **Step 4: Run test to verify pass**
@@ -1682,21 +1815,23 @@ Append to `platform/lambda/connectors/tests/test_handlers_slack.py`:
 
 ```python
 def test_callback_inserts_user_connector(monkeypatch):
-    import datetime as dt
+    import hashlib
     monkeypatch.setenv("SLACK_CLIENT_ID", "abc")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "xyz")
     monkeypatch.setenv("CONNECTORS_REDIRECT_BASE", "https://app.shasta.io/v1/connectors")
     monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
     monkeypatch.setenv("WEB_BASE_URL", "https://app.shasta.io")
 
-    # Sign a real state JWT that the handler can verify.
     from mcp_oauth import state as st, pkce
     from connectors import handlers_slack as h
 
     challenge = "ch-1"
+    csrf_token = "csrf-secret-value"
+    csrf_hash = hashlib.sha256(csrf_token.encode()).hexdigest()
     state_tok = st.sign_state(
         tenant_id="t-uuid", user_id="u-uuid", provider="slack",
         pkce_verifier_hash=pkce.challenge_hash(challenge),
+        csrf_token_hash=csrf_hash, nonce="n-1",
     )
 
     monkeypatch.setattr(h.pkce, "fetch_verifier", lambda nonce: "v-1")
@@ -1726,12 +1861,38 @@ def test_callback_inserts_user_connector(monkeypatch):
         "httpMethod": "GET",
         "rawPath": "/v1/connectors/callback/slack",
         "queryStringParameters": {"code": "ac-1", "state": state_tok},
+        "headers": {"cookie": f"shasta_oauth_csrf={csrf_token}"},
         "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
     }
     resp = m.handler(ev, None)
     assert resp["statusCode"] == 302
     assert resp["headers"]["location"].endswith("/settings?tab=connectors&ok=slack")
     assert "INSERT INTO user_connectors" in inserted["sql"]
+
+
+def test_callback_rejects_missing_csrf_cookie(monkeypatch):
+    """Missing cookie → 400 csrf_mismatch (spec §6)."""
+    import hashlib
+    monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
+    from mcp_oauth import state as st, pkce
+
+    state_tok = st.sign_state(
+        tenant_id="t", user_id="u", provider="slack",
+        pkce_verifier_hash=pkce.challenge_hash("ch"),
+        csrf_token_hash=hashlib.sha256(b"real").hexdigest(),
+        nonce="n-1",
+    )
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/v1/connectors/callback/slack",
+        "queryStringParameters": {"code": "ac-1", "state": state_tok},
+        "headers": {},  # NO cookie
+        "requestContext": {"authorizer": {"claims": {"sub": "s"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 400
+    assert "csrf" in json.loads(resp["body"])["error"]
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1756,8 +1917,21 @@ from mcp_oauth.crypto import encrypt_token
 from mcp_oauth.session import _db
 
 
+def _read_cookie(event: dict, name: str) -> str | None:
+    """Read a single cookie value from API Gateway v2 event headers.
+    Header key is lower-cased; value is `k1=v1; k2=v2`."""
+    headers = event.get("headers") or {}
+    raw = headers.get("cookie") or headers.get("Cookie") or ""
+    for part in raw.split(";"):
+        k, _, v = part.strip().partition("=")
+        if k == name:
+            return v
+    return None
+
+
 @_route("GET", r"^/v1/connectors/callback/slack$")
 def callback_slack(event, claims, _params):
+    import hashlib as _hashlib, base64 as _b64
     qs = event.get("queryStringParameters") or {}
     code = qs.get("code")
     state = qs.get("state")
@@ -1774,13 +1948,22 @@ def callback_slack(event, claims, _params):
     nonce = s["nonce"]
     pkce_hash = s["pkce_verifier_hash"]
 
+    # CSRF binding — spec §6. Read cookie set at initiate, compare hash to
+    # state.csrf_token_hash. Defeats forged-state callback attacks where the
+    # attacker mints their own state JWT and tricks the victim into hitting
+    # the callback URL.
+    csrf_token = _read_cookie(event, "shasta_oauth_csrf")
+    if not csrf_token:
+        return _resp(400, {"error": "csrf_missing"})
+    if _hashlib.sha256(csrf_token.encode()).hexdigest() != s.get("csrf_token_hash"):
+        return _resp(400, {"error": "csrf_mismatch"})
+
     verifier = pkce.fetch_verifier(nonce)
     if not verifier:
         return _resp(400, {"error": "verifier_expired_or_missing"})
 
-    # Defense in depth: verify the challenge we sent matches the one signed in state.
-    # (Verifier was generated alongside the challenge; rebuild challenge from verifier.)
-    import hashlib as _hashlib, base64 as _b64
+    # Defense in depth: rebuild the challenge from the verifier and verify the
+    # signed hash matches.
     rebuilt_challenge = _b64.urlsafe_b64encode(
         _hashlib.sha256(verifier.encode("ascii")).digest()
     ).rstrip(b"=").decode("ascii")
@@ -1834,13 +2017,22 @@ def callback_slack(event, claims, _params):
         {"name": "a", "value": {"blobValue": access_enc}},
         {"name": "r", "value": {"blobValue": refresh_enc}},
         {"name": "e", "value": {"stringValue": expires_at.isoformat()}},
-        {"name": "scopes", "value": {"stringValue": "{" + ",".join(tokens["scopes"]) + "}"}},
+        # Aurora Data API: TEXT[] columns require arrayValue payloads,
+        # not stringValue with PG array-literal syntax. Latter fails with
+        # "expression of type text vs column of type text[]".
+        {"name": "scopes",
+         "value": {"arrayValue": {"stringValues": list(tokens["scopes"])}}},
     ])
 
     web_base = os.environ["WEB_BASE_URL"]
     return {
         "statusCode": 302,
-        "headers": {"location": f"{web_base}/settings?tab=connectors&ok=slack"},
+        "headers": {
+            "location": f"{web_base}/settings?tab=connectors&ok=slack",
+            # Clear the CSRF cookie post-callback.
+            "set-cookie": "shasta_oauth_csrf=; HttpOnly; Secure; "
+                          "SameSite=Lax; Path=/v1/connectors; Max-Age=0",
+        },
         "body": "",
     }
 ```
@@ -2159,6 +2351,23 @@ Connectors page card state."
 
 **Why:** The Lambda exists in code; CDK has to deploy it and grant it the KMS / DDB / Aurora / SSM permissions it needs, plus register the routes with the existing API Gateway.
 
+**HARD PREREQUISITE — complete before any deploy step in this task.** The CDK code below resolves vendor OAuth client credentials via `ssm.StringParameter.valueForStringParameter(...)` at synth time. If the SSM parameters don't exist when `cdk deploy` runs, synth fails with `Parameter not found`. KK must:
+
+1. Create the Shasta Slack App at https://api.slack.com/apps with:
+   - Redirect URI: `https://<api_domain>/v1/connectors/callback/slack` (exact match — Slack rejects scheme/port/trailing-slash drift)
+   - **`token_rotation_enabled=true`** in the manifest (required by spec §6 refresh strategy — without rotation the JIT refresh path has no refresh token to use)
+   - User scopes: `chat:write,im:write,im:history,search:read,users:read`
+2. Put the credentials in SSM:
+
+```bash
+aws ssm put-parameter --name /cisocopilot/connectors/slack/client-id \
+  --type SecureString --value "<client_id>" --overwrite
+aws ssm put-parameter --name /cisocopilot/connectors/slack/client-secret \
+  --type SecureString --value "<client_secret>" --overwrite
+```
+
+Verify both exist before starting Step 2 below.
+
 - [ ] **Step 1: Read relevant section of api-stack.ts**
 
 ```bash
@@ -2252,16 +2461,14 @@ this.api.addRoutes({
 
 If `ssm`, `iam`, `HttpLambdaIntegration`, `HttpMethod` aren't imported in `api-stack.ts`, add the imports per the existing convention in that file.
 
-- [ ] **Step 3: Put Slack OAuth app credentials in SSM**
-
-This is a manual step — KK creates a Slack App at https://api.slack.com/apps with the right redirect URI (`https://api.shasta.io/v1/connectors/callback/slack`) and user scopes (`chat:write,im:write,im:history,search:read,users:read`), then:
+- [ ] **Step 3: Confirm hard-prerequisite SSM puts ran**
 
 ```bash
-aws ssm put-parameter --name /cisocopilot/connectors/slack/client-id \
-  --type SecureString --value "<client_id>" --overwrite
-aws ssm put-parameter --name /cisocopilot/connectors/slack/client-secret \
-  --type SecureString --value "<client_secret>" --overwrite
+aws ssm get-parameter --name /cisocopilot/connectors/slack/client-id --with-decryption --query 'Parameter.Type'
+aws ssm get-parameter --name /cisocopilot/connectors/slack/client-secret --with-decryption --query 'Parameter.Type'
 ```
+
+Both must return `"SecureString"`. If either fails, complete the hard prerequisite at the top of this task before continuing.
 
 - [ ] **Step 4: Deploy the api stack**
 
@@ -2309,10 +2516,10 @@ Append to `platform/lambda/tools/tests/test_tools.py`:
 
 ```python
 def test_namespaced_mcp_tool_dispatched_via_mcp_oauth(monkeypatch):
+    import contextlib
     import json
     from unittest.mock import AsyncMock, MagicMock
 
-    # Build the event the voice agent's dispatch shape uses.
     ev = {
         "pathParameters": {"tool_name": "slack__send_message"},
         "body": json.dumps({"channel": "C0X", "text": "hi"}),
@@ -2326,11 +2533,6 @@ def test_namespaced_mcp_tool_dispatched_via_mcp_oauth(monkeypatch):
         content=[MagicMock(text=json.dumps({"ok": True, "ts": "1.0"}))]
     )
 
-    @asyncgen
-    async def fake_ctx():
-        yield fake_session
-
-    import contextlib
     @contextlib.asynccontextmanager
     async def fake_get_session(*a, **kw):
         yield fake_session
@@ -2343,8 +2545,6 @@ def test_namespaced_mcp_tool_dispatched_via_mcp_oauth(monkeypatch):
     body = json.loads(resp["body"])
     assert body["ok"] is True
 ```
-
-(Helper: `asyncgen` decorator — already imported in existing test_tools.py if present; otherwise add `from contextlib import asynccontextmanager as asyncgen`.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -2474,10 +2674,14 @@ with caller's per-user token. ConnectorMissingError → 409 with a
 - [ ] **Step 1: Read the existing tool-registry section of voice_session/main.py**
 
 ```bash
-grep -n "tools\|session_config\|openai_tools\|session.update" platform/lambda/voice_session/main.py | head -30
+grep -n "tools\|session_config\|openai_tools\|session.update\|asyncio" platform/lambda/voice_session/main.py | head -30
 ```
 
-Note where the session config is built and where `tools` is set.
+Note three things:
+
+1. The exact symbol name and shape of the existing static tool list (the wow-demo shipped a list of Shasta-native tools like `run_forensic_scan`). The new `_NATIVE_TOOLS` variable below will be assigned from that — do NOT redefine it as `[]`; that would erase the native tools.
+2. Whether the file already imports `asyncio` anywhere. If not, the new code below adds it.
+3. Whether the session-config build is inside an `async def` or a sync handler. The bootstrap in this codebase is sync, so the bridge below uses `asyncio.run()` with an event-loop fallback for the case where someone refactors voice_session to async later.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -2520,20 +2724,36 @@ Expected: `_build_openai_tools` not defined.
 
 - [ ] **Step 4: Add `_build_openai_tools` to voice_session/main.py**
 
-Add to `platform/lambda/voice_session/main.py` (just before the existing session-config build):
+First, find the existing native-tool list discovered in Step 1 and alias it:
 
 ```python
+# At module top, after the existing tool definitions are loaded.
+# The actual symbol name comes from Step 1 — whatever variable currently
+# holds the Realtime tool list. Example assumed below: TOOLS.
+_NATIVE_TOOLS = TOOLS  # alias to the wow-demo's existing static list
+```
+
+Then add the discovery + build helpers:
+
+```python
+import asyncio as _asyncio  # safe even if file already imports asyncio
+
+
 async def _build_openai_tools(*, subject: str, tenant_id: str,
                                 discover_fn=None, native_tools=None):
     """Per-session OpenAI tool registry.
 
     Combines:
-      - Shasta-native tools (run_forensic_scan, etc.) — always present
+      - Shasta-native tools (run_forensic_scan, etc.) — always present.
       - Per-vendor MCP tools discovered live from each connected provider
         with namespace prefix `{kind}__{tool_name}`.
+
+    The MCP SDK exposes tool input schemas as `inputSchema` (camelCase)
+    despite some spec snippets showing `input_schema` — we read camelCase
+    first, snake_case as fallback.
     """
     discover_fn = discover_fn or _default_discover
-    native_tools = native_tools or _NATIVE_TOOLS
+    native_tools = native_tools if native_tools is not None else _NATIVE_TOOLS
 
     out = list(native_tools)
     try:
@@ -2546,7 +2766,12 @@ async def _build_openai_tools(*, subject: str, tenant_id: str,
         for t in tools:
             name = getattr(t, "name", None) or t.get("name")
             desc = getattr(t, "description", None) or t.get("description", "")
-            schema = getattr(t, "inputSchema", None) or t.get("inputSchema", {"type": "object"})
+            schema = (
+                getattr(t, "inputSchema", None)
+                or getattr(t, "input_schema", None)
+                or (t.get("inputSchema") if isinstance(t, dict) else None)
+                or {"type": "object"}
+            )
             out.append({
                 "type": "function",
                 "name": f"{kind}__{name}",
@@ -2559,16 +2784,26 @@ async def _build_openai_tools(*, subject: str, tenant_id: str,
 async def _default_discover(subject: str, *, tenant_id: str):
     from mcp_oauth import discover_tools
     return await discover_tools(subject, tenant_id=tenant_id)
+
+
+def _build_openai_tools_sync(*, subject: str, tenant_id: str) -> list:
+    """Sync bridge: voice_session handler is sync today. If someone
+    refactors it to async later, this still works — we detect a running
+    loop and use it; otherwise we spin one up just for this call."""
+    coro = _build_openai_tools(subject=subject, tenant_id=tenant_id)
+    try:
+        loop = _asyncio.get_running_loop()
+    except RuntimeError:
+        return _asyncio.run(coro)
+    # Already in an event loop — schedule and wait.
+    import concurrent.futures
+    return _asyncio.run_coroutine_threadsafe(coro, loop).result()
 ```
 
-And in the session-config build (locate the line where `tools=` is set on the OpenAI session), replace the static list with:
+In the session-config build (the line where `tools=` is set on the OpenAI session), replace the static list with:
 
 ```python
-# At the call site that builds the session config:
-import asyncio as _asyncio
-openai_tools = _asyncio.run(_build_openai_tools(
-    subject=subject, tenant_id=tenant_id,
-))
+openai_tools = _build_openai_tools_sync(subject=subject, tenant_id=tenant_id)
 session_config["tools"] = openai_tools
 ```
 
@@ -3169,6 +3404,16 @@ extend with channel-post and per-vendor variants."
 
 **Why:** Validate the full flow against the deployed environment before declaring Slice 1 done.
 
+**Prerequisites — all must be true before starting any step below:**
+
+- Tasks 1–21 complete and deployed (DB migrated, KMS key + DDB table + Lambda + API routes + web bundle live).
+- Shasta Slack App created at https://api.slack.com/apps:
+  - Redirect URI registered: `https://<api_domain>/v1/connectors/callback/slack` (exact match — Slack rejects mismatched scheme/port/trailing-slash).
+  - **`token_rotation_enabled=true`** in the app manifest (required for Step 5 below and for the spec §6 refresh strategy).
+  - User scopes: `chat:write,im:write,im:history,search:read,users:read`.
+- SSM SecureString parameters `/cisocopilot/connectors/slack/client-id` and `/cisocopilot/connectors/slack/client-secret` present (Task 15 hard prereq).
+- SSM SecureString `/cisocopilot/connectors/state-jwt-secret` present (Task 3 Step 4).
+
 - [ ] **Step 1: Connect Slack from the Settings page**
 
 1. Sign in to the web app
@@ -3206,6 +3451,8 @@ Navigate to `/risks`, open any finding, click "DM via Slack", enter your @user. 
 Click Disconnect on the Slack card. Voice agent now hits "DM yourself on Slack" again. Expected: agent paraphrases "Looks like you haven't connected Slack — set it up in Settings."
 
 - [ ] **Step 5: Reconnect, force token expiry, verify JIT refresh**
+
+**Skip this step if the Slack app does NOT have `token_rotation_enabled=true`** — without rotation there's no refresh token to test with; the refresh API returns no new tokens and the test fails for the wrong reason. The prereq block at the top of this task already requires rotation, so this should not trip.
 
 Reconnect Slack. Manually force expiry:
 
