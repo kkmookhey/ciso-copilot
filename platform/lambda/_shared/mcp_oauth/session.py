@@ -100,7 +100,7 @@ def lookup_user_connector(*, tenant_id: str, user_id: str, kind: ProviderKind) -
         SELECT conn_id, access_token_enc, refresh_token_enc,
                access_expires_at, mcp_server_url
         FROM user_connectors
-        WHERE tenant_id = :tid AND user_id = :uid
+        WHERE tenant_id = :tid::uuid AND user_id = :uid::uuid
           AND oauth_provider = :provider AND status = 'active'
     """
     row = db.execute(sql, [
@@ -158,7 +158,7 @@ def refresh_if_near_expiry(row: dict, *, kind: ProviderKind,
     # Re-read under the lock — another invocation may have already refreshed.
     refreshed = db.execute("""
         SELECT access_token_enc, refresh_token_enc, access_expires_at
-        FROM user_connectors WHERE conn_id = :cid
+        FROM user_connectors WHERE conn_id = :cid::uuid
     """, [{"name": "cid", "value": {"stringValue": str(row["conn_id"])}}]).fetchone()
 
     re_remaining = _seconds_until(refreshed["access_expires_at"])
@@ -176,8 +176,8 @@ def refresh_if_near_expiry(row: dict, *, kind: ProviderKind,
     db.execute("""
         UPDATE user_connectors
         SET access_token_enc = :a, refresh_token_enc = :r,
-            access_expires_at = :e, last_used_at = now()
-        WHERE conn_id = :cid
+            access_expires_at = CAST(:e AS TIMESTAMPTZ), last_used_at = now()
+        WHERE conn_id = :cid::uuid
     """, [
         {"name": "a", "value": {"blobValue": new_access_enc}},
         {"name": "r", "value": {"blobValue": new_refresh_enc}},
@@ -209,7 +209,7 @@ def _resolve_user_id(subject: str, *, tenant_id: str) -> str:
     """Look up users.user_id from sso_subject."""
     row = _db().execute("""
         SELECT user_id FROM users
-        WHERE tenant_id = :tid AND sso_subject = :sub
+        WHERE tenant_id = :tid::uuid AND sso_subject = :sub
     """, [
         {"name": "tid", "value": {"stringValue": tenant_id}},
         {"name": "sub", "value": {"stringValue": subject}},
@@ -279,7 +279,7 @@ async def discover_tools(subject: str, *, tenant_id: str) -> dict[ProviderKind, 
         SELECT conn_id, oauth_provider, access_token_enc, refresh_token_enc,
                access_expires_at, mcp_server_url, vendor_workspace_id, scopes
         FROM user_connectors
-        WHERE tenant_id = :tid AND user_id = :uid AND status = 'active'
+        WHERE tenant_id = :tid::uuid AND user_id = :uid::uuid AND status = 'active'
     """, [
         {"name": "tid", "value": {"stringValue": tenant_id}},
         {"name": "uid", "value": {"stringValue": user_id}},

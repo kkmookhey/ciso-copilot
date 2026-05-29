@@ -25,7 +25,7 @@ def revoke_connection(event, claims, params):
     row = db.execute("""
         SELECT tenant_id, oauth_provider, access_token_enc, mcp_server_url
         FROM user_connectors
-        WHERE conn_id = :cid AND tenant_id = :tid AND status = 'active'
+        WHERE conn_id = :cid::uuid AND tenant_id = :tid::uuid AND status = 'active'
     """, [
         {"name": "cid", "value": {"stringValue": conn_id}},
         {"name": "tid", "value": {"stringValue": tenant_id}},
@@ -47,7 +47,7 @@ def revoke_connection(event, claims, params):
     db.execute("""
         UPDATE user_connectors
         SET status = 'revoked', revoked_at = now()
-        WHERE conn_id = :cid
+        WHERE conn_id = :cid::uuid
     """, [{"name": "cid", "value": {"stringValue": conn_id}}])
 
     return _resp(200, {"revoked": True, "conn_id": conn_id})
@@ -65,7 +65,7 @@ def list_me(event, claims, _params):
         SELECT conn_id, oauth_provider, vendor_user_id, vendor_workspace_id,
                status, created_at, scopes
         FROM user_connectors
-        WHERE tenant_id = :tid AND user_id = :uid
+        WHERE tenant_id = :tid::uuid AND user_id = :uid::uuid
           AND status IN ('active','error','expired')
         ORDER BY created_at DESC
     """, [

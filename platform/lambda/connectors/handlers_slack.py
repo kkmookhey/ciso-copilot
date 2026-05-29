@@ -167,7 +167,7 @@ def callback_slack(event, claims, _params):
             access_token_enc, refresh_token_enc, access_expires_at,
             scopes, status
         ) VALUES (
-            :tid, :uid, :provider, :mcp,
+            :tid::uuid, :uid::uuid, :provider, :mcp,
             :vu, :vw,
             :a, :r, CAST(:e AS TIMESTAMPTZ),
             :scopes::text[], 'active'
