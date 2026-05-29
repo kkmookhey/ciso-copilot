@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Risk, type LatestScan } from "../lib/api";
 import { ScanTypeBadge } from "../scan/ScanTypeBadge";
 import { mostRecentCompletedScan } from "../scan/scanLabels";
+import { ActButtons } from "../components/findings/ActButtons";
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"] as const;
 const STATUS_OPTIONS  = ["open", "mitigated", "accepted", "transferred", "closed"] as const;
@@ -112,6 +113,15 @@ export function Risks() {
                     {r.finding_id && (
                       <div className="text-xs text-slate-400 mt-0.5 font-mono">↳ finding {r.finding_id.slice(0, 8)}…</div>
                     )}
+                    <div className="mt-2">
+                      <ActButtons
+                        finding={{
+                          finding_id:   r.finding_id ?? r.risk_id,
+                          title:        r.title,
+                          resource_arn: null,
+                        }}
+                      />
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     <SeverityPill sev={r.severity} />
