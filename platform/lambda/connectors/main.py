@@ -41,12 +41,12 @@ def subject_from_claims(claims: dict) -> str | None:
     return claims.get("sub")
 
 
-_ROUTES = []  # list of (method, regex, handler)
+_ROUTES = []  # list of (method, regex, handler, requires_auth)
 
 
-def _route(method: str, pattern: str):
+def _route(method: str, pattern: str, *, requires_auth: bool = True):
     def deco(fn):
-        _ROUTES.append((method, re.compile(pattern), fn))
+        _ROUTES.append((method, re.compile(pattern), fn, requires_auth))
         return fn
     return deco
 
@@ -56,24 +56,32 @@ def handler(event: dict, context) -> dict:
     path = event.get("rawPath") or event.get("path") or ""
     claims = (event.get("requestContext") or {}).get("authorizer", {}).get("claims") or {}
 
-    subject = subject_from_claims(claims)
-    if not subject:
-        return _resp(401, {"error": "no_auth"})
-
-    for m, rx, fn in _ROUTES:
+    # Match route FIRST so we can decide whether auth is required.
+    matched = None
+    for m, rx, fn, requires_auth in _ROUTES:
         if m != method:
             continue
         match = rx.match(path)
         if not match:
             continue
-        try:
-            return fn(event, claims, match.groupdict())
-        except Exception as e:
-            print(f"[connectors] {method} {path} failed: {type(e).__name__}: {e}")
-            traceback.print_exc()
-            return _resp(500, {"error": "internal", "detail": str(e)[:200]})
+        matched = (fn, match, requires_auth)
+        break
 
-    return _resp(404, {"error": "unknown_route", "path": path})
+    if matched is None:
+        return _resp(404, {"error": "unknown_route", "path": path})
+
+    fn, match, requires_auth = matched
+    if requires_auth:
+        subject = subject_from_claims(claims)
+        if not subject:
+            return _resp(401, {"error": "no_auth"})
+
+    try:
+        return fn(event, claims, match.groupdict())
+    except Exception as e:
+        print(f"[connectors] {method} {path} failed: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        return _resp(500, {"error": "internal", "detail": str(e)[:200]})
 
 
 def _resp(status: int, body: dict, *, headers: dict | None = None) -> dict:
