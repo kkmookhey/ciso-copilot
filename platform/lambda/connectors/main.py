@@ -14,6 +14,10 @@ import json
 import re
 import traceback
 
+# Populate SSM-backed secrets into os.environ at cold-start (CFN can't
+# inject SecureString params as env vars).
+from connectors import _secrets  # noqa: F401
+
 
 # Reuse the canonical subject-extraction helper from the tools Lambda pattern.
 def subject_from_claims(claims: dict) -> str | None:

@@ -15,3 +15,10 @@ sys.path.insert(0, str(_LAMBDA_DIR / "_shared"))              # makes `mcp_oauth
 os.environ.setdefault("DB_CLUSTER_ARN", "arn:aws:rds:us-east-1:000000000000:cluster:test")
 os.environ.setdefault("DB_SECRET_ARN",  "arn:aws:secretsmanager:us-east-1:000000000000:secret:test")
 os.environ.setdefault("DB_NAME",        "ciso_copilot")
+
+# Short-circuit connectors._secrets — it would otherwise call SSM at module
+# import time, which fails without AWS creds in CI. Tests that need real
+# values monkeypatch.setenv these to overrides per test.
+os.environ.setdefault("SLACK_CLIENT_ID",     "test-client-id")
+os.environ.setdefault("SLACK_CLIENT_SECRET", "test-client-secret")
+os.environ.setdefault("STATE_JWT_SECRET",    "x" * 32)

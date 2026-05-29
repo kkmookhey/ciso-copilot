@@ -1096,15 +1096,12 @@ export class ApiStack extends cdk.Stack {
         ...dbEnv,
         PKCE_VERIFIER_TABLE:      props.pkceVerifierTable.tableName,
         CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
-        STATE_JWT_SECRET:         ssm.StringParameter.valueForStringParameter(
-          this, '/cisocopilot/connectors/state-jwt-secret',
-        ),
-        SLACK_CLIENT_ID:          ssm.StringParameter.valueForStringParameter(
-          this, '/cisocopilot/connectors/slack/client-id',
-        ),
-        SLACK_CLIENT_SECRET:      ssm.StringParameter.valueForStringParameter(
-          this, '/cisocopilot/connectors/slack/client-secret',
-        ),
+        // SecureString SSM params can't be injected as Lambda env vars
+        // (CFN type-system limitation). The Lambda fetches these at
+        // module-import time via connectors/_secrets.py:
+        //   /cisocopilot/connectors/state-jwt-secret
+        //   /cisocopilot/connectors/slack/client-id
+        //   /cisocopilot/connectors/slack/client-secret
         // apiBaseUrl already includes the /v1 stage (e.g. https://api.shasta.io/v1)
         CONNECTORS_REDIRECT_BASE: `${config.apiBaseUrl}/connectors`,
         WEB_BASE_URL:             config.appDomain,
@@ -1113,6 +1110,21 @@ export class ApiStack extends cdk.Stack {
     props.dbCluster.grantDataApiAccess(connectorsFn);
     props.connectorTokensKey.grantEncryptDecrypt(connectorsFn);
     props.pkceVerifierTable.grantReadWriteData(connectorsFn);
+    // SSM:GetParameter + KMS:Decrypt for the three SSM-backed secrets
+    // (state-jwt-secret + slack/client-id + slack/client-secret).
+    connectorsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/state-jwt-secret`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+      ],
+    }));
+    connectorsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['kms:Decrypt'],
+      // SSM SecureString defaults to the alias/aws/ssm AWS-managed KMS key.
+      resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+    }));
 
     // /v1/connectors namespace.
     //   POST   /connect/{kind}     — Cognito-authed, returns authorize_url
