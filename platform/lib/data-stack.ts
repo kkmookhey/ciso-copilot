@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as kms from 'aws-cdk-lib/aws-kms';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 
 interface DataStackProps extends cdk.StackProps {
@@ -11,6 +12,8 @@ interface DataStackProps extends cdk.StackProps {
 export class DataStack extends cdk.Stack {
   public readonly cluster: rds.DatabaseCluster;
   public readonly storageKey: kms.Key;
+  public readonly connectorTokensKey: kms.Key;
+  public readonly pkceVerifierTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -34,6 +37,21 @@ export class DataStack extends cdk.Stack {
       enableDataApi: true,
       backup: { retention: cdk.Duration.days(30) },
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
+    });
+
+    this.connectorTokensKey = new kms.Key(this, 'ConnectorTokensKey', {
+      alias: 'cisocopilot-connector-tokens',
+      description: 'Envelope key for MCP connector OAuth tokens (per-row pgcrypto)',
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    this.pkceVerifierTable = new dynamodb.Table(this, 'PkceVerifierTable', {
+      tableName: 'cisocopilot-pkce-verifiers',
+      partitionKey: { name: 'nonce', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
   }
 }
