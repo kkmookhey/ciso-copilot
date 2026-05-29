@@ -10,6 +10,7 @@ Session is configured with:
 """
 from __future__ import annotations
 
+import asyncio as _asyncio
 import json
 import os
 import urllib.request
@@ -35,6 +36,11 @@ def handler(event: dict, context) -> dict:
     user_email, tenant_id, tenant_name = _resolve_user_context(event)
     if not tenant_id:
         return _resp(401, {"error": "no_tenant"})
+    # Per-user MCP tool discovery — namespaced names live alongside the
+    # native Realtime tools so the iOS client's tool-call dispatcher can
+    # route them via POST /v1/tools/{kind}__{tool_name}.
+    claims = (event.get("requestContext") or {}).get("authorizer", {}).get("claims") or {}
+    subject = _subject_from_claims(claims) or ""
 
     key = _openai_api_key()
     if not key:
@@ -83,7 +89,7 @@ def handler(event: dict, context) -> dict:
                     "voice":  "coral",
                 },
             },
-            "tools":       _tools(),
+            "tools":       _build_openai_tools_sync(subject=subject, tenant_id=tenant_id),
             "tool_choice": "auto",
             # OpenAI Realtime GA (2026) removed session.temperature — tone
             # is now controlled via voice + system prompt only.
@@ -306,6 +312,76 @@ def _tools() -> list[dict]:
             },
         },
     ]
+
+
+# Shasta-native tool list, captured at import time. Always present in the
+# Realtime session config; MCP-discovered per-vendor tools are appended on
+# top per-session by _build_openai_tools.
+_NATIVE_TOOLS = _tools()
+
+
+async def _build_openai_tools(*, subject: str, tenant_id: str,
+                                discover_fn=None, native_tools=None):
+    """Per-session OpenAI tool registry.
+
+    Combines:
+      - Shasta-native tools (run_forensic_scan, etc.) — always present.
+      - Per-vendor MCP tools discovered live from each connected provider
+        with namespace prefix `{kind}__{tool_name}`.
+
+    The MCP SDK exposes tool input schemas as `inputSchema` (camelCase)
+    despite some spec snippets showing `input_schema` — we read camelCase
+    first, snake_case as fallback.
+    """
+    discover_fn = discover_fn or _default_discover
+    native_tools = native_tools if native_tools is not None else _NATIVE_TOOLS
+
+    out = list(native_tools)
+    try:
+        connected = await discover_fn(subject, tenant_id=tenant_id)
+    except Exception as e:
+        print(f"[voice_session] discover_tools failed: {e!r}; native tools only")
+        return out
+
+    for kind, tools in connected.items():
+        for t in tools:
+            name = getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else None)
+            desc = getattr(t, "description", None) or (
+                t.get("description", "") if isinstance(t, dict) else ""
+            )
+            schema = (
+                getattr(t, "inputSchema", None)
+                or getattr(t, "input_schema", None)
+                or (t.get("inputSchema") if isinstance(t, dict) else None)
+                or {"type": "object"}
+            )
+            out.append({
+                "type":        "function",
+                "name":        f"{kind}__{name}",
+                "description": desc,
+                "parameters":  schema,
+            })
+    return out
+
+
+async def _default_discover(subject: str, *, tenant_id: str):
+    from mcp_oauth import discover_tools
+    return await discover_tools(subject, tenant_id=tenant_id)
+
+
+def _build_openai_tools_sync(*, subject: str, tenant_id: str) -> list:
+    """Sync bridge: voice_session handler is sync today. If someone
+    refactors it to async later, this still works — we detect a running
+    loop and use it; otherwise we spin one up just for this call."""
+    coro = _build_openai_tools(subject=subject, tenant_id=tenant_id)
+    try:
+        _asyncio.get_running_loop()
+    except RuntimeError:
+        return _asyncio.run(coro)
+    # Already in an event loop — schedule and wait on a worker thread.
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: _asyncio.run(coro)).result()
 
 
 # ============================================================================
