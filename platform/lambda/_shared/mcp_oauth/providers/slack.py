@@ -37,12 +37,31 @@ def exchange_code(*, code: str, code_verifier: str, client_id: str,
     body = resp.json()
     if not body.get("ok"):
         raise RuntimeError(f"slack oauth: {body.get('error', 'unknown_error')}")
+    # Slack OAuth v2 response shape differs by scope kind:
+    # - With bot scopes registered, the bot token is at top-level
+    #   (access_token, refresh_token, expires_in, scope).
+    # - With user scopes (what Shasta uses), the analyst's token is
+    #   nested under authed_user (access_token, refresh_token,
+    #   expires_in, scope). Top-level fields are absent.
+    # We prefer authed_user when present, otherwise fall back to
+    # top-level — this keeps the implementation robust if we later
+    # register bot scopes too.
+    au = body.get("authed_user") or {}
+    access_token = au.get("access_token") or body.get("access_token")
+    if not access_token:
+        raise RuntimeError(
+            "slack oauth: no access_token in response — "
+            "confirm USER token scopes are registered on the Slack App"
+        )
+    refresh_token_val = au.get("refresh_token") or body.get("refresh_token", "")
+    expires_in = au.get("expires_in") or body.get("expires_in", 43200)
+    scope_str = au.get("scope") or body.get("scope", "")
     return {
-        "access_token": body["access_token"],
-        "refresh_token": body.get("refresh_token", ""),
-        "expires_in": body.get("expires_in", 43200),
-        "scopes": body.get("scope", "").split(","),
-        "vendor_user_id": body["authed_user"]["id"],
+        "access_token": access_token,
+        "refresh_token": refresh_token_val,
+        "expires_in": int(expires_in),
+        "scopes": [s for s in scope_str.split(",") if s],
+        "vendor_user_id": au.get("id") or body.get("authed_user", {}).get("id", ""),
         "vendor_workspace_id": body["team"]["id"],
         "mcp_server_url": MCP_SERVER_URL,
     }
