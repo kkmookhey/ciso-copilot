@@ -217,3 +217,89 @@ def _resolve_user_id(subject: str, *, tenant_id: str) -> str:
     if not row:
         raise ConnectorMissingError(f"no users row for subject={subject} tenant={tenant_id}")
     return str(row["user_id"])
+
+
+# ---- Tool discovery cache ---------------------------------------------
+
+import hashlib as _hashlib_dis
+_tool_cache: dict[str, tuple[float, list]] = {}
+_TOOL_CACHE_TTL = 300  # 5 minutes
+
+
+def _cache_signature(row: dict) -> str:
+    workspace = row.get("vendor_workspace_id") or ""
+    scopes_hash = _hashlib_dis.sha256(
+        (",".join(sorted(row.get("scopes") or []))).encode()
+    ).hexdigest()[:16]
+    return f"{workspace}:{scopes_hash}"
+
+
+@contextlib.asynccontextmanager
+async def _open_session_for_user(user_id: str, *, kind: ProviderKind,
+                                   tenant_id: str, row: dict):
+    """Async context manager that yields a connected MCP ClientSession.
+
+    Bypass the lookup-row step when caller already has the row.
+    Caller invokes as: `async with _open_session_for_user(...) as session: ...`
+    """
+    access_token = refresh_if_near_expiry(
+        row, kind=kind, tenant_id=tenant_id, user_id=user_id,
+    )
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+    headers = {"Authorization": f"Bearer {access_token}"}
+    async with streamablehttp_client(row["mcp_server_url"], headers=headers) as (read, write, _):
+        async with ClientSession(read, write) as s:
+            await s.initialize()
+            yield s
+
+
+async def _discover_tools_for_user(user_id: str, *, kind: ProviderKind,
+                                    tenant_id: str, row: dict) -> list:
+    import time as _time
+    sig = _cache_signature(row)
+    cached = _tool_cache.get(f"{kind}:{sig}")
+    now = _time.time()
+    if cached and now - cached[0] < _TOOL_CACHE_TTL:
+        return cached[1]
+
+    async with _open_session_for_user(
+        user_id, kind=kind, tenant_id=tenant_id, row=row,
+    ) as session:
+        result = await session.list_tools()
+    tools = list(result.tools)
+    _tool_cache[f"{kind}:{sig}"] = (now, tools)
+    return tools
+
+
+async def discover_tools(subject: str, *, tenant_id: str) -> dict[ProviderKind, list]:
+    """For each provider the user has connected, return its tool manifest."""
+    user_id = _resolve_user_id(subject, tenant_id=tenant_id)
+    rows = _db().execute("""
+        SELECT conn_id, oauth_provider, access_token_enc, refresh_token_enc,
+               access_expires_at, mcp_server_url, vendor_workspace_id, scopes
+        FROM user_connectors
+        WHERE tenant_id = :tid AND user_id = :uid AND status = 'active'
+    """, [
+        {"name": "tid", "value": {"stringValue": tenant_id}},
+        {"name": "uid", "value": {"stringValue": user_id}},
+    ])
+    # Data API returns one record per row; convert all.
+    out: dict[str, list] = {}
+    raw = rows._resp.get("records") or []  # type: ignore[attr-defined]
+    meta = rows._resp.get("columnMetadata") or []  # type: ignore[attr-defined]
+    import asyncio as _asyncio
+    tasks = []
+    for rec in raw:
+        row = _zip_record(meta, rec)
+        kind = row["oauth_provider"]
+        tasks.append(_discover_tools_for_user(user_id, kind=kind, tenant_id=tenant_id, row=row))
+        out[kind] = []  # placeholder
+    results = await _asyncio.gather(*tasks, return_exceptions=True)
+    for kind, res in zip(list(out.keys()), results):
+        if isinstance(res, Exception):
+            print(f"[discover_tools] {kind} failed: {res!r}")
+            out[kind] = []
+        else:
+            out[kind] = res
+    return out

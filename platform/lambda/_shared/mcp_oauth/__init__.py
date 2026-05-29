@@ -7,4 +7,10 @@ Public API:
 
 See docs/superpowers/specs/2026-05-28-mcp-connectors-design.md §7.
 """
+from .session import (
+    get_session,
+    discover_tools,
+    ConnectorMissingError,
+    ConnectorRevokedError,
+)
 from .crypto import encrypt_token, decrypt_token  # noqa: F401
