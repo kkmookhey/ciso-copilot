@@ -6,12 +6,11 @@
 > still hurts. Product docs sit at the repo root: README → ARCHITECTURE
 > → ROADMAP.
 >
-> Last updated: 2026-05-28 (Wow-demo voice-first agentic investigation
-> shipped end-to-end as PR #32 = 43 commits on `feat/wow-demo`. Demo B
-> verified end-to-end against KK's AWS + GitHub + Slack + JIRA + KK iPhone
-> — real `KAN-N`, real PR on `kkmookhey/wow-demo-pricing-system`, real
-> Slack DMs from `shasta_slack`. Demo A backend ready; needs Task 19
-> data staging. Tasks 19 + 21 remain. Previous: 2026-05-27 ICICI
+> Last updated: 2026-05-28 (MCP Connectors Slice 1 implementation
+> complete — 18 commits on `feat/mcp-connectors-slice-1`, code-only,
+> awaiting KK's E2E smoke test + CDK deploy. Wow-demo PR #32 merged.
+> Spec + plan + Slice 1 implementation all on PRs #33 + the upcoming
+> Slice 1 PR. Previous: 2026-05-28 wow-demo merged. 2026-05-27 ICICI
 > Lombard demo + 4 prod bug fixes (#29). 2026-05-26: Secrets extraction
 > Phase 2 Slice A (#26), AI page UX (#27), docs trio + branding + MIT
 > license. SOC Slice 1c + manual gate verified. 2026-05-25: SOC Slice 1
@@ -26,6 +25,91 @@
 > `aws cloudformation describe-stacks --stack-name <Stack> --query
 > 'Stacks[0].Outputs'`. See `platform/.env.example` for the full key
 > list.
+
+## 🔌 MCP Connectors Slice 1 — code complete, awaiting deploy + smoke (2026-05-28)
+
+Per-user OAuth + remote-MCP integration for productivity tools. Slice 1
+of a 5-slice sub-project ships the load-bearing infrastructure plus
+Slack end-to-end. Slices 2-5 (admin Slack bot + autonomous broadcast,
+Atlassian, Google Workspace, M365 read-only) follow once Slice 1 is
+verified in production.
+
+**Branch:** `feat/mcp-connectors-slice-1`. **18 commits**.
+
+**Spec + plan + this implementation are all under PR #33 + a Slice 1 PR**
+(opens after KK reviews this HANDOFF entry).
+
+### What's code-complete and tested
+
+| Layer | Status |
+|---|---|
+| Aurora schema | `015_mcp_connectors.sql` — `user_connectors` (per-analyst tokens) + `tenant_bot_connectors` (admin bot install) with KMS-encrypted bytea token columns + arrayValue-bound scopes. **Migration NOT applied to Aurora yet.** |
+| CDK data stack | New `connectorTokensKey` (KMS) + `pkceVerifierTable` (DDB, TTL on `ttl`). **Not deployed yet.** |
+| `_shared/mcp_oauth/` Python package | 6 modules + 6 test files: `crypto` (KMS-envelope Fernet), `state` (HS256 with `csrf_token_hash` + caller-provided `nonce`), `pkce` (RFC 7636 + DDB store), `providers/slack` (OAuth v2), `session` (NULL-safe JIT refresh + advisory lock), `discover_tools` (5-min Lambda-memory cache). **14 tests pass.** |
+| `connectors/` Lambda | Skeleton + 4 route handlers: `POST /connect/slack`, `GET /callback/slack`, `DELETE /{conn_id}`, `GET /me`. CSRF cookie binding + sha256 verification. **7 tests pass.** |
+| `tools/main.py` extension | `kind__tool` MCP route via `mcp_oauth.get_session()`; `ConnectorMissingError` → 409 with friendly message. |
+| `voice_session/main.py` extension | Dynamic tool registry via `_build_openai_tools_sync` (with running-loop guard + ThreadPoolExecutor fallback). `_NATIVE_TOOLS = _tools()` aliases the existing static list. |
+| CDK API stack | New Lambda + IAM grants (KMS encrypt/decrypt, DDB rw, Aurora Data API via `grantDataApiAccess`) + 4 routes on the existing `apigw.RestApi`. SSM-backed env for Slack OAuth client + state-JWT secret. `cdk synth` passes; **not deployed yet.** |
+| Web `/settings` shell | Tabbed nav (Profile / Cloud / Connectors / Team / Billing). Connectors tab live; the others are placeholders. Route added in `App.tsx`. |
+| `web/src/lib/api.ts` | Extended with `listConnectors`, `initiateConnectorOAuth`, `revokeConnector`, `callTool`. `useConnectors` hook in `lib/useConnectors.ts`. |
+| Web Connectors catalog | 2-col grid. Slack card live (Connect / Disconnect via OAuth redirect). Atlassian / Google / Microsoft show "Coming in a later slice" placeholders to lock the layout. Microsoft has the PREVIEW badge + read-only note per spec. `?ok=slack` → success toast. |
+| Web Risks page act buttons | "DM via Slack" button mounted on Risk rows. Disabled + tooltip when Slack isn't connected; live POST to `/v1/tools/slack__send_message` when connected. |
+
+**Aggregate test counts** — `_shared/`: **62 passed**. `connectors/`: **7 passed**. `tools/`: 10 new tests pass (5 pre-existing failures unchanged). `voice_session/`: 2 new tests pass (1 pre-existing failure unchanged). Web: `pnpm build` clean.
+
+### Plan-vs-codebase drift adapted by implementers (worth knowing)
+
+- Plan assumed HttpApi for API Gateway; actual stack is `apigw.RestApi`. Implementer used `addResource()/addMethod()` + `LambdaIntegration`.
+- Plan assumed `this.dbClusterArn` etc. on api-stack; actual stack uses `props.dbCluster` with `grantDataApiAccess(fn)` covering Aurora secret read + `rds-data:ExecuteStatement` in one call.
+- Plan said routes live in `web/src/routes/Shell.tsx`; actual routing is in `web/src/App.tsx`.
+- Plan said link to `/connect-clouds`; actual cloud route is `/connect`.
+- Risks page is a Risk register **table** (not finding cards as the spec assumed). ActButtons mount in the title cell; finding-id is synthesized from `r.finding_id ?? r.risk_id`. KK may want to relocate visually.
+
+### What KK needs to do before this can demo (manual steps)
+
+1. **Create the Shasta Slack App** at https://api.slack.com/apps:
+   - Redirect URI: `https://api.shasta.io/v1/connectors/callback/slack` (exact match — Slack rejects drift)
+   - **`token_rotation_enabled=true`** in the app manifest
+   - User scopes: `chat:write,im:write,im:history,search:read,users:read`
+2. **Put credentials in SSM** (in `us-east-1`, the deploy region):
+   ```bash
+   aws ssm put-parameter --name /cisocopilot/connectors/slack/client-id \
+     --type SecureString --value "<client_id>" --overwrite
+   aws ssm put-parameter --name /cisocopilot/connectors/slack/client-secret \
+     --type SecureString --value "<client_secret>" --overwrite
+   SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+   aws ssm put-parameter --name /cisocopilot/connectors/state-jwt-secret \
+     --type SecureString --value "$SECRET" --overwrite
+   ```
+3. **Apply the SQL migration**:
+   ```bash
+   set -a && . platform/.env && set +a
+   aws rds-data execute-statement --resource-arn "$DB_CLUSTER_ARN" \
+     --secret-arn "$DB_SECRET_ARN" --database ciso_copilot \
+     --sql "$(cat platform/sql/015_mcp_connectors.sql)"
+   ```
+4. **Deploy stacks** (data first because api depends on its KMS + DDB):
+   ```bash
+   cd platform
+   npx cdk deploy CisoCopilotData --require-approval never
+   npx cdk deploy CisoCopilotApi --require-approval never
+   ```
+5. **Deploy web bundle**:
+   ```bash
+   cd web && pnpm build
+   aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+   aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
+   ```
+6. **Run the E2E smoke checklist** (plan Task 22): connect Slack via Settings → voice agent "DM yourself" → Risks "DM via Slack" button → disconnect → reconnect → force expiry + verify JIT refresh.
+
+### Known follow-ups for Slice 2+
+
+- The plan-of-record's autonomous-broadcast queue (SQS + `findings_subscriber`) is **not** in Slice 1. Slice 2 adds it.
+- The pre-existing tools/ + voice_session/ test failures (5 total) are unchanged by Slice 1 — separate triage when convenient.
+- KK may want to relocate the Risks-page Slack button if the table-cell placement looks cramped.
+- Plan's spec mentioned `pgp_sym_encrypt`; implementation used Fernet (simpler, same security posture). Spec note in §5 explicitly approves this.
+
+---
 
 ## 🚀 Wow Demo — voice-first agentic investigation shipped (2026-05-28, PR #32)
 
