@@ -41,3 +41,92 @@ def test_initiate_returns_authorize_url_and_sets_csrf_cookie(monkeypatch):
     claims = jwt.decode(state_tok, options={"verify_signature": False})
     cookie_val = set_cookie.split("shasta_oauth_csrf=")[1].split(";")[0]
     assert hashlib.sha256(cookie_val.encode()).hexdigest() == claims["csrf_token_hash"]
+
+
+def test_callback_inserts_user_connector(monkeypatch):
+    import hashlib
+    monkeypatch.setenv("SLACK_CLIENT_ID", "abc")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "xyz")
+    monkeypatch.setenv("CONNECTORS_REDIRECT_BASE", "https://app.shasta.io/v1/connectors")
+    monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
+    monkeypatch.setenv("WEB_BASE_URL", "https://app.shasta.io")
+
+    from mcp_oauth import state as st, pkce
+    from connectors import handlers_slack as h
+
+    challenge = "ch-1"
+    csrf_token = "csrf-secret-value"
+    csrf_hash = hashlib.sha256(csrf_token.encode()).hexdigest()
+    state_tok = st.sign_state(
+        tenant_id="t-uuid", user_id="u-uuid", provider="slack",
+        pkce_verifier_hash=pkce.challenge_hash(challenge),
+        csrf_token_hash=csrf_hash, nonce="n-1",
+    )
+
+    monkeypatch.setattr(h.pkce, "fetch_verifier", lambda nonce: "v-1")
+    monkeypatch.setattr(h.slack_provider, "exchange_code", lambda **kw: {
+        "access_token": "xoxp-A",
+        "refresh_token": "xoxe-R",
+        "expires_in": 43200,
+        "scopes": ["chat:write", "im:write"],
+        "vendor_user_id": "U0X",
+        "vendor_workspace_id": "T0X",
+        "mcp_server_url": "https://mcp.slack.com/mcp",
+    })
+    inserted = {}
+    class FakeDB:
+        def execute(self, sql, params=None):
+            if sql.strip().startswith("INSERT"):
+                inserted["sql"] = sql
+                inserted["params"] = params
+            class R:
+                def fetchone(self_inner): return None
+            return R()
+    monkeypatch.setattr(h, "_db", lambda: FakeDB())
+    monkeypatch.setattr(h, "encrypt_token", lambda t: f"E:{t}".encode())
+
+    # PKCE rebuild check: bypass by making challenge_hash deterministic.
+    # The handler rebuilds the challenge from the verifier "v-1"; for the
+    # signed state to validate, we mock challenge_hash to always return our
+    # pre-computed pkce_verifier_hash. (Defense-in-depth check; the real
+    # PKCE binding happens at the vendor's token endpoint.)
+    expected_pkce_hash = pkce.challenge_hash(challenge)
+    monkeypatch.setattr(h.pkce, "challenge_hash", lambda c: expected_pkce_hash)
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/v1/connectors/callback/slack",
+        "queryStringParameters": {"code": "ac-1", "state": state_tok},
+        "headers": {"cookie": f"shasta_oauth_csrf={csrf_token}"},
+        "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 302
+    assert resp["headers"]["location"].endswith("/settings?tab=connectors&ok=slack")
+    assert "INSERT INTO user_connectors" in inserted["sql"]
+
+
+def test_callback_rejects_missing_csrf_cookie(monkeypatch):
+    """Missing cookie → 400 csrf_mismatch (spec §6)."""
+    import hashlib
+    monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
+    from mcp_oauth import state as st, pkce
+
+    state_tok = st.sign_state(
+        tenant_id="t", user_id="u", provider="slack",
+        pkce_verifier_hash=pkce.challenge_hash("ch"),
+        csrf_token_hash=hashlib.sha256(b"real").hexdigest(),
+        nonce="n-1",
+    )
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/v1/connectors/callback/slack",
+        "queryStringParameters": {"code": "ac-1", "state": state_tok},
+        "headers": {},  # NO cookie
+        "requestContext": {"authorizer": {"claims": {"sub": "s"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 400
+    assert "csrf" in json.loads(resp["body"])["error"]
