@@ -497,18 +497,19 @@ export const api = {
   deleteConnection: (connId: string) =>
     call<{ status: string }>(`/connections/${connId}`, { method: "DELETE" }),
 
-  // MCP Connectors (Slice 1)
+  // MCP Connectors (Slice 1). BASE_URL already includes the /v1 stage
+  // prefix, so all paths here are relative to that.
   listConnectors: () =>
-    call<ListConnectorsResponse>("/v1/connectors/me"),
+    call<ListConnectorsResponse>("/connectors/me"),
 
   initiateConnectorOAuth: (kind: ProviderKind) =>
-    call<InitiateConnectResponse>(`/v1/connectors/connect/${kind}`, { method: "POST", body: "{}" }),
+    call<InitiateConnectResponse>(`/connectors/connect/${kind}`, { method: "POST", body: "{}" }),
 
   revokeConnector: (connId: string) =>
-    call<{ revoked: boolean }>(`/v1/connectors/${connId}`, { method: "DELETE" }),
+    call<{ revoked: boolean }>(`/connectors/${connId}`, { method: "DELETE" }),
 
   callTool: (toolName: string, args: unknown) =>
-    call<Record<string, unknown>>(`/v1/tools/${toolName}`, {
+    call<Record<string, unknown>>(`/tools/${toolName}`, {
       method: "POST",
       body: JSON.stringify(args),
     }),
