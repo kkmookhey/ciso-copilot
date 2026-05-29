@@ -1,0 +1,5 @@
+# Slim Lambda dependencies — most live in the layer/_shared bundle.
+requests==2.32.3
+pyjwt==2.9.0
+cryptography==43.0.1
+mcp>=1.10.0
