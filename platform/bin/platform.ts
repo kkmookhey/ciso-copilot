@@ -70,4 +70,6 @@ new ApiStack(app, 'CisoCopilotApi', {
   aiScanQueue:        scanStack.aiScanQueue,
   cognitoDomain:      `ciso-copilot.auth.${config.awsRegion}.amazoncognito.com`,
   webRedirectUri:     config.webRedirectUri,
+  connectorTokensKey: data.connectorTokensKey,
+  pkceVerifierTable:  data.pkceVerifierTable,
 });

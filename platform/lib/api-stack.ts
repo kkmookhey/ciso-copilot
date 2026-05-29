@@ -11,6 +11,9 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as kms from 'aws-cdk-lib/aws-kms';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import { config } from './config';
@@ -42,6 +45,11 @@ interface ApiStackProps extends cdk.StackProps {
   cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
   webRedirectUri:     string;   // e.g. https://<cdn>/callback
   toolsLambdaRepo:    ecr.IRepository;
+  // MCP Connectors (Slice 1) — KMS envelope key for per-row token encryption +
+  // DDB table for short-lived PKCE verifiers. Created in DataStack so the
+  // KMS key + table outlive ApiStack redeploys.
+  connectorTokensKey: kms.IKey;
+  pkceVerifierTable:  dynamodb.ITable;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -1047,6 +1055,81 @@ export class ApiStack extends cdk.Stack {
     toolsRes.addResource('{tool_name}').addMethod(
       'POST', new apigw.LambdaIntegration(toolsFn), authedOpts,
     );
+
+    // ========================================================================
+    // MCP Connectors Slice 1 — OAuth orchestration for Slack (+ future kinds).
+    //
+    // Bundled from the parent `lambda/` dir so both `connectors/` and
+    // `_shared/mcp_oauth/` land in /asset-output side-by-side; the handler
+    // imports `mcp_oauth.…` directly. Bundling on linux/amd64 with
+    // manylinux2014_x86_64 wheels — same fix as AiGithubFn so the
+    // cryptography wheel (pulled in by PyJWT[crypto]) matches Lambda's arch.
+    //
+    // HARD PREREQUISITE for synth: the two SSM SecureString params below must
+    // exist in the target account, or `valueForStringParameter` resolves to a
+    // CFN dynamic reference that the deploy will reject. KK creates them
+    // out-of-band when registering the Slack OAuth app (see plan Task 15).
+    // ========================================================================
+    const connectorsFn = new lambda.Function(this, 'ConnectorsFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'connectors.main.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda'), {
+        bundling: {
+          image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          platform: 'linux/amd64',
+          command: [
+            'bash', '-c',
+            'pip install --no-cache-dir ' +
+            '--platform manylinux2014_x86_64 ' +
+            '--implementation cp ' +
+            '--python-version 3.12 ' +
+            '--only-binary=:all: ' +
+            '-r connectors/requirements.txt -t /asset-output && ' +
+            'cp -r connectors /asset-output/ && ' +
+            'cp -r _shared/mcp_oauth /asset-output/',
+          ],
+        },
+      }),
+      timeout:    cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        PKCE_VERIFIER_TABLE:      props.pkceVerifierTable.tableName,
+        CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
+        STATE_JWT_SECRET:         ssm.StringParameter.valueForStringParameter(
+          this, '/cisocopilot/connectors/state-jwt-secret',
+        ),
+        SLACK_CLIENT_ID:          ssm.StringParameter.valueForStringParameter(
+          this, '/cisocopilot/connectors/slack/client-id',
+        ),
+        SLACK_CLIENT_SECRET:      ssm.StringParameter.valueForStringParameter(
+          this, '/cisocopilot/connectors/slack/client-secret',
+        ),
+        // apiBaseUrl already includes the /v1 stage (e.g. https://api.shasta.io/v1)
+        CONNECTORS_REDIRECT_BASE: `${config.apiBaseUrl}/connectors`,
+        WEB_BASE_URL:             config.appDomain,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(connectorsFn);
+    props.connectorTokensKey.grantEncryptDecrypt(connectorsFn);
+    props.pkceVerifierTable.grantReadWriteData(connectorsFn);
+
+    // /v1/connectors namespace.
+    //   POST   /connect/{kind}     — Cognito-authed, returns authorize_url
+    //   GET    /callback/{kind}    — UNAUTHED (state JWT is the gate; vendor hits this)
+    //   DELETE /{conn_id}          — Cognito-authed, revoke connection
+    //   GET    /me                 — Cognito-authed, list current user's connectors
+    const connectorsRes = api.root.addResource('connectors');
+    const connectorsConnect = connectorsRes.addResource('connect').addResource('{kind}');
+    const connectorsCallback = connectorsRes.addResource('callback').addResource('{kind}');
+    const connectorsMe = connectorsRes.addResource('me');
+    const connectorsByConnId = connectorsRes.addResource('{conn_id}');
+
+    connectorsConnect.addMethod('POST',  new apigw.LambdaIntegration(connectorsFn), authedOpts);
+    // /callback/{kind} is NOT JWT-authed — state JWT in the query string is the gate.
+    connectorsCallback.addMethod('GET',  new apigw.LambdaIntegration(connectorsFn));
+    connectorsByConnId.addMethod('DELETE', new apigw.LambdaIntegration(connectorsFn), authedOpts);
+    connectorsMe.addMethod('GET',        new apigw.LambdaIntegration(connectorsFn), authedOpts);
 
     // ========================================================================
     // Wow-demo Task 17 — forensic_callback Lambda
