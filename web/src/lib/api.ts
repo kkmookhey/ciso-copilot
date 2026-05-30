@@ -41,6 +41,26 @@ export interface MeResponse {
             status: "pending" | "approved" | "rejected" | "suspended" } | null;
 }
 
+export type ProviderKind = "slack" | "atlassian" | "google" | "microsoft";
+
+export interface ConnectorRow {
+  conn_id:             string;
+  provider:            ProviderKind;
+  vendor_user_id:      string;
+  vendor_workspace_id: string | null;
+  status:              "active" | "revoked" | "expired" | "error";
+  created_at:          string;
+  scopes:              string[];
+}
+
+export interface ListConnectorsResponse {
+  connectors: ConnectorRow[];
+}
+
+export interface InitiateConnectResponse {
+  authorize_url: string;
+}
+
 export interface Connection {
   conn_id:            string;
   cloud_type:         "aws" | "azure" | "entra" | "gcp";
@@ -476,6 +496,23 @@ export const api = {
   getScanStatus: (scanId: string) => call<ScanStatus>(`/scans/${scanId}`),
   deleteConnection: (connId: string) =>
     call<{ status: string }>(`/connections/${connId}`, { method: "DELETE" }),
+
+  // MCP Connectors (Slice 1). BASE_URL already includes the /v1 stage
+  // prefix, so all paths here are relative to that.
+  listConnectors: () =>
+    call<ListConnectorsResponse>("/connectors/me"),
+
+  initiateConnectorOAuth: (kind: ProviderKind) =>
+    call<InitiateConnectResponse>(`/connectors/connect/${kind}`, { method: "POST", body: "{}" }),
+
+  revokeConnector: (connId: string) =>
+    call<{ revoked: boolean }>(`/connectors/${connId}`, { method: "DELETE" }),
+
+  callTool: (toolName: string, args: unknown) =>
+    call<Record<string, unknown>>(`/tools/${toolName}`, {
+      method: "POST",
+      body: JSON.stringify(args),
+    }),
   initiateAwsOnboarding: (displayName: string) =>
     call<InitiateAwsResponse>("/onboarding/aws/initiate", {
       method: "POST",

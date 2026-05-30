@@ -11,6 +11,9 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as kms from 'aws-cdk-lib/aws-kms';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 import * as path from 'path';
 import { config } from './config';
@@ -42,6 +45,11 @@ interface ApiStackProps extends cdk.StackProps {
   cognitoDomain:      string;   // e.g. ciso-copilot.auth.us-east-1.amazoncognito.com
   webRedirectUri:     string;   // e.g. https://<cdn>/callback
   toolsLambdaRepo:    ecr.IRepository;
+  // MCP Connectors (Slice 1) — KMS envelope key for per-row token encryption +
+  // DDB table for short-lived PKCE verifiers. Created in DataStack so the
+  // KMS key + table outlive ApiStack redeploys.
+  connectorTokensKey: kms.IKey;
+  pkceVerifierTable:  dynamodb.ITable;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -759,10 +767,30 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         OPENAI_SECRET_NAME: props.openaiApiKeySecret.secretName,
+        // mcp_oauth.discover_tools is invoked from this Lambda to build the
+        // per-user tool registry. discover_tools → refresh_if_near_expiry
+        // → decrypt_token reads CONNECTOR_TOKENS_KEY_ARN; refresh_token
+        // lazy-loads Slack client creds from SSM.
+        CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
       },
     });
     props.dbCluster.grantDataApiAccess(voiceSessionFn);
     props.openaiApiKeySecret.grantRead(voiceSessionFn);
+    props.connectorTokensKey.grantEncryptDecrypt(voiceSessionFn);
+    // SSM:GetParameter + KMS:Decrypt on alias/aws/ssm so
+    // session._ensure_provider_secrets can fetch Slack OAuth client creds
+    // for refresh_token. Same params connectorsFn reads.
+    voiceSessionFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+      ],
+    }));
+    voiceSessionFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['kms:Decrypt'],
+      resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+    }));
 
     api.root.addResource('voice').addResource('session').addMethod(
       'POST', new apigw.LambdaIntegration(voiceSessionFn), authedOpts,
@@ -1033,9 +1061,26 @@ export class ApiStack extends cdk.Stack {
         MCP_GITHUB_COMMAND:           'mcp-server-github',
         MCP_GITHUB_FORWARD_ENV:       'GITHUB_PERSONAL_ACCESS_TOKEN',
         GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? '',
+        // MCP-namespaced tool dispatch (slack__send_message etc.) goes
+        // through mcp_oauth.get_session → decrypt_token, which reads this.
+        // Slack client creds for refresh are lazy-loaded from SSM by
+        // session._ensure_provider_secrets.
+        CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
       },
     });
     props.dbCluster.grantDataApiAccess(toolsFn);
+    props.connectorTokensKey.grantEncryptDecrypt(toolsFn);
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+      ],
+    }));
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['kms:Decrypt'],
+      resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+    }));
 
     // Task 11 — tail_lambda_logs_for_pattern needs CloudWatch Logs Insights
     toolsFn.addToRolePolicy(new iam.PolicyStatement({
@@ -1047,6 +1092,93 @@ export class ApiStack extends cdk.Stack {
     toolsRes.addResource('{tool_name}').addMethod(
       'POST', new apigw.LambdaIntegration(toolsFn), authedOpts,
     );
+
+    // ========================================================================
+    // MCP Connectors Slice 1 — OAuth orchestration for Slack (+ future kinds).
+    //
+    // Bundled from the parent `lambda/` dir so both `connectors/` and
+    // `_shared/mcp_oauth/` land in /asset-output side-by-side; the handler
+    // imports `mcp_oauth.…` directly. Bundling on linux/amd64 with
+    // manylinux2014_x86_64 wheels — same fix as AiGithubFn so the
+    // cryptography wheel (pulled in by PyJWT[crypto]) matches Lambda's arch.
+    //
+    // HARD PREREQUISITE for synth: the two SSM SecureString params below must
+    // exist in the target account, or `valueForStringParameter` resolves to a
+    // CFN dynamic reference that the deploy will reject. KK creates them
+    // out-of-band when registering the Slack OAuth app (see plan Task 15).
+    // ========================================================================
+    const connectorsFn = new lambda.Function(this, 'ConnectorsFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'connectors.main.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda'), {
+        bundling: {
+          image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          platform: 'linux/amd64',
+          command: [
+            'bash', '-c',
+            'pip install --no-cache-dir ' +
+            '--platform manylinux2014_x86_64 ' +
+            '--implementation cp ' +
+            '--python-version 3.12 ' +
+            '--only-binary=:all: ' +
+            '-r connectors/requirements.txt -t /asset-output && ' +
+            'cp -r connectors /asset-output/ && ' +
+            'cp -r _shared/mcp_oauth /asset-output/',
+          ],
+        },
+      }),
+      timeout:    cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: {
+        ...dbEnv,
+        PKCE_VERIFIER_TABLE:      props.pkceVerifierTable.tableName,
+        CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
+        // SecureString SSM params can't be injected as Lambda env vars
+        // (CFN type-system limitation). The Lambda fetches these at
+        // module-import time via connectors/_secrets.py:
+        //   /cisocopilot/connectors/state-jwt-secret
+        //   /cisocopilot/connectors/slack/client-id
+        //   /cisocopilot/connectors/slack/client-secret
+        // apiBaseUrl already includes the /v1 stage (e.g. https://api.shasta.io/v1)
+        CONNECTORS_REDIRECT_BASE: `${config.apiBaseUrl}/connectors`,
+        WEB_BASE_URL:             config.appDomain,
+      },
+    });
+    props.dbCluster.grantDataApiAccess(connectorsFn);
+    props.connectorTokensKey.grantEncryptDecrypt(connectorsFn);
+    props.pkceVerifierTable.grantReadWriteData(connectorsFn);
+    // SSM:GetParameter + KMS:Decrypt for the three SSM-backed secrets
+    // (state-jwt-secret + slack/client-id + slack/client-secret).
+    connectorsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/state-jwt-secret`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+      ],
+    }));
+    connectorsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['kms:Decrypt'],
+      // SSM SecureString defaults to the alias/aws/ssm AWS-managed KMS key.
+      resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+    }));
+
+    // /v1/connectors namespace.
+    //   POST   /connect/{kind}     — Cognito-authed, returns authorize_url
+    //   GET    /callback/{kind}    — UNAUTHED (state JWT is the gate; vendor hits this)
+    //   DELETE /{conn_id}          — Cognito-authed, revoke connection
+    //   GET    /me                 — Cognito-authed, list current user's connectors
+    const connectorsRes = api.root.addResource('connectors');
+    const connectorsConnect = connectorsRes.addResource('connect').addResource('{kind}');
+    const connectorsCallback = connectorsRes.addResource('callback').addResource('{kind}');
+    const connectorsMe = connectorsRes.addResource('me');
+    const connectorsByConnId = connectorsRes.addResource('{conn_id}');
+
+    connectorsConnect.addMethod('POST',  new apigw.LambdaIntegration(connectorsFn), authedOpts);
+    // /callback/{kind} is NOT JWT-authed — state JWT in the query string is the gate.
+    connectorsCallback.addMethod('GET',  new apigw.LambdaIntegration(connectorsFn));
+    connectorsByConnId.addMethod('DELETE', new apigw.LambdaIntegration(connectorsFn), authedOpts);
+    connectorsMe.addMethod('GET',        new apigw.LambdaIntegration(connectorsFn), authedOpts);
 
     // ========================================================================
     // Wow-demo Task 17 — forensic_callback Lambda

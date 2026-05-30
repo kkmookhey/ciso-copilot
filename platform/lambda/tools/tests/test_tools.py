@@ -80,3 +80,76 @@ class TestSubjectFromClaims:
             "identities": '[{"userId": "upstream-id", "providerName": "Google"}]',
         }
         assert subject_from_claims(claims) == "upstream-id"
+
+
+def test_namespaced_mcp_tool_dispatched_via_mcp_oauth(monkeypatch):
+    import contextlib
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Federated (Microsoft) user — Cognito JWT carries identities[0].userId
+    # but NOT custom:tenant_id. The handler must resolve tenant_id by
+    # joining users.sso_subject. Prior code read claims.get("custom:tenant_id")
+    # and 400'd every federated tool call.
+    ev = {
+        "pathParameters": {"tool_name": "slack__send_message"},
+        "body": json.dumps({"channel": "C0X", "text": "hi"}),
+        "requestContext": {"authorizer": {"claims": {
+            "sub": "cognito-pool-sub",
+            "identities": [{"userId": "upstream-ms-sub",
+                            "providerName": "Microsoft"}],
+        }}},
+    }
+
+    fake_session = AsyncMock()
+    fake_session.call_tool.return_value = MagicMock(
+        content=[MagicMock(text=json.dumps({"ok": True, "ts": "1.0"}))]
+    )
+
+    @contextlib.asynccontextmanager
+    async def fake_get_session(*a, **kw):
+        # Capture args to assert the resolved tenant_id is passed through.
+        fake_get_session.calls.append((a, kw))
+        yield fake_session
+    fake_get_session.calls = []
+
+    # Stub the Aurora Data API lookup that _resolve_tenant_id performs.
+    fake_db = MagicMock()
+    fake_db.execute.return_value.fetchone.return_value = {"tenant_id": "t-uuid"}
+    monkeypatch.setattr("mcp_oauth.session._db", lambda: fake_db)
+    monkeypatch.setattr("mcp_oauth.get_session", fake_get_session)
+
+    from tools.main import handler
+    resp = handler(ev, None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["ok"] is True
+    # Subject passed downstream must be the upstream IdP sub, not the
+    # Cognito pool sub — otherwise mcp_oauth.session can't find the user.
+    # _call_mcp_tool invokes get_session(subject, kind, tenant_id=...).
+    assert fake_get_session.calls
+    args, kwargs = fake_get_session.calls[0]
+    assert args[0] == "upstream-ms-sub"
+    assert args[1] == "slack"
+    assert kwargs.get("tenant_id") == "t-uuid"
+
+
+def test_namespaced_mcp_returns_400_when_user_not_provisioned(monkeypatch):
+    """sso_subject doesn't resolve to any users row (e.g., approval pending).
+    Must return 400 missing_tenant_id, not 500."""
+    import json
+    from unittest.mock import MagicMock
+
+    fake_db = MagicMock()
+    fake_db.execute.return_value.fetchone.return_value = None
+    monkeypatch.setattr("mcp_oauth.session._db", lambda: fake_db)
+
+    ev = {
+        "pathParameters": {"tool_name": "slack__send_message"},
+        "body": json.dumps({"channel": "C0X", "text": "hi"}),
+        "requestContext": {"authorizer": {"claims": {"sub": "unknown-user"}}},
+    }
+    from tools.main import handler
+    resp = handler(ev, None)
+    assert resp["statusCode"] == 400
+    assert json.loads(resp["body"])["error"] == "missing_tenant_id"
