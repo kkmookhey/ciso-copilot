@@ -65,6 +65,22 @@ def _extract_mcp_result(result) -> dict:
         return {"raw": text}
 
 
+def _resolve_tenant_id(subject: str | None) -> str | None:
+    """Look up tenant_id by joining users.sso_subject on the upstream-IdP
+    subject. Mirrors handlers_slack._resolve_user_context and
+    voice_session._resolve_user_context. Returns None if no row matches
+    (federated user not yet provisioned, or pre-approval).
+    """
+    if not subject:
+        return None
+    from mcp_oauth.session import _db
+    row = _db().execute(
+        "SELECT tenant_id FROM users WHERE sso_subject = :s LIMIT 1",
+        [{"name": "s", "value": {"stringValue": subject}}],
+    ).fetchone()
+    return str(row["tenant_id"]) if row else None
+
+
 def subject_from_claims(claims: dict) -> str | None:
     """Resolve the upstream-IdP subject for users.sso_subject JOINs.
 
@@ -131,10 +147,16 @@ def handler(event: dict, context) -> dict:
 
     # MCP-namespaced tool? Route via mcp_oauth.
     if kind:
-        tenant_id = claims.get("custom:tenant_id")
+        # Canonical tenant_id pattern: resolve from users.sso_subject, not
+        # from a custom JWT claim. This Cognito pool does NOT issue
+        # custom:tenant_id — same constraint as voice_session and
+        # connectors/handlers_slack._resolve_user_context. A bare
+        # claims.get("custom:tenant_id") returns None for every federated
+        # (Microsoft/Google) user and 400s every MCP tool call.
+        subject = subject_from_claims(claims)
+        tenant_id = _resolve_tenant_id(subject)
         if not tenant_id:
             return _resp(400, {"error": "missing_tenant_id"})
-        subject = subject_from_claims(claims)
         try:
             result = asyncio.run(_call_mcp_tool(
                 kind=kind, tool_name=mcp_tool, args=args,
