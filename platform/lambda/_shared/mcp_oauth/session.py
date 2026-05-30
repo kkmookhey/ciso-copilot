@@ -41,14 +41,15 @@ def _db():
 
 
 class _DataAPIWrapper:
-    def __init__(self):
+    def __init__(self, txn_id: str | None = None):
         self._client = boto3.client("rds-data")
         self._cluster_arn = os.environ["DB_CLUSTER_ARN"]
         self._secret_arn = os.environ["DB_SECRET_ARN"]
         self._database = os.environ.get("DB_NAME", "ciso_copilot")
+        self._txn_id = txn_id
 
     def execute(self, sql: str, parameters: list | None = None):
-        resp = self._client.execute_statement(
+        kwargs = dict(
             resourceArn=self._cluster_arn,
             secretArn=self._secret_arn,
             database=self._database,
@@ -56,7 +57,51 @@ class _DataAPIWrapper:
             parameters=parameters or [],
             includeResultMetadata=True,
         )
+        # When set, every statement runs inside the same Data API transaction,
+        # which is what makes pg_advisory_xact_lock actually hold across the
+        # subsequent SELECT and UPDATE. Without transactionId the Data API
+        # auto-commits each statement and the lock releases instantly.
+        if self._txn_id is not None:
+            kwargs["transactionId"] = self._txn_id
+        resp = self._client.execute_statement(**kwargs)
         return _Result(resp)
+
+    @contextlib.contextmanager
+    def transaction(self):
+        """Open an explicit Aurora Data API transaction.
+
+        Yields a wrapper whose execute() statements all run under the same
+        transactionId, so transaction-scoped Postgres state (advisory locks,
+        SAVEPOINTs, etc.) survives across statements. Commits on normal
+        exit; rolls back if the body raises.
+        """
+        txn = self._client.begin_transaction(
+            resourceArn=self._cluster_arn,
+            secretArn=self._secret_arn,
+            database=self._database,
+        )
+        txn_id = txn["transactionId"]
+        txn_db = _DataAPIWrapper.__new__(_DataAPIWrapper)
+        txn_db._client = self._client
+        txn_db._cluster_arn = self._cluster_arn
+        txn_db._secret_arn = self._secret_arn
+        txn_db._database = self._database
+        txn_db._txn_id = txn_id
+        try:
+            yield txn_db
+        except Exception:
+            self._client.rollback_transaction(
+                resourceArn=self._cluster_arn,
+                secretArn=self._secret_arn,
+                transactionId=txn_id,
+            )
+            raise
+        else:
+            self._client.commit_transaction(
+                resourceArn=self._cluster_arn,
+                secretArn=self._secret_arn,
+                transactionId=txn_id,
+            )
 
 
 class _Result:
@@ -96,8 +141,11 @@ def _zip_record(meta, record) -> dict:
 
 def lookup_user_connector(*, tenant_id: str, user_id: str, kind: ProviderKind) -> dict:
     db = _db()
+    # access_data_key_ct + refresh_data_key_ct are required to decrypt the
+    # paired *_token_enc columns (KMS envelope; see crypto.py).
     sql = """
-        SELECT conn_id, access_token_enc, refresh_token_enc,
+        SELECT conn_id, access_token_enc, access_data_key_ct,
+               refresh_token_enc, refresh_data_key_ct,
                access_expires_at, mcp_server_url
         FROM user_connectors
         WHERE tenant_id = :tid::uuid AND user_id = :uid::uuid
@@ -143,48 +191,88 @@ def refresh_if_near_expiry(row: dict, *, kind: ProviderKind,
     Matches spec §6 NULL-safe predicate."""
     remaining = _seconds_until(row["access_expires_at"])
     if remaining is not None and remaining > threshold_seconds:
-        return decrypt_token(row["access_token_enc"])
+        return decrypt_token(row["access_token_enc"], row["access_data_key_ct"])
 
-    # Concurrent-refresh race mitigation: Postgres advisory lock keyed by conn_id.
-    # Slack and Atlassian use single-use rotating refresh tokens — without this
-    # lock, two simultaneous invocations both refresh and one's new token is
-    # invalidated server-side (spec §6 "Concurrent-refresh race").
+    # Concurrent-refresh race mitigation: Postgres advisory lock keyed by
+    # conn_id. Slack and Atlassian use single-use rotating refresh tokens —
+    # without this lock, two simultaneous invocations both refresh and one's
+    # new token is invalidated server-side (spec §6 "Concurrent-refresh
+    # race").
+    #
+    # CRITICAL: the lock + re-read + refresh + UPDATE must all run inside a
+    # single Aurora Data API transaction. pg_advisory_xact_lock is
+    # transaction-scoped, so without begin_transaction the Data API
+    # auto-commits each statement and the lock releases instantly — making
+    # the mitigation a no-op. The provider HTTP call is held inside the
+    # transaction too; that's intentional (we need the lock to span the
+    # decision to refresh).
     db = _db()
     lock_key = int(hashlib.sha256(str(row["conn_id"]).encode()).hexdigest()[:15], 16)
-    db.execute("SELECT pg_advisory_xact_lock(:k)", [
-        {"name": "k", "value": {"longValue": lock_key}}
-    ]).fetchone()
+    with db.transaction() as txn:
+        txn.execute("SELECT pg_advisory_xact_lock(:k)", [
+            {"name": "k", "value": {"longValue": lock_key}}
+        ]).fetchone()
 
-    # Re-read under the lock — another invocation may have already refreshed.
-    refreshed = db.execute("""
-        SELECT access_token_enc, refresh_token_enc, access_expires_at
-        FROM user_connectors WHERE conn_id = :cid::uuid
-    """, [{"name": "cid", "value": {"stringValue": str(row["conn_id"])}}]).fetchone()
+        # Re-read under the lock — another invocation may have already
+        # refreshed. Pull the data-key ciphertexts alongside, since they're
+        # required to decrypt either token.
+        refreshed = txn.execute("""
+            SELECT access_token_enc, access_data_key_ct,
+                   refresh_token_enc, refresh_data_key_ct,
+                   access_expires_at
+            FROM user_connectors WHERE conn_id = :cid::uuid
+        """, [{"name": "cid", "value": {"stringValue": str(row["conn_id"])}}]).fetchone()
 
-    re_remaining = _seconds_until(refreshed["access_expires_at"])
-    if re_remaining is not None and re_remaining > threshold_seconds:
-        return decrypt_token(refreshed["access_token_enc"])
-    now = dt.datetime.now(dt.timezone.utc)
+        if not refreshed:
+            # Row was deleted between the outer lookup and this re-read
+            # (concurrent Disconnect from the web UI). Surface as
+            # ConnectorMissingError so the caller returns 409 + an
+            # actionable "reconnect in Settings" prompt instead of a
+            # generic 500. Raising rolls back the transaction.
+            raise ConnectorMissingError(
+                f"connector {row['conn_id']} disappeared during refresh"
+            )
 
-    # Still expired — actually refresh.
-    refresh_plain = decrypt_token(refreshed["refresh_token_enc"])
-    new_tokens = _provider_refresh(kind, refresh_plain)
-    new_access_enc = encrypt_token(new_tokens["access_token"])
-    new_refresh_enc = encrypt_token(new_tokens["refresh_token"])
-    new_expires_at = now + dt.timedelta(seconds=int(new_tokens["expires_in"]))
+        re_remaining = _seconds_until(refreshed["access_expires_at"])
+        if re_remaining is not None and re_remaining > threshold_seconds:
+            # Another invocation already refreshed. Commit the no-op
+            # transaction (releases the lock) and return its token.
+            return decrypt_token(
+                refreshed["access_token_enc"],
+                refreshed["access_data_key_ct"],
+            )
 
-    db.execute("""
-        UPDATE user_connectors
-        SET access_token_enc = :a, refresh_token_enc = :r,
-            access_expires_at = CAST(:e AS TIMESTAMPTZ), last_used_at = now()
-        WHERE conn_id = :cid::uuid
-    """, [
-        {"name": "a", "value": {"blobValue": new_access_enc}},
-        {"name": "r", "value": {"blobValue": new_refresh_enc}},
-        {"name": "e", "value": {"stringValue": new_expires_at.isoformat()}},
-        {"name": "cid", "value": {"stringValue": str(row["conn_id"])}},
-    ]).fetchone()
-    return new_tokens["access_token"]
+        # Still expired — actually refresh. The provider HTTP call runs
+        # inside the transaction so the lock spans the decision-to-refresh
+        # window. Transactions can safely sit open for the ~2s Slack takes.
+        now = dt.datetime.now(dt.timezone.utc)
+        refresh_plain = decrypt_token(
+            refreshed["refresh_token_enc"],
+            refreshed["refresh_data_key_ct"],
+        )
+        new_tokens = _provider_refresh(kind, refresh_plain)
+        new_access_enc, new_access_dk = encrypt_token(new_tokens["access_token"])
+        new_refresh_enc, new_refresh_dk = encrypt_token(new_tokens["refresh_token"])
+        new_expires_at = now + dt.timedelta(seconds=int(new_tokens["expires_in"]))
+
+        txn.execute("""
+            UPDATE user_connectors
+            SET access_token_enc    = :a,
+                access_data_key_ct  = :adk,
+                refresh_token_enc   = :r,
+                refresh_data_key_ct = :rdk,
+                access_expires_at   = CAST(:e AS TIMESTAMPTZ),
+                last_used_at        = now()
+            WHERE conn_id = :cid::uuid
+        """, [
+            {"name": "a",   "value": {"blobValue": new_access_enc}},
+            {"name": "adk", "value": {"blobValue": new_access_dk}},
+            {"name": "r",   "value": {"blobValue": new_refresh_enc}},
+            {"name": "rdk", "value": {"blobValue": new_refresh_dk}},
+            {"name": "e",   "value": {"stringValue": new_expires_at.isoformat()}},
+            {"name": "cid", "value": {"stringValue": str(row["conn_id"])}},
+        ]).fetchone()
+        return new_tokens["access_token"]
 
 
 @asynccontextmanager
@@ -276,7 +364,9 @@ async def discover_tools(subject: str, *, tenant_id: str) -> dict[ProviderKind, 
     """For each provider the user has connected, return its tool manifest."""
     user_id = _resolve_user_id(subject, tenant_id=tenant_id)
     rows = _db().execute("""
-        SELECT conn_id, oauth_provider, access_token_enc, refresh_token_enc,
+        SELECT conn_id, oauth_provider,
+               access_token_enc, access_data_key_ct,
+               refresh_token_enc, refresh_data_key_ct,
                access_expires_at, mcp_server_url, vendor_workspace_id, scopes
         FROM user_connectors
         WHERE tenant_id = :tid::uuid AND user_id = :uid::uuid AND status = 'active'
