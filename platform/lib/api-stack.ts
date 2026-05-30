@@ -767,10 +767,30 @@ export class ApiStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         OPENAI_SECRET_NAME: props.openaiApiKeySecret.secretName,
+        // mcp_oauth.discover_tools is invoked from this Lambda to build the
+        // per-user tool registry. discover_tools → refresh_if_near_expiry
+        // → decrypt_token reads CONNECTOR_TOKENS_KEY_ARN; refresh_token
+        // lazy-loads Slack client creds from SSM.
+        CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
       },
     });
     props.dbCluster.grantDataApiAccess(voiceSessionFn);
     props.openaiApiKeySecret.grantRead(voiceSessionFn);
+    props.connectorTokensKey.grantEncryptDecrypt(voiceSessionFn);
+    // SSM:GetParameter + KMS:Decrypt on alias/aws/ssm so
+    // session._ensure_provider_secrets can fetch Slack OAuth client creds
+    // for refresh_token. Same params connectorsFn reads.
+    voiceSessionFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+      ],
+    }));
+    voiceSessionFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['kms:Decrypt'],
+      resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+    }));
 
     api.root.addResource('voice').addResource('session').addMethod(
       'POST', new apigw.LambdaIntegration(voiceSessionFn), authedOpts,
@@ -1041,9 +1061,26 @@ export class ApiStack extends cdk.Stack {
         MCP_GITHUB_COMMAND:           'mcp-server-github',
         MCP_GITHUB_FORWARD_ENV:       'GITHUB_PERSONAL_ACCESS_TOKEN',
         GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_PERSONAL_ACCESS_TOKEN ?? '',
+        // MCP-namespaced tool dispatch (slack__send_message etc.) goes
+        // through mcp_oauth.get_session → decrypt_token, which reads this.
+        // Slack client creds for refresh are lazy-loaded from SSM by
+        // session._ensure_provider_secrets.
+        CONNECTOR_TOKENS_KEY_ARN: props.connectorTokensKey.keyArn,
       },
     });
     props.dbCluster.grantDataApiAccess(toolsFn);
+    props.connectorTokensKey.grantEncryptDecrypt(toolsFn);
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+      ],
+    }));
+    toolsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['kms:Decrypt'],
+      resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+    }));
 
     // Task 11 — tail_lambda_logs_for_pattern needs CloudWatch Logs Insights
     toolsFn.addToRolePolicy(new iam.PolicyStatement({

@@ -161,7 +161,37 @@ def lookup_user_connector(*, tenant_id: str, user_id: str, kind: ProviderKind) -
     return row
 
 
+_SSM_PROVIDER_PARAMS = {
+    "slack": {
+        "SLACK_CLIENT_ID":     "/cisocopilot/connectors/slack/client-id",
+        "SLACK_CLIENT_SECRET": "/cisocopilot/connectors/slack/client-secret",
+    },
+}
+
+
+def _ensure_provider_secrets(kind: ProviderKind) -> None:
+    """Lazy-load SSM SecureString OAuth client creds into os.environ.
+
+    The connectors Lambda eagerly loads these at import time via
+    connectors/_secrets.py, but the tools and voice_session Lambdas also
+    go through mcp_oauth.session._provider_refresh now (B2 fix) and need
+    the same values. CloudFormation can't inject SecureString params as
+    Lambda env vars, so each consumer fetches via ssm:GetParameter on
+    first refresh. One SSM round-trip per cold start, then cached for the
+    life of the execution context.
+    """
+    needed = _SSM_PROVIDER_PARAMS.get(kind, {})
+    missing = [(env, path) for env, path in needed.items() if not os.environ.get(env)]
+    if not missing:
+        return
+    ssm = boto3.client("ssm")
+    for env_name, path in missing:
+        resp = ssm.get_parameter(Name=path, WithDecryption=True)
+        os.environ[env_name] = resp["Parameter"]["Value"]
+
+
 def _provider_refresh(kind: ProviderKind, refresh_token_plaintext: str) -> dict:
+    _ensure_provider_secrets(kind)
     cid = os.environ[f"{kind.upper()}_CLIENT_ID"]
     csec = os.environ[f"{kind.upper()}_CLIENT_SECRET"]
     if kind == "slack":
