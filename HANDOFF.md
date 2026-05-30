@@ -26,7 +26,7 @@
 > 'Stacks[0].Outputs'`. See `platform/.env.example` for the full key
 > list.
 
-## 🔌 MCP Connectors Slice 1 — code complete, awaiting deploy + smoke (2026-05-28)
+## 🔌 MCP Connectors Slice 1 — security/IDOR fixes landed, re-smoke required (2026-05-30)
 
 Per-user OAuth + remote-MCP integration for productivity tools. Slice 1
 of a 5-slice sub-project ships the load-bearing infrastructure plus
@@ -34,10 +34,102 @@ Slack end-to-end. Slices 2-5 (admin Slack bot + autonomous broadcast,
 Atlassian, Google Workspace, M365 read-only) follow once Slice 1 is
 verified in production.
 
-**Branch:** `feat/mcp-connectors-slice-1`. **18 commits**.
+**Branch:** `feat/mcp-connectors-slice-1`. **PR #33** (currently draft).
 
-**Spec + plan + this implementation are all under PR #33 + a Slice 1 PR**
-(opens after KK reviews this HANDOFF entry).
+### 2026-05-30 fixes from pre-merge code review
+
+Five-angle high-effort review surfaced 5 blockers + 3 important issues
+after KK's initial smoke (1–5) passed against a single warm Lambda
+container. All eight landed on the branch with new tests; the schema
+changed, so KK must drop + re-apply migration 015 and reconnect Slack
+before re-smoking.
+
+- **B1 — KMS envelope rewrite.** `crypto.py` was caching only `Plaintext`
+  from `GenerateDataKey` and discarding `CiphertextBlob`. Every new
+  Lambda container generated a fresh random data key, so tokens written
+  by container A were undecryptable by container B (silently bricked
+  every connector under concurrency). Replaced with per-row data keys:
+  `encrypt_token` returns `(fernet_ct, data_key_ciphertext)`; both are
+  persisted; `decrypt_token` calls `kms.Decrypt` on the stored
+  `CiphertextBlob` (with bounded LRU cache to skip the round-trip on
+  hot reads). Schema gained `access_data_key_ct` + `refresh_data_key_ct`
+  bytea columns on `user_connectors` AND `tenant_bot_connectors`.
+- **B2 — `tools/main.py` tenant_id pattern.** The MCP arm read
+  `claims.get("custom:tenant_id")` — a claim this Cognito pool never
+  issues. Every federated (Microsoft/Google) MCP tool call 400'd.
+  Replaced with the canonical `SELECT tenant_id FROM users WHERE
+  sso_subject = :s` join (mirrors `handlers_slack._resolve_user_context`
+  and `voice_session._resolve_user_context`).
+- **B3 — Advisory lock now real.** `pg_advisory_xact_lock` was a no-op:
+  Aurora Data API auto-commits each `execute_statement`, releasing the
+  txn-scoped lock instantly. Extended `_DataAPIWrapper` with a
+  `transaction()` context manager that does `begin_transaction`/
+  `commit_transaction`/`rollback_transaction`. Lock + re-read + provider
+  HTTP call + UPDATE now all share one txn, so the lock survives.
+- **B4 — DELETE intra-tenant IDOR.** Revoke filtered by `tenant_id`
+  only, discarding `user_id` from `_resolve_user_context`. Any tenant
+  member could revoke another member's connector by conn_id. SELECT +
+  UPDATE both now bind `user_id`.
+- **B5 — `list_me` Aurora unwrap.** Bare `next(iter(cell.values()))`
+  decoded NULL → Python `True` and `TEXT[]` → raw `{'stringValues':[...]}`
+  dict. UI showed "Connected · true" for null workspaces and mangled
+  scopes. Now uses the existing `_zip_record` helper.
+- **I1 — PKCE one-shot consume.** `fetch_verifier` now uses
+  `delete_item(ReturnValues="ALL_OLD")` instead of `get_item`. RFC 7636
+  §4.5 compliance — verifier is replay-proof immediately, not just at
+  TTL expiry.
+- **I2 — CSRF cookie retired.** Cross-origin web→API + wildcard
+  `Allow-Origin: *` made the Set-Cookie unusable, so the check was dead
+  code. Removed entirely; the signed state JWT (HS256, server-secret,
+  5-min exp, with `iss` + `aud` now pinned and verified) is the CSRF
+  defense. `verify_state(token, expected_provider=...)` rejects a JWT
+  minted for one provider replayed at another.
+- **I3 — None-deref guard.** `refresh_if_near_expiry` re-read under the
+  lock now raises `ConnectorMissingError` if the row was concurrently
+  deleted, so the caller returns 409 "reconnect in Settings" instead of
+  a generic 500.
+
+### What KK needs to do before re-smoking
+
+The KMS-envelope rewrite changed `user_connectors` schema. Existing
+rows (the Slack OAuth from yesterday's smoke) were encrypted under the
+broken single-key scheme and cannot be migrated.
+
+1. **Drop the existing `user_connectors` table and re-apply migration**:
+   ```bash
+   set -a && . platform/.env && set +a
+   aws rds-data execute-statement --resource-arn "$DB_CLUSTER_ARN" \
+     --secret-arn "$DB_SECRET_ARN" --database ciso_copilot \
+     --sql "DROP TABLE IF EXISTS user_connectors;
+            DROP TABLE IF EXISTS tenant_bot_connectors;"
+   aws rds-data execute-statement --resource-arn "$DB_CLUSTER_ARN" \
+     --secret-arn "$DB_SECRET_ARN" --database ciso_copilot \
+     --sql "$(cat platform/sql/015_mcp_connectors.sql)"
+   ```
+2. **CDK deploy** (api + data — KMS grants unchanged, but code changed):
+   ```bash
+   cd platform
+   npx cdk deploy CisoCopilotApi --require-approval never --hotswap
+   ```
+3. **Web rebuild** (no code changes here, but rebuild to keep parity):
+   ```bash
+   cd web && pnpm build
+   aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
+   aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
+   ```
+4. **Reconnect Slack** in `/settings` (the old encrypted tokens are gone).
+5. **Re-run smoke 1–5 + 6**:
+   - 1: Connect Slack via Settings
+   - 2: Voice agent "DM yourself"
+   - 3: Risks "DM via Slack" button (this is the path that previously
+        400'd silently for non-KK accounts — verify it works now)
+   - 4: Disconnect → reconnect
+   - 5: Force token expiry, verify JIT refresh works
+   - 6: (new) Two concurrent voice tool calls within 60s of expiry —
+        confirm both succeed (the advisory-lock fix being exercised).
+        Hard to engineer manually; can verify by tailing CloudWatch for
+        the connectors Lambda and looking for paired
+        `pg_advisory_xact_lock` log lines under one transactionId.
 
 ### What's code-complete and tested
 
@@ -55,7 +147,12 @@ verified in production.
 | Web Connectors catalog | 2-col grid. Slack card live (Connect / Disconnect via OAuth redirect). Atlassian / Google / Microsoft show "Coming in a later slice" placeholders to lock the layout. Microsoft has the PREVIEW badge + read-only note per spec. `?ok=slack` → success toast. |
 | Web Risks page act buttons | "DM via Slack" button mounted on Risk rows. Disabled + tooltip when Slack isn't connected; live POST to `/v1/tools/slack__send_message` when connected. |
 
-**Aggregate test counts** — `_shared/`: **62 passed**. `connectors/`: **7 passed**. `tools/`: 10 new tests pass (5 pre-existing failures unchanged). `voice_session/`: 2 new tests pass (1 pre-existing failure unchanged). Web: `pnpm build` clean.
+**Aggregate test counts (post-fix, 2026-05-30)** — `_shared/`: **70 passed**.
+`connectors/`: **8 passed**. `tools/`: 22 passed (4 pre-existing failures
+in `slack_dm` / `create_pr_with_bump` / `run_forensic_scan` unchanged).
+`voice_session/`: 7 passed (1 pre-existing system-prompt length assertion
+unchanged; conftest sys.path bug fixed so the dynamic-tools tests now
+actually collect). Web: `pnpm build` clean.
 
 ### Plan-vs-codebase drift adapted by implementers (worth knowing)
 
@@ -65,7 +162,7 @@ verified in production.
 - Plan said link to `/connect-clouds`; actual cloud route is `/connect`.
 - Risks page is a Risk register **table** (not finding cards as the spec assumed). ActButtons mount in the title cell; finding-id is synthesized from `r.finding_id ?? r.risk_id`. KK may want to relocate visually.
 
-### What KK needs to do before this can demo (manual steps)
+### Initial bring-up steps (still required if Slack app/SSM not done)
 
 1. **Create the Shasta Slack App** at https://api.slack.com/apps:
    - Redirect URI: `https://api.shasta.io/v1/connectors/callback/slack` (exact match — Slack rejects drift)
@@ -81,26 +178,6 @@ verified in production.
    aws ssm put-parameter --name /cisocopilot/connectors/state-jwt-secret \
      --type SecureString --value "$SECRET" --overwrite
    ```
-3. **Apply the SQL migration**:
-   ```bash
-   set -a && . platform/.env && set +a
-   aws rds-data execute-statement --resource-arn "$DB_CLUSTER_ARN" \
-     --secret-arn "$DB_SECRET_ARN" --database ciso_copilot \
-     --sql "$(cat platform/sql/015_mcp_connectors.sql)"
-   ```
-4. **Deploy stacks** (data first because api depends on its KMS + DDB):
-   ```bash
-   cd platform
-   npx cdk deploy CisoCopilotData --require-approval never
-   npx cdk deploy CisoCopilotApi --require-approval never
-   ```
-5. **Deploy web bundle**:
-   ```bash
-   cd web && pnpm build
-   aws s3 sync dist/ s3://<WEB_BUCKET>/ --delete
-   aws cloudfront create-invalidation --distribution-id <CLOUDFRONT_DIST_ID> --paths '/*'
-   ```
-6. **Run the E2E smoke checklist** (plan Task 22): connect Slack via Settings → voice agent "DM yourself" → Risks "DM via Slack" button → disconnect → reconnect → force expiry + verify JIT refresh.
 
 ### Known follow-ups for Slice 2+
 
