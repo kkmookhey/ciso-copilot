@@ -41,6 +41,14 @@ def store_verifier(*, nonce: str, verifier: str, ttl_seconds: int = 300) -> None
 
 
 def fetch_verifier(nonce: str) -> str | None:
-    resp = _table().get_item(Key={"nonce": nonce})
-    item = resp.get("Item")
+    # RFC 7636 §4.5: the verifier must be consumed on first use. delete_item
+    # with ReturnValues=ALL_OLD does this atomically — concurrent callbacks
+    # for the same nonce see at most one verifier each. The DDB TTL is a
+    # belt-and-braces fallback if delete is never called (e.g., callback
+    # never runs because the user closes the tab).
+    resp = _table().delete_item(
+        Key={"nonce": nonce},
+        ReturnValues="ALL_OLD",
+    )
+    item = resp.get("Attributes")
     return item["verifier"] if item else None
