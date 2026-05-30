@@ -4,14 +4,12 @@ import jwt
 import pytest
 
 
-def _kw():
-    """Common args including the new csrf_token_hash claim (spec B3)."""
+def _kw(provider: str = "slack"):
     return dict(
         tenant_id="tenant-1",
         user_id="user-1",
-        provider="slack",
+        provider=provider,
         pkce_verifier_hash="hash-abc",
-        csrf_token_hash="csrf-hash-abc",
         nonce="nonce-1",
     )
 
@@ -21,12 +19,14 @@ def test_state_round_trips(monkeypatch):
     from mcp_oauth.state import sign_state, verify_state
 
     token = sign_state(**_kw())
-    claims = verify_state(token)
+    claims = verify_state(token, expected_provider="slack")
     assert claims["tenant_id"] == "tenant-1"
     assert claims["provider"] == "slack"
     assert claims["pkce_verifier_hash"] == "hash-abc"
-    assert claims["csrf_token_hash"] == "csrf-hash-abc"
     assert claims["nonce"] == "nonce-1"
+    # iss + aud are baked in and validated on decode.
+    assert claims["iss"] == "shasta-connectors"
+    assert claims["aud"] == "slack-callback"
 
 
 def test_state_rejects_expired(monkeypatch):
@@ -40,7 +40,7 @@ def test_state_rejects_expired(monkeypatch):
     token = st.sign_state(ttl_seconds=300, **_kw())
     fake_time[0] += 301  # jump past expiry
     with pytest.raises(jwt.ExpiredSignatureError):
-        st.verify_state(token)
+        st.verify_state(token, expected_provider="slack")
 
 
 def test_state_rejects_tampered(monkeypatch):
@@ -51,4 +51,15 @@ def test_state_rejects_tampered(monkeypatch):
     head, payload, sig = token.split(".")
     bad = ".".join([head, payload, sig[:-1] + ("A" if sig[-1] != "A" else "B")])
     with pytest.raises(jwt.InvalidSignatureError):
-        verify_state(bad)
+        verify_state(bad, expected_provider="slack")
+
+
+def test_state_rejects_wrong_audience(monkeypatch):
+    """A JWT minted for slack cannot be used at the atlassian callback.
+    Prevents cross-provider replay if STATE_JWT_SECRET is ever shared."""
+    monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
+    from mcp_oauth.state import sign_state, verify_state
+
+    token = sign_state(**_kw(provider="slack"))
+    with pytest.raises(jwt.InvalidAudienceError):
+        verify_state(token, expected_provider="atlassian")
