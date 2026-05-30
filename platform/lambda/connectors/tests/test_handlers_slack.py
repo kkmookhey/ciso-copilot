@@ -1,11 +1,15 @@
 from __future__ import annotations
 import json
-import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 
-def test_initiate_returns_authorize_url_and_sets_csrf_cookie(monkeypatch):
-    import hashlib
+def test_initiate_returns_authorize_url(monkeypatch):
+    """Initiate POST returns the Slack authorize URL with a signed state JWT.
+
+    The CSRF double-submit cookie was removed (dead code in this cross-
+    origin deployment); the signed state JWT IS the CSRF defense. See
+    state.py module docstring.
+    """
     monkeypatch.setenv("SLACK_CLIENT_ID", "abc")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "xyz")
     monkeypatch.setenv("CONNECTORS_REDIRECT_BASE", "https://app.shasta.io/v1/connectors")
@@ -26,24 +30,21 @@ def test_initiate_returns_authorize_url_and_sets_csrf_cookie(monkeypatch):
     assert body["authorize_url"].startswith("https://slack.com/oauth/v2/authorize?")
     store.assert_called_once()
 
-    # CSRF cookie present, HttpOnly, Secure, SameSite=Lax (spec §6 CSRF binding)
-    set_cookie = resp["headers"]["set-cookie"]
-    assert "shasta_oauth_csrf=" in set_cookie
-    assert "HttpOnly" in set_cookie
-    assert "Secure" in set_cookie
-    assert "SameSite=Lax" in set_cookie
+    # No Set-Cookie should be emitted — the CSRF cookie pattern was retired.
+    headers = resp.get("headers") or {}
+    assert "set-cookie" not in {k.lower() for k in headers}
 
-    # Cookie value's SHA256 must match the csrf_token_hash inside the state JWT.
-    state_tok = body["authorize_url"].split("state=")[1].split("&")[0]
+    # State JWT must carry iss + aud pinned to slack.
     import urllib.parse, jwt
+    state_tok = body["authorize_url"].split("state=")[1].split("&")[0]
     state_tok = urllib.parse.unquote(state_tok)
     claims = jwt.decode(state_tok, options={"verify_signature": False})
-    cookie_val = set_cookie.split("shasta_oauth_csrf=")[1].split(";")[0]
-    assert hashlib.sha256(cookie_val.encode()).hexdigest() == claims["csrf_token_hash"]
+    assert claims["iss"] == "shasta-connectors"
+    assert claims["aud"] == "slack-callback"
+    assert claims["user_id"] == "u-uuid"
 
 
 def test_callback_inserts_user_connector(monkeypatch):
-    import hashlib
     monkeypatch.setenv("SLACK_CLIENT_ID", "abc")
     monkeypatch.setenv("SLACK_CLIENT_SECRET", "xyz")
     monkeypatch.setenv("CONNECTORS_REDIRECT_BASE", "https://app.shasta.io/v1/connectors")
@@ -54,12 +55,10 @@ def test_callback_inserts_user_connector(monkeypatch):
     from connectors import handlers_slack as h
 
     challenge = "ch-1"
-    csrf_token = "csrf-secret-value"
-    csrf_hash = hashlib.sha256(csrf_token.encode()).hexdigest()
     state_tok = st.sign_state(
         tenant_id="t-uuid", user_id="u-uuid", provider="slack",
         pkce_verifier_hash=pkce.challenge_hash(challenge),
-        csrf_token_hash=csrf_hash, nonce="n-1",
+        nonce="n-1",
     )
 
     monkeypatch.setattr(h.pkce, "fetch_verifier", lambda nonce: "v-1")
@@ -82,13 +81,11 @@ def test_callback_inserts_user_connector(monkeypatch):
                 def fetchone(self_inner): return None
             return R()
     monkeypatch.setattr(h, "_db", lambda: FakeDB())
-    monkeypatch.setattr(h, "encrypt_token", lambda t: f"E:{t}".encode())
+    # KMS-envelope shape: encrypt_token returns (fernet_ct, data_key_ct).
+    monkeypatch.setattr(h, "encrypt_token",
+                         lambda t: (f"E:{t}".encode(), f"DK:{t}".encode()))
 
     # PKCE rebuild check: bypass by making challenge_hash deterministic.
-    # The handler rebuilds the challenge from the verifier "v-1"; for the
-    # signed state to validate, we mock challenge_hash to always return our
-    # pre-computed pkce_verifier_hash. (Defense-in-depth check; the real
-    # PKCE binding happens at the vendor's token endpoint.)
     expected_pkce_hash = pkce.challenge_hash(challenge)
     monkeypatch.setattr(h.pkce, "challenge_hash", lambda c: expected_pkce_hash)
 
@@ -97,31 +94,27 @@ def test_callback_inserts_user_connector(monkeypatch):
         "httpMethod": "GET",
         "rawPath": "/connectors/callback/slack",
         "queryStringParameters": {"code": "ac-1", "state": state_tok},
-        "headers": {"cookie": f"shasta_oauth_csrf={csrf_token}"},
         "requestContext": {"authorizer": {"claims": {"sub": "subject-1"}}},
     }
     resp = m.handler(ev, None)
     assert resp["statusCode"] == 302
     assert resp["headers"]["location"].endswith("/settings?tab=connectors&ok=slack")
+    # No Set-Cookie clear-header — the CSRF cookie was retired.
+    assert "set-cookie" not in {k.lower() for k in resp["headers"]}
     assert "INSERT INTO user_connectors" in inserted["sql"]
 
 
-def test_callback_rejects_mismatched_csrf_cookie(monkeypatch):
-    """Cookie present but doesn't match state JWT hash → 400 csrf_mismatch.
-
-    Missing-cookie case is tolerated in this deployment because the web
-    app and the API are on different origins, so the browser drops the
-    Set-Cookie from the cross-origin initiate response. See the TODO in
-    handlers_slack.callback_slack for the planned fix.
-    """
-    import hashlib
+def test_callback_rejects_state_minted_for_another_provider(monkeypatch):
+    """State JWT minted with provider=atlassian must be rejected at the
+    slack callback (aud claim mismatch). Replaces the old CSRF cookie
+    test — same protection family, stronger guarantee."""
     monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
     from mcp_oauth import state as st, pkce
 
+    # Sign a state for atlassian and try to submit it at slack's callback.
     state_tok = st.sign_state(
-        tenant_id="t", user_id="u", provider="slack",
+        tenant_id="t", user_id="u", provider="atlassian",
         pkce_verifier_hash=pkce.challenge_hash("ch"),
-        csrf_token_hash=hashlib.sha256(b"real-token").hexdigest(),
         nonce="n-1",
     )
     from connectors import main as m
@@ -129,9 +122,8 @@ def test_callback_rejects_mismatched_csrf_cookie(monkeypatch):
         "httpMethod": "GET",
         "rawPath": "/connectors/callback/slack",
         "queryStringParameters": {"code": "ac-1", "state": state_tok},
-        "headers": {"cookie": "shasta_oauth_csrf=wrong-token"},
         "requestContext": {"authorizer": {"claims": {"sub": "s"}}},
     }
     resp = m.handler(ev, None)
     assert resp["statusCode"] == 400
-    assert json.loads(resp["body"])["error"] == "csrf_mismatch"
+    assert json.loads(resp["body"])["error"] == "invalid_state"

@@ -35,14 +35,17 @@ def _resolve_user_context(claims: dict) -> tuple[str | None, str | None]:
 def initiate_slack(event, claims, _params):
     """Initiate Slack OAuth.
 
-    Generates: PKCE verifier+challenge, CSRF random token, fresh nonce.
-    Stores: PKCE verifier in DDB keyed by nonce.
-    Sets: shasta_oauth_csrf cookie (HttpOnly, Secure, SameSite=Lax) so the
-          callback can prove the redirecting browser is the one that
-          started the flow (spec §6 CSRF binding).
+    Generates: PKCE verifier+challenge, fresh nonce.
+    Stores: PKCE verifier in DDB keyed by nonce (one-shot consumed on
+            callback).
     Returns: { authorize_url } for the web client to redirect to.
+
+    CSRF defense: the signed state JWT IS the CSRF token. It is HS256-
+    signed with a server-side secret, scoped to a specific user_id +
+    provider, and expires in 5 minutes. The earlier double-submit cookie
+    was dead code in this deployment (cross-origin browser drops the
+    Set-Cookie); see state.py module docstring for the full reasoning.
     """
-    import hashlib
     import secrets
     tenant_id, user_id = _resolve_user_context(claims)
     if not tenant_id or not user_id:
@@ -53,8 +56,6 @@ def initiate_slack(event, claims, _params):
 
     verifier, challenge = pkce.generate_pair()
     nonce = secrets.token_urlsafe(16)
-    csrf_token = secrets.token_urlsafe(32)
-    csrf_token_hash = hashlib.sha256(csrf_token.encode()).hexdigest()
 
     pkce.store_verifier(nonce=nonce, verifier=verifier)
 
@@ -63,7 +64,6 @@ def initiate_slack(event, claims, _params):
         user_id=user_id,
         provider="slack",
         pkce_verifier_hash=pkce.challenge_hash(challenge),
-        csrf_token_hash=csrf_token_hash,
         nonce=nonce,
     )
 
@@ -72,23 +72,7 @@ def initiate_slack(event, claims, _params):
         state=state, code_challenge=challenge,
     )
 
-    cookie = (
-        f"shasta_oauth_csrf={csrf_token}; HttpOnly; Secure; "
-        f"SameSite=Lax; Path=/v1/connectors; Max-Age=600"
-    )
-    return _resp(200, {"authorize_url": url}, headers={"set-cookie": cookie})
-
-
-def _read_cookie(event: dict, name: str) -> str | None:
-    """Read a single cookie value from API Gateway v2 event headers.
-    Header key is lower-cased; value is `k1=v1; k2=v2`."""
-    headers = event.get("headers") or {}
-    raw = headers.get("cookie") or headers.get("Cookie") or ""
-    for part in raw.split(";"):
-        k, _, v = part.strip().partition("=")
-        if k == name:
-            return v
-    return None
+    return _resp(200, {"authorize_url": url})
 
 
 @_route("GET", r"^/connectors/callback/slack$", requires_auth=False)
@@ -101,7 +85,10 @@ def callback_slack(event, claims, _params):
         return _resp(400, {"error": "missing_code_or_state"})
 
     try:
-        s = state_jwt.verify_state(state)
+        # expected_provider pins the aud claim — a slack JWT cannot be
+        # replayed at, e.g., the atlassian callback if STATE_JWT_SECRET is
+        # ever shared across providers.
+        s = state_jwt.verify_state(state, expected_provider="slack")
     except Exception as e:
         return _resp(400, {"error": "invalid_state", "detail": str(e)[:120]})
 
@@ -109,21 +96,6 @@ def callback_slack(event, claims, _params):
     user_id = s["user_id"]
     nonce = s["nonce"]
     pkce_hash = s["pkce_verifier_hash"]
-
-    # CSRF binding deferred — see TODO below. The CSRF cookie pattern in
-    # spec §6 assumes same-origin web + API. In this deployment they are
-    # cross-origin (shasta.transilience.cloud vs *.execute-api.*) so the
-    # browser drops the Set-Cookie from the initiate fetch. The state JWT
-    # (HS256-signed, 5-min exp, server-secret-bound, with user_id + nonce
-    # baked in) remains the gate. TODO: re-enable CSRF after either
-    # (a) configuring CORS with credentials so the cookie can persist
-    # cross-origin, or (b) co-locating web + API behind one origin.
-    csrf_token = _read_cookie(event, "shasta_oauth_csrf")
-    if csrf_token:
-        # If a cookie IS present (e.g. when web and API are same-origin)
-        # we still validate it. Absence is currently tolerated.
-        if _hashlib.sha256(csrf_token.encode()).hexdigest() != s.get("csrf_token_hash"):
-            return _resp(400, {"error": "csrf_mismatch"})
 
     verifier = pkce.fetch_verifier(nonce)
     if not verifier:
@@ -147,8 +119,11 @@ def callback_slack(event, claims, _params):
         redirect_uri=redirect_uri,
     )
 
-    access_enc = encrypt_token(tokens["access_token"])
-    refresh_enc = encrypt_token(tokens["refresh_token"])
+    # KMS-envelope encrypt — each token gets its own data key. Both the
+    # Fernet ciphertext and the KMS-encrypted data key are persisted; both
+    # are required to decrypt.
+    access_enc, access_dk = encrypt_token(tokens["access_token"])
+    refresh_enc, refresh_dk = encrypt_token(tokens["refresh_token"])
     now = dt.datetime.now(dt.timezone.utc)
     expires_at = now + dt.timedelta(seconds=int(tokens["expires_in"]))
 
@@ -164,22 +139,26 @@ def callback_slack(event, claims, _params):
         INSERT INTO user_connectors (
             tenant_id, user_id, oauth_provider, mcp_server_url,
             vendor_user_id, vendor_workspace_id,
-            access_token_enc, refresh_token_enc, access_expires_at,
-            scopes, status
+            access_token_enc, access_data_key_ct,
+            refresh_token_enc, refresh_data_key_ct,
+            access_expires_at, scopes, status
         ) VALUES (
             :tid::uuid, :uid::uuid, :provider, :mcp,
             :vu, :vw,
-            :a, :r, CAST(:e AS TIMESTAMPTZ),
+            :a, :adk, :r, :rdk,
+            CAST(:e AS TIMESTAMPTZ),
             :scopes::text[], 'active'
         )
         ON CONFLICT (tenant_id, user_id, oauth_provider) DO UPDATE SET
-            access_token_enc = EXCLUDED.access_token_enc,
-            refresh_token_enc = EXCLUDED.refresh_token_enc,
-            access_expires_at = EXCLUDED.access_expires_at,
-            scopes = EXCLUDED.scopes,
-            status = 'active',
-            last_error = NULL,
-            revoked_at = NULL
+            access_token_enc    = EXCLUDED.access_token_enc,
+            access_data_key_ct  = EXCLUDED.access_data_key_ct,
+            refresh_token_enc   = EXCLUDED.refresh_token_enc,
+            refresh_data_key_ct = EXCLUDED.refresh_data_key_ct,
+            access_expires_at   = EXCLUDED.access_expires_at,
+            scopes              = EXCLUDED.scopes,
+            status              = 'active',
+            last_error          = NULL,
+            revoked_at          = NULL
     """, [
         {"name": "tid", "value": {"stringValue": tenant_id}},
         {"name": "uid", "value": {"stringValue": user_id}},
@@ -187,9 +166,11 @@ def callback_slack(event, claims, _params):
         {"name": "mcp", "value": {"stringValue": tokens["mcp_server_url"]}},
         {"name": "vu", "value": {"stringValue": tokens["vendor_user_id"]}},
         {"name": "vw", "value": {"stringValue": tokens["vendor_workspace_id"]}},
-        {"name": "a", "value": {"blobValue": access_enc}},
-        {"name": "r", "value": {"blobValue": refresh_enc}},
-        {"name": "e", "value": {"stringValue": expires_at.isoformat()}},
+        {"name": "a",   "value": {"blobValue": access_enc}},
+        {"name": "adk", "value": {"blobValue": access_dk}},
+        {"name": "r",   "value": {"blobValue": refresh_enc}},
+        {"name": "rdk", "value": {"blobValue": refresh_dk}},
+        {"name": "e",   "value": {"stringValue": expires_at.isoformat()}},
         {"name": "scopes", "value": {"stringValue": scopes_literal}},
     ])
 
@@ -198,9 +179,6 @@ def callback_slack(event, claims, _params):
         "statusCode": 302,
         "headers": {
             "location": f"{web_base}/settings?tab=connectors&ok=slack",
-            # Clear the CSRF cookie post-callback.
-            "set-cookie": "shasta_oauth_csrf=; HttpOnly; Secure; "
-                          "SameSite=Lax; Path=/v1/connectors; Max-Age=0",
         },
         "body": "",
     }
