@@ -63,3 +63,19 @@ def test_state_rejects_wrong_audience(monkeypatch):
     token = sign_state(**_kw(provider="slack"))
     with pytest.raises(jwt.InvalidAudienceError):
         verify_state(token, expected_provider="atlassian")
+
+
+def test_state_rejects_slack_user_jwt_at_slack_bot_callback(monkeypatch):
+    """A JWT minted for the user OAuth flow (provider="slack") MUST NOT
+    decode at the admin bot callback (expected_provider="slack-bot").
+
+    Same protection as the cross-provider audience test, applied to the
+    user-vs-admin variant of the same provider. Without this gate, a
+    leaked user-flow state JWT could be replayed at the admin bot
+    callback (or vice versa)."""
+    monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
+    from mcp_oauth.state import sign_state, verify_state
+
+    token = sign_state(**_kw(provider="slack"))
+    with pytest.raises(jwt.InvalidAudienceError):
+        verify_state(token, expected_provider="slack-bot")
