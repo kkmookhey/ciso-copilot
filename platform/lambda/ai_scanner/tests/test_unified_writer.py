@@ -249,3 +249,77 @@ def test_insert_finding_writes_real_domain_status_and_upserts(monkeypatch):
     assert params["domain"]["stringValue"] == "iam"
     assert params["status"]["stringValue"] == "partial"
     assert params["region"]["stringValue"] == "us-west-2"
+
+
+def test_critical_fail_triggers_fanout(monkeypatch):
+    """End-to-end: when commit_scan writes a critical-fail finding, the
+    broadcast_fanout hook publishes to SQS."""
+    from unittest.mock import MagicMock
+    from _shared import broadcast_fanout as bf
+
+    fake_sqs = MagicMock()
+    monkeypatch.setenv("AUTONOMOUS_BROADCAST_QUEUE_URL",
+                       "https://sqs.us-east-1.amazonaws.com/000000000000/q")
+    monkeypatch.setattr(bf, "_sqs", fake_sqs)
+
+    import unified_writer
+    from detectors.base import FindingEmission
+    _fake, _calls = _stub_rds(monkeypatch)
+
+    f = FindingEmission(
+        tenant_id="t1",
+        finding_type="critical_test",
+        title="t",
+        description="d",
+        severity="critical",
+        status="fail",
+        subject_entity_kind=None,
+        subject_entity_natural_key=None,
+        subject_type=None,
+        subject_ref=None,
+        evidence_packet={},
+        confidence="high",
+    )
+
+    unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    fake_sqs.send_message.assert_called_once()
+    call_kwargs = fake_sqs.send_message.call_args[1]
+    assert call_kwargs["QueueUrl"] == "https://sqs.us-east-1.amazonaws.com/000000000000/q"
+    import json as _json
+    body = _json.loads(call_kwargs["MessageBody"])
+    assert body["tenant_id"] == "t1"
+
+
+def test_non_critical_does_not_trigger_fanout(monkeypatch):
+    """Findings with severity != critical (or status != fail) must not publish."""
+    from unittest.mock import MagicMock
+    from _shared import broadcast_fanout as bf
+
+    fake_sqs = MagicMock()
+    monkeypatch.setenv("AUTONOMOUS_BROADCAST_QUEUE_URL",
+                       "https://sqs.us-east-1.amazonaws.com/000000000000/q")
+    monkeypatch.setattr(bf, "_sqs", fake_sqs)
+
+    import unified_writer
+    from detectors.base import FindingEmission
+    _fake, _calls = _stub_rds(monkeypatch)
+
+    f = FindingEmission(
+        tenant_id="t1",
+        finding_type="medium_test",
+        title="t",
+        description="d",
+        severity="medium",
+        status="fail",
+        subject_entity_kind=None,
+        subject_entity_natural_key=None,
+        subject_type=None,
+        subject_ref=None,
+        evidence_packet={},
+        confidence="high",
+    )
+
+    unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    fake_sqs.send_message.assert_not_called()
