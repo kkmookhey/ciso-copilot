@@ -1,5 +1,49 @@
 # Shasta by Transilience — Handoff & State
 
+## 🔔 MCP Connectors Slice 2 — autonomous CRITICAL broadcast (shipped in 5 sub-slices)
+
+**Status (2026-06-01):** all 5 sub-slice PRs open, stacked.
+
+| PR | Branch | Scope |
+|---|---|---|
+| #35 | `feat/mcp-connectors-slice-2.1-broadcast-fanout` | `_shared/broadcast_fanout.py` + scanner wiring (4 scanners) |
+| #36 | `feat/mcp-connectors-slice-2.2-admin-bot-install` | Admin Slack workspace bot OAuth (initiate + callback + `_require_admin`) |
+| #37 | `feat/mcp-connectors-slice-2.3-channel-picker` | `mcp_oauth.get_admin_session` + 5 admin routes (channel picker, autonomous toggle, revoke, status) + web admin block |
+| #38 | `feat/mcp-connectors-slice-2.4-broadcast-plumbing` | CDK queue+DLQ+DDB+findings_subscriber Lambda (in ScanStack — ApiStack would have hit CFN 500-resource limit) |
+| (TBD) | `feat/mcp-connectors-slice-2.5-deeplink-gate` | `<DeepLinkGate>` + EMF drift metric + CloudWatch drift alarm |
+
+**Merge order:** #35 → #36 → #37 → #38 → 2.5. Each PR's base auto-rebases to main as predecessors merge.
+
+**Spec:** `docs/superpowers/specs/2026-05-31-mcp-connectors-slice-2-design.md`
+**Plan:** `docs/superpowers/plans/2026-05-31-mcp-connectors-slice-2.md`
+
+### What's live after all 5 merge
+
+- Scanner Lambdas publish to `autonomous-broadcast-queue` on every critical-fail finding via `_shared/broadcast_fanout.publish_if_critical`.
+- `findings_subscriber/` Lambda consumes the queue, gates on three kill switches (SSM global / per-tenant toggle / channel-not-picked), re-reads the finding, posts a Block Kit card to the configured Slack channel.
+- Admin block on `/settings` → Connectors tab: install, channel picker, autonomous toggle, disconnect.
+- `<DeepLinkGate>` wraps `/risks/:finding_id` so Slack-card clicks survive unauthenticated tabs.
+- CloudWatch: DLQ depth alarm + drift alarm (`CriticalFailWritten` vs `BroadcastQueued`).
+
+### Manual smoke checklist (post-deploy, after all 5 merge)
+
+1. Admin installs Slack workspace bot via Settings → Connectors → admin block.
+2. Pick a broadcast channel via the modal.
+3. Manually `INSERT` a critical-fail finding into Aurora dev (`severity='critical' AND status='fail'`).
+4. Verify Block Kit card lands in the configured channel within 60s.
+5. Click "View details" from a fresh Incognito tab → bounces through `/signin?after=...` → lands on `/risks/:id`.
+6. Set `aws ssm put-parameter /cisocopilot/autonomous_rule/enabled false` → next insert: no broadcast.
+7. Flip the per-tenant toggle (`UPDATE tenant_bot_connectors SET autonomous_rule_enabled=false WHERE tenant_id=...`) → next insert: no broadcast.
+8. Set the channel to a deleted channel → DLQ accumulates after 5 retries → alarm fires within 5 min.
+
+### Known limitations / follow-ups
+
+- **Azure + GCP ECS scanners**: IAM granted but `AUTONOMOUS_BROADCAST_QUEUE_URL` needs to be injected at `RunTask` time as a container override (CDK `ContainerDefinition` has no post-construction env mutation API). For v1, autonomous broadcasts fire for AWS Lambda scanner findings (aiScanner, shastaRunner, shastaRunnerEntra) only. Azure + GCP findings won't broadcast until follow-up.
+- **`unified_writer` consolidation deferred**: spec §5.D called for hoisting the duplicated writer modules into `_shared/`; investigation found drift across the 4 copies (CME-v2 normalize counters in `ai_scanner` only, per-scanner detector emission types). Slice 2.1 narrowed to fan-out hook only. Full consolidation is a separate cleanup PR.
+- **Subscriber tool name is `send_message`** — verify against Slack's MCP server tool catalog during deploy; might be `chat_postMessage` or `slack_send_message` depending on which MCP server the bot connects to. Test accepts all three names; runtime uses `send_message`.
+
+---
+
 > Source of truth for the *current* state of the build. Reload this at the
 > top of every session. The PRD is `CISOBrief-v2.md`; this document
 > records what's actually built, what was broken and fixed, and what
