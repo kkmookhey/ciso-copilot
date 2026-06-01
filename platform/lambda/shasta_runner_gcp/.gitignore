@@ -10,3 +10,4 @@ app/scan_pipeline.py
 app/scan_state.py
 app/framework_registry.py
 app/ai_framework_registry.json
+app/_shared/
