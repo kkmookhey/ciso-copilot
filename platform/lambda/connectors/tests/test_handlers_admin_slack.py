@@ -147,3 +147,108 @@ def test_callback_workspace_bot_inserts_tenant_bot_row(monkeypatch):
     # broadcast_channel_id must NOT be set yet — channel picker fires next.
     param_names = {p["name"] for p in inserted["params"]}
     assert "channel" not in param_names, "broadcast_channel_id set too early"
+
+
+def test_list_channels_returns_picker_payload(monkeypatch):
+    """Admin caller → MCP conversations_list via the bot's session →
+    returns [{id, name, is_private}]."""
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+    import contextlib
+
+    fake_session = AsyncMock()
+    fake_session.call_tool.return_value = MagicMock(content=[
+        MagicMock(text=json.dumps({
+            "channels": [
+                {"id": "C1", "name": "general", "is_private": False},
+                {"id": "C2", "name": "shasta-alerts", "is_private": False},
+            ]
+        }))
+    ])
+
+    @contextlib.asynccontextmanager
+    async def fake_admin_session(*a, **kw):
+        yield fake_session
+
+    monkeypatch.setattr(
+        "connectors.handlers_admin_slack_channels.get_admin_session",
+        fake_admin_session)
+    monkeypatch.setattr(
+        "connectors.handlers_slack_workspace_bot._require_admin",
+        lambda claims: ("t-1", "u-1"))
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/connectors/admin/slack/channels",
+        "requestContext": {"authorizer": {"claims": {"sub": "admin"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["channels"] == [
+        {"id": "C1", "name": "general", "is_private": False},
+        {"id": "C2", "name": "shasta-alerts", "is_private": False},
+    ]
+
+
+def test_set_broadcast_channel_updates_row(monkeypatch):
+    """Admin posts a valid channel_id → tenant_bot_connectors row updates."""
+    import json
+    from unittest.mock import MagicMock
+
+    updated = {}
+    class FakeDB:
+        def execute(self, sql, params=None):
+            if sql.strip().startswith("UPDATE"):
+                updated["sql"] = sql
+                updated["params"] = params
+            class R:
+                def fetchone(self_inner): return None
+            return R()
+    monkeypatch.setattr(
+        "connectors.handlers_admin_slack_channels._db", lambda: FakeDB())
+    monkeypatch.setattr(
+        "connectors.handlers_slack_workspace_bot._require_admin",
+        lambda claims: ("t-1", "u-1"))
+
+    # Mock the anti-tamper channel validation: claim C2 IS in the bot's list.
+    monkeypatch.setattr(
+        "connectors.handlers_admin_slack_channels._channel_exists",
+        lambda tenant_id, channel_id: True)
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "POST",
+        "rawPath": "/connectors/admin/slack/broadcast-channel",
+        "body": json.dumps({"channel_id": "C2", "channel_name": "shasta-alerts"}),
+        "requestContext": {"authorizer": {"claims": {"sub": "admin"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 200
+    assert "UPDATE tenant_bot_connectors" in updated["sql"]
+    p = {p["name"]: p["value"] for p in updated["params"]}
+    assert p["chan"]["stringValue"] == "C2"
+
+
+def test_set_broadcast_channel_rejects_unknown_id(monkeypatch):
+    """Anti-tamper: if channel_id isn't in conversations_list, reject."""
+    import json
+
+    monkeypatch.setattr(
+        "connectors.handlers_slack_workspace_bot._require_admin",
+        lambda claims: ("t-1", "u-1"))
+    monkeypatch.setattr(
+        "connectors.handlers_admin_slack_channels._channel_exists",
+        lambda tenant_id, channel_id: False)
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "POST",
+        "rawPath": "/connectors/admin/slack/broadcast-channel",
+        "body": json.dumps({"channel_id": "C-FAKE", "channel_name": "x"}),
+        "requestContext": {"authorizer": {"claims": {"sub": "admin"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 400
+    assert json.loads(resp["body"])["error"] == "channel_not_in_workspace"
