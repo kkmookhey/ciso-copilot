@@ -13,4 +13,5 @@ from .session import (
     ConnectorMissingError,
     ConnectorRevokedError,
 )
+from .admin_session import get_admin_session, lookup_tenant_bot  # noqa: F401
 from .crypto import encrypt_token, decrypt_token  # noqa: F401
