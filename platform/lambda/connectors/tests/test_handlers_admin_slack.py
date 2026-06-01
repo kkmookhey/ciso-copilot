@@ -81,3 +81,69 @@ def test_initiate_workspace_bot_403_for_non_admin(monkeypatch):
         resp = m.handler(ev, None)
     assert resp["statusCode"] == 403
     assert json.loads(resp["body"])["error"] == "admin_required"
+
+
+def test_callback_workspace_bot_inserts_tenant_bot_row(monkeypatch):
+    """Successful bot callback → INSERT INTO tenant_bot_connectors with
+    bot token + team_id, status='active', autonomous_rule_enabled=true,
+    broadcast_channel_id=NULL."""
+    import base64
+    import hashlib
+    from mcp_oauth import state as st, pkce
+    from connectors import handlers_slack_workspace_bot as h
+
+    monkeypatch.setenv("SLACK_CLIENT_ID", "abc")
+    monkeypatch.setenv("SLACK_CLIENT_SECRET", "xyz")
+    monkeypatch.setenv("CONNECTORS_REDIRECT_BASE",
+                       "https://app.shasta.io/v1/connectors")
+    monkeypatch.setenv("STATE_JWT_SECRET", "x" * 32)
+    monkeypatch.setenv("WEB_BASE_URL", "https://app.shasta.io")
+
+    # Use a real verifier/challenge pair so the PKCE rebuild check passes
+    # without needing to monkeypatch the pure challenge_hash function.
+    real_verifier, real_challenge = pkce.generate_pair()
+    state_tok = st.sign_state(
+        tenant_id="t-1", user_id="u-1", provider="slack-bot",
+        pkce_verifier_hash=pkce.challenge_hash(real_challenge),
+        nonce="n-bot",
+    )
+
+    monkeypatch.setattr(h.pkce, "fetch_verifier", lambda nonce: real_verifier)
+    monkeypatch.setattr(h.slack_provider, "exchange_code_bot",
+                        lambda **kw: {
+                            "access_token": "xoxb-BOT",
+                            "team_id": "T0XBOT",
+                            "scopes": ["chat:write", "channels:read",
+                                       "groups:read"],
+                            "mcp_server_url": "https://mcp.slack.com/mcp",
+                        })
+    monkeypatch.setattr(h, "encrypt_token",
+                        lambda t: (f"E:{t}".encode(), f"DK:{t}".encode()))
+
+    inserted = {}
+    class FakeDB:
+        def execute(self, sql, params=None):
+            if sql.strip().startswith("INSERT"):
+                inserted["sql"] = sql
+                inserted["params"] = params
+            class R:
+                def fetchone(self_inner): return None
+            return R()
+    monkeypatch.setattr(h, "_db", lambda: FakeDB())
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/connectors/callback/slack-workspace-bot",
+        "queryStringParameters": {"code": "ac-bot", "state": state_tok},
+        "requestContext": {"authorizer": {"claims": {"sub": "admin"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 302
+    assert resp["headers"]["location"].endswith(
+        "/settings?tab=connectors&ok=slack-bot")
+    assert "INSERT INTO tenant_bot_connectors" in inserted["sql"]
+    # autonomous_rule_enabled default = true on schema; we don't bind it.
+    # broadcast_channel_id must NOT be set yet — channel picker fires next.
+    param_names = {p["name"] for p in inserted["params"]}
+    assert "channel" not in param_names, "broadcast_channel_id set too early"

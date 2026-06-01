@@ -79,6 +79,38 @@ def exchange_code(*, code: str, code_verifier: str, client_id: str,
     }
 
 
+def exchange_code_bot(*, code: str, code_verifier: str,
+                      client_id: str, client_secret: str,
+                      redirect_uri: str) -> dict:
+    """OAuth code exchange for the admin BOT install.
+
+    Slack's oauth.v2.access returns both a user token (in authed_user)
+    and a bot token (top-level). For the workspace-bot flow we want the
+    top-level bot token (xoxb-...) and the team.id.
+    """
+    resp = requests.post(
+        TOKEN_URL,
+        data={
+            "code": code,
+            "code_verifier": code_verifier,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if not body.get("ok"):
+        raise RuntimeError(f"slack oauth (bot): {body.get('error', 'unknown')}")
+    return {
+        "access_token":   body["access_token"],       # xoxb-...
+        "team_id":        body["team"]["id"],
+        "scopes":         [s for s in (body.get("scope") or "").split(",") if s],
+        "mcp_server_url": MCP_SERVER_URL,
+    }
+
+
 def refresh_token(*, refresh_token: str, client_id: str, client_secret: str) -> dict:
     resp = requests.post(TOKEN_URL, data={
         "grant_type": "refresh_token",
