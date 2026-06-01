@@ -96,3 +96,4 @@ def _resp(status: int, body: dict, *, headers: dict | None = None) -> dict:
 from connectors import handlers_slack  # noqa: F401,E402
 from connectors import handlers_common  # noqa: F401,E402
 from connectors import handlers_slack_workspace_bot  # noqa: F401,E402 — registers /connectors/{connect,callback}/slack-workspace-bot routes
+from connectors import handlers_admin_slack_channels  # noqa: F401,E402 — registers /connectors/admin/slack/* routes
