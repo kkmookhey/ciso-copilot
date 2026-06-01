@@ -252,3 +252,64 @@ def test_set_broadcast_channel_rejects_unknown_id(monkeypatch):
     resp = m.handler(ev, None)
     assert resp["statusCode"] == 400
     assert json.loads(resp["body"])["error"] == "channel_not_in_workspace"
+
+
+def test_admin_bot_status_returns_installed_false_when_no_row(monkeypatch):
+    """No tenant_bot_connectors row → installed=false response."""
+    import json
+
+    class FakeDB:
+        def execute(self, sql, params=None):
+            class R:
+                def fetchone(self_inner): return None
+            return R()
+    monkeypatch.setattr("connectors.handlers_admin_slack_channels._db",
+                        lambda: FakeDB())
+    monkeypatch.setattr(
+        "connectors.handlers_slack_workspace_bot._require_admin",
+        lambda claims: ("t-1", "u-1"))
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/connectors/admin/slack/status",
+        "requestContext": {"authorizer": {"claims": {"sub": "admin"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["installed"] is False
+
+
+def test_admin_bot_status_returns_full_state_when_row_active(monkeypatch):
+    """Active row with channel + autonomous toggle → installed=true + state."""
+    import json
+
+    class FakeDB:
+        def execute(self, sql, params=None):
+            class R:
+                def fetchone(self_inner): return {
+                    "broadcast_channel_id": "C-XYZ",
+                    "broadcast_channel_name": "shasta-alerts",
+                    "autonomous_rule_enabled": True,
+                    "status": "active",
+                }
+            return R()
+    monkeypatch.setattr("connectors.handlers_admin_slack_channels._db",
+                        lambda: FakeDB())
+    monkeypatch.setattr(
+        "connectors.handlers_slack_workspace_bot._require_admin",
+        lambda claims: ("t-1", "u-1"))
+
+    from connectors import main as m
+    ev = {
+        "httpMethod": "GET",
+        "rawPath": "/connectors/admin/slack/status",
+        "requestContext": {"authorizer": {"claims": {"sub": "admin"}}},
+    }
+    resp = m.handler(ev, None)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["installed"] is True
+    assert body["broadcast_channel_id"] == "C-XYZ"
+    assert body["autonomous_rule_enabled"] is True

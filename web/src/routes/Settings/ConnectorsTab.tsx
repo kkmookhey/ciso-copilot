@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useConnectors } from "../../lib/useConnectors";
 import { ConnectorCard } from "../../components/connectors/ConnectorCard";
+import { ConnectorAdminBlock } from "../../components/connectors/ConnectorAdminBlock";
 
 export function ConnectorsTab() {
   const { connectors, reload } = useConnectors();
@@ -46,6 +47,8 @@ export function ConnectorsTab() {
         <ConnectorCard kind="google"    connector={byProvider.google}    onChange={reload} />
         <ConnectorCard kind="microsoft" connector={byProvider.microsoft} onChange={reload} />
       </div>
+
+      <ConnectorAdminBlock />
     </div>
   );
 }

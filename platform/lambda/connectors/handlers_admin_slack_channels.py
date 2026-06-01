@@ -130,3 +130,34 @@ def revoke_workspace_bot(event, claims, _params):
         WHERE tenant_id = :tid::uuid AND oauth_provider = 'slack'
     """, [{"name": "tid", "value": {"stringValue": tenant_id}}])
     return _resp(200, {"revoked": True})
+
+
+@_route("GET", r"^/connectors/admin/slack/status$")
+def admin_bot_status(event, claims, _params):
+    """Returns the admin's tenant_bot_connectors row state — used by
+    the web Settings UI to render the right install/picker/configured
+    block state. Admin-only."""
+    tenant_id, _user_id = _wsbot._require_admin(claims)
+    if not tenant_id:
+        return _resp(403, {"error": "admin_required"})
+
+    row = _db().execute("""
+        SELECT broadcast_channel_id, broadcast_channel_name,
+               autonomous_rule_enabled, status
+        FROM tenant_bot_connectors
+        WHERE tenant_id = :tid::uuid AND oauth_provider = 'slack'
+    """, [{"name": "tid", "value": {"stringValue": tenant_id}}]).fetchone()
+
+    if not row or row["status"] != "active":
+        return _resp(200, {
+            "installed": False,
+            "broadcast_channel_id": None,
+            "broadcast_channel_name": None,
+            "autonomous_rule_enabled": False,
+        })
+    return _resp(200, {
+        "installed": True,
+        "broadcast_channel_id": row.get("broadcast_channel_id"),
+        "broadcast_channel_name": row.get("broadcast_channel_name"),
+        "autonomous_rule_enabled": bool(row["autonomous_rule_enabled"]),
+    })
