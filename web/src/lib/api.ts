@@ -316,6 +316,19 @@ export interface AdminTenantRow {
   first_user:   string | null;
 }
 
+export interface SlackChannel {
+  id:         string;
+  name:       string;
+  is_private: boolean;
+}
+
+export interface AdminBotStatus {
+  installed:               boolean;
+  broadcast_channel_id:    string | null;
+  broadcast_channel_name:  string | null;
+  autonomous_rule_enabled: boolean;
+}
+
 export interface AIScanSummary {
   id:                              string;
   repo_full_name:                  string;
@@ -507,6 +520,31 @@ export const api = {
 
   revokeConnector: (connId: string) =>
     call<{ revoked: boolean }>(`/connectors/${connId}`, { method: "DELETE" }),
+
+  // Admin Slack workspace bot (Slice 2) ----------------------------------------
+  initiateSlackWorkspaceBot: () =>
+    call<{ authorize_url: string }>("/connectors/connect/slack-workspace-bot", {
+      method: "POST", body: "{}",
+    }),
+
+  listSlackChannels: () =>
+    call<{ channels: SlackChannel[] }>("/connectors/admin/slack/channels"),
+
+  setBroadcastChannel: (channel_id: string, channel_name: string) =>
+    call<{ ok: boolean; channel_id: string }>("/connectors/admin/slack/broadcast-channel", {
+      method: "POST", body: JSON.stringify({ channel_id, channel_name }),
+    }),
+
+  toggleAutonomousRule: (enabled: boolean) =>
+    call<{ ok: boolean; enabled: boolean }>("/connectors/admin/slack/autonomous-rule", {
+      method: "PATCH", body: JSON.stringify({ enabled }),
+    }),
+
+  revokeSlackBot: () =>
+    call<{ revoked: boolean }>("/connectors/admin/slack", { method: "DELETE" }),
+
+  getAdminBotStatus: () =>
+    call<AdminBotStatus>("/connectors/admin/slack/status"),
 
   callTool: (toolName: string, args: unknown) =>
     call<Record<string, unknown>>(`/tools/${toolName}`, {
