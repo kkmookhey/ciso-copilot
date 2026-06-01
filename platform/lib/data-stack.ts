@@ -97,5 +97,35 @@ export class DataStack extends cdk.Stack {
       alarmDescription: 'Autonomous broadcast DLQ has messages — subscriber failed 5x',
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
+
+    // Drift metric: CriticalFailWritten - BroadcastQueued, summed over 1h.
+    // > 2/hour = scanners are writing criticals but the SQS publish is
+    // silently failing (likely IAM grant missed in a deploy).
+    new cloudwatch.Alarm(this, 'AutonomousBroadcastDriftAlarm', {
+      metric: new cloudwatch.MathExpression({
+        expression: 'critical - queued',
+        usingMetrics: {
+          critical: new cloudwatch.Metric({
+            namespace: 'Shasta/AutonomousBroadcast',
+            metricName: 'CriticalFailWritten',
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(60),
+          }),
+          queued: new cloudwatch.Metric({
+            namespace: 'Shasta/AutonomousBroadcast',
+            metricName: 'BroadcastQueued',
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(60),
+          }),
+        },
+        label: 'Critical findings written but not queued',
+        period: cdk.Duration.minutes(60),
+      }),
+      threshold: 2,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      alarmDescription: 'Scanner wrote critical-fail finding but fan-out hook did not publish',
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
   }
 }

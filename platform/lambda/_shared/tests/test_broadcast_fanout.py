@@ -77,3 +77,25 @@ def test_swallows_sqs_errors(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "broadcast_fanout" in out
     assert "sqs blew up" in out
+
+
+def test_emits_emf_metric_when_critical_fail_written(monkeypatch, capsys):
+    bf, fake = _install_fake_sqs(monkeypatch)
+    bf.publish_if_critical(
+        tenant_id="t", finding_id="f", scan_id="s",
+        severity="critical", status="fail",
+    )
+    out = capsys.readouterr().out
+    assert "CriticalFailWritten" in out
+    assert "BroadcastQueued" in out
+
+
+def test_emits_fanout_failed_metric_on_sqs_error(monkeypatch, capsys):
+    bf, fake = _install_fake_sqs(monkeypatch)
+    fake.send_message.side_effect = RuntimeError("oh no")
+    bf.publish_if_critical(
+        tenant_id="t", finding_id="f", scan_id="s",
+        severity="critical", status="fail",
+    )
+    out = capsys.readouterr().out
+    assert "BroadcastFanoutFailed" in out

@@ -21,7 +21,10 @@ export function Callback() {
       return;
     }
     handleCallback(code)
-      .then(() => nav("/", { replace: true }))
+      .then(() => {
+        const after = params.get("after");
+        nav(after ? decodeURIComponent(after) : "/", { replace: true });
+      })
       .catch((e) => setError(`Sign-in failed: ${e.message ?? e}`));
   }, [params, nav]);
 
