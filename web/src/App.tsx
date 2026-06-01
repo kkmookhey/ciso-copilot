@@ -8,6 +8,7 @@ import { TopRisks } from "./routes/TopRisks";
 import { Shell } from "./routes/Shell";
 import { Admin } from "./routes/Admin";
 import { Risks } from "./routes/Risks";
+import { RisksDetail } from "./routes/RisksDetail";
 import { Policies } from "./routes/Policies";
 import { Questionnaires } from "./routes/Questionnaires";
 import { TrustAdmin }   from "./routes/TrustAdmin";
@@ -22,6 +23,7 @@ import { ContactDeepScan } from "./routes/ContactDeepScan";
 import Scan from "./routes/Scan";
 import Soc from "./routes/Soc";
 import { Settings } from "./routes/Settings/Settings";
+import { DeepLinkGate } from "./components/DeepLinkGate";
 
 export default function App() {
   return (
@@ -43,6 +45,11 @@ export default function App() {
           <Route path="/contact/deep-scan" element={<ContactDeepScan />} />
           <Route path="/findings"  element={<TopRisks />} />
           <Route path="/risks"     element={<Risks />} />
+          <Route path="/risks/:id" element={
+            <DeepLinkGate>
+              <RisksDetail />
+            </DeepLinkGate>
+          } />
           <Route path="/policies"       element={<Policies />} />
           <Route path="/questionnaires" element={<Questionnaires />} />
           <Route path="/trust"          element={<TrustAdmin />} />
