@@ -9,6 +9,8 @@ import * as path from 'path';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import * as lambda_event from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Construct } from 'constructs';
 import { config } from './config';
@@ -21,6 +23,11 @@ interface ScanStackProps extends cdk.StackProps {
   shastaRunnerEntraRepo: ecr.Repository;
   shastaRunnerGcpRepo:   ecr.Repository;
   aiScannerRepo:         ecr.Repository;
+  // Autonomous broadcast pipeline (Slice 2.4). All three props are optional
+  // so the stack can be deployed independently before DataStack exports exist.
+  autonomousBroadcastQueue?:     sqs.IQueue;
+  autonomousBroadcastSeenTable?: dynamodb.ITable;
+  connectorTokensKey?:           kms.IKey;
 }
 
 /// shasta-runner Lambda. Container image from ECR (built + pushed by
@@ -384,6 +391,92 @@ export class ScanStack extends cdk.Stack {
     // Grant the AI scanner permission to send messages and inject the queue URL.
     matcherQueue.grantSendMessages(this.aiScanner);
     this.aiScanner.addEnvironment('AI_SUPPLY_CHAIN_MATCHER_QUEUE_URL', matcherQueue.queueUrl);
+
+    // ── Autonomous broadcast pipeline (Slice 2.4) ──────────────────────────
+    // Grant all scanner runtimes sqs:SendMessage on the broadcast queue.
+    // The broadcast_fanout module short-circuits when AUTONOMOUS_BROADCAST_QUEUE_URL
+    // is absent, so gating on the optional prop is safe — stack deploys before
+    // the queue exists are unaffected.
+    //
+    // Lambda scanners: env var injected here via addEnvironment.
+    // ECS Fargate tasks (azure, gcp): IAM grant is here; AUTONOMOUS_BROADCAST_QUEUE_URL
+    // is passed as a RunTask container override at scan-dispatch time (same
+    // pattern as CONN_ID and other per-scan params). CDK ContainerDefinition
+    // does not support post-construction env mutation.
+    if (props.autonomousBroadcastQueue) {
+      const q = props.autonomousBroadcastQueue;
+
+      // Lambda scanners — env var + IAM grant
+      for (const fn of [this.shastaRunner, this.shastaRunnerEntra, this.aiScanner]) {
+        fn.addEnvironment('AUTONOMOUS_BROADCAST_QUEUE_URL', q.queueUrl);
+        q.grantSendMessages(fn);
+      }
+
+      // ECS task roles — IAM grant only; env var supplied via RunTask overrides
+      q.grantSendMessages(azureScanTaskDef.taskRole);
+      q.grantSendMessages(gcpScannerRole);
+    }
+
+    // findings_subscriber Lambda — SQS-triggered, batch=1. Consumes the
+    // autonomous broadcast queue, deduplicates via the seen DDB table, and
+    // posts a Slack alert for critical findings.
+    //
+    // Placed in ScanStack (not ApiStack) to stay below ApiStack's 500-resource
+    // CFN limit. All required resources (queue, seen-table, KMS key) are props.
+    //
+    // The placeholder main.py / requirements.txt under lambda/findings_subscriber/
+    // let cdk synth succeed now; Task 14 replaces them with the real implementation.
+    if (props.autonomousBroadcastQueue && props.autonomousBroadcastSeenTable && props.connectorTokensKey) {
+      const findingsSubscriberFn = new lambda.Function(this, 'FindingsSubscriberFn', {
+        runtime:    lambda.Runtime.PYTHON_3_12,
+        handler:    'main.handler',
+        code: lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda'), {
+          bundling: {
+            image:    lambda.Runtime.PYTHON_3_12.bundlingImage,
+            platform: 'linux/amd64',
+            command: [
+              'bash', '-c',
+              'pip install --no-cache-dir ' +
+              '--platform manylinux2014_x86_64 --implementation cp ' +
+              '--python-version 3.12 --only-binary=:all: ' +
+              '-r findings_subscriber/requirements.txt -t /asset-output && ' +
+              'cp -r findings_subscriber/. /asset-output/ && ' +
+              'cp -r _shared/mcp_oauth /asset-output/',
+            ],
+          },
+        }),
+        timeout:    cdk.Duration.seconds(30),
+        memorySize: 256,
+        environment: {
+          ...dbEnv,
+          CONNECTOR_TOKENS_KEY_ARN:        props.connectorTokensKey.keyArn,
+          AUTONOMOUS_BROADCAST_SEEN_TABLE: props.autonomousBroadcastSeenTable.tableName,
+          AUTONOMOUS_RULE_SSM_PARAM:       '/cisocopilot/autonomous_rule/enabled',
+          WEB_BASE_URL:                    config.appDomain,
+        },
+      });
+      findingsSubscriberFn.addEventSource(new lambda_event.SqsEventSource(
+        props.autonomousBroadcastQueue, { batchSize: 1 },
+      ));
+      props.dbCluster.grantDataApiAccess(findingsSubscriberFn);
+      props.connectorTokensKey.grantEncryptDecrypt(findingsSubscriberFn);
+      props.autonomousBroadcastSeenTable.grantReadWriteData(findingsSubscriberFn);
+      // SSM kill switch + Slack OAuth client creds (for token refresh path).
+      findingsSubscriberFn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/autonomous_rule/enabled`,
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-id`,
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/cisocopilot/connectors/slack/client-secret`,
+        ],
+      }));
+      findingsSubscriberFn.addToRolePolicy(new iam.PolicyStatement({
+        actions:   ['kms:Decrypt'],
+        resources: [`arn:aws:kms:${this.region}:${this.account}:alias/aws/ssm`],
+      }));
+
+      new cdk.CfnOutput(this, 'FindingsSubscriberFnName', { value: findingsSubscriberFn.functionName });
+    }
 
     new cdk.CfnOutput(this, 'AiSupplyChainMatcherQueueUrl', { value: matcherQueue.queueUrl });
     new cdk.CfnOutput(this, 'AiSupplyChainMatcherFnName',   { value: matcherFn.functionName });
