@@ -5,3 +5,4 @@ __pycache__/
 # Source of truth lives in scanner_core/; don't commit the runtime copies.
 framework_registry.py
 ai_framework_registry.json
+_shared/

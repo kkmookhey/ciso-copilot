@@ -16,6 +16,15 @@ echo "==> copying shared modules from ../scanner_core"
 cp ../scanner_core/framework_registry.py     framework_registry.py
 cp ../scanner_core/ai_framework_registry.json ai_framework_registry.json
 
+# Stage _shared/broadcast_fanout.py so `from _shared import broadcast_fanout`
+# resolves at Lambda runtime. The Dockerfile does COPY . ${LAMBDA_TASK_ROOT}/
+# so the _shared/ sub-directory lands alongside the handler. .gitignore
+# excludes the runtime copy; source of truth is platform/lambda/_shared/.
+echo "==> staging _shared/broadcast_fanout.py"
+mkdir -p _shared
+cp ../_shared/__init__.py _shared/__init__.py 2>/dev/null || touch _shared/__init__.py
+cp ../_shared/broadcast_fanout.py _shared/broadcast_fanout.py
+
 echo "==> ECR auth"
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$REPO" >/dev/null

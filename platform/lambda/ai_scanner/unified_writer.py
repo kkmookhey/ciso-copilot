@@ -30,6 +30,7 @@ import boto3
 
 from detectors.base import EntityEmission, EdgeEmission, FindingEmission
 from framework_registry import apply as apply_registry, RegistryApplyError
+from _shared import broadcast_fanout
 
 log = logging.getLogger(__name__)
 
@@ -336,6 +337,15 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
              "value": {"isNull": True} if entity_id is None
                       else {"stringValue": entity_id}},
         ],
+    )
+    # Autonomous broadcast fan-out (Slice 2). Best-effort; failures don't
+    # propagate. See _shared/broadcast_fanout.py.
+    broadcast_fanout.publish_if_critical(
+        tenant_id=f.tenant_id,
+        finding_id=fid,
+        scan_id=scan_id,
+        severity=f.severity,
+        status=f.status,
     )
 
 

@@ -45,6 +45,15 @@ cp ../scanner_core/scan_state.py              app/scan_state.py
 cp ../scanner_core/framework_registry.py      app/framework_registry.py
 cp ../scanner_core/ai_framework_registry.json app/ai_framework_registry.json
 
+# Stage _shared/broadcast_fanout.py inside app/ so the Dockerfile's
+# COPY app/ ${LAMBDA_TASK_ROOT}/ makes it importable as _shared.broadcast_fanout
+# at Lambda runtime. .gitignore excludes the runtime copy; source of truth
+# is platform/lambda/_shared/.
+echo "==> staging _shared/broadcast_fanout.py into app/_shared/"
+mkdir -p app/_shared
+cp ../_shared/__init__.py app/_shared/__init__.py 2>/dev/null || touch app/_shared/__init__.py
+cp ../_shared/broadcast_fanout.py app/_shared/broadcast_fanout.py
+
 echo "==> ECR auth"
 aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$REPO" >/dev/null
