@@ -320,10 +320,13 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
     region) so re-scans refresh in place rather than accumulate a fresh row.
     `first_seen` is preserved on conflict; `last_seen` + mutable state are
     refreshed and `resolved_at` is cleared (the finding was seen again).
-    Returns the client-side fid used in the INSERT (caller accumulates these
-    for post-commit broadcast)."""
+    Returns the PERSISTED finding_id (existing row on conflict, new row on
+    insert) — the caller accumulates these for post-commit broadcast. Never
+    trust the client-side UUID after a possible conflict: the broadcast
+    receiver looks up the row by this id and silently no-ops on miss
+    (subscriber main.py:92), so a mismatched id == a dropped Slack card."""
     fid = str(uuid.uuid4())
-    _rds.execute_statement(
+    resp = _rds.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         transactionId=tx,
         sql=(
@@ -343,7 +346,8 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
             "                domain=EXCLUDED.domain, frameworks=EXCLUDED.frameworks, "
             "                evidence_packet=EXCLUDED.evidence_packet, "
             "                subject_entity_id=EXCLUDED.subject_entity_id, "
-            "                last_seen=NOW(), resolved_at=NULL"
+            "                last_seen=NOW(), resolved_at=NULL "
+            "RETURNING finding_id::text"
         ),
         parameters=[
             {"name": "fid",    "value": {"stringValue": fid}},
@@ -368,6 +372,13 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
                       else {"stringValue": entity_id}},
         ],
     )
+    # RETURNING gives us the PERSISTED finding_id — same as `fid` on fresh
+    # INSERT, the existing row's id on ON CONFLICT. Defensive fallback to fid
+    # if Aurora ever returns an empty records set (shouldn't happen post-PG10,
+    # but the alternative is a None → broadcast dropped silently).
+    records = resp.get("records") or []
+    if records and records[0]:
+        return records[0][0].get("stringValue") or fid
     return fid
 
 

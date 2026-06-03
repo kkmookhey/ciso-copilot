@@ -332,6 +332,49 @@ def test_broadcast_fires_after_commit(monkeypatch):
     )
 
 
+def test_broadcast_uses_persisted_finding_id_on_conflict(monkeypatch):
+    """Regression: on ON CONFLICT, the broadcast must carry the DB-persisted
+    finding_id, not the freshly-generated client UUID. Subscriber looks up
+    the row by this id and silently no-ops on miss (subscriber main.py:92),
+    so a mismatched id == a dropped Slack card on repeat scans.
+
+    Stub Aurora to return a fixed persisted id; verify the SQS MessageBody
+    carries that id, not the random uuid the writer minted."""
+    from unittest.mock import MagicMock
+    from _shared import broadcast_fanout as bf
+
+    fake_sqs = MagicMock()
+    monkeypatch.setenv("AUTONOMOUS_BROADCAST_QUEUE_URL",
+                       "https://sqs.us-east-1.amazonaws.com/000000000000/q")
+    monkeypatch.setattr(bf, "_sqs", fake_sqs)
+
+    import unified_writer
+    from detectors.base import FindingEmission
+    persisted_id = "deadbeef-1234-5678-9abc-def012345678"
+    _fake, _calls = _stub_rds(monkeypatch, persisted_id=persisted_id)
+
+    f = FindingEmission(
+        tenant_id="t1", finding_type="critical_test", title="t", description="d",
+        severity="critical", status="fail",
+        subject_entity_kind=None, subject_entity_natural_key=None,
+        subject_type=None, subject_ref=None,
+        evidence_packet={}, confidence="high",
+    )
+    unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    fake_sqs.send_message.assert_called_once()
+    import json as _json
+    body = _json.loads(fake_sqs.send_message.call_args[1]["MessageBody"])
+    assert body["finding_id"] == persisted_id, (
+        f"broadcast must carry persisted id, got {body['finding_id']}"
+    )
+    # And the SQL itself must contain RETURNING — the load-bearing change.
+    finding_sql = next(
+        c["sql"] for c in _calls if "INSERT INTO findings" in (c.get("sql") or "")
+    )
+    assert "RETURNING finding_id::text" in finding_sql
+
+
 def test_broadcast_does_not_fire_on_rollback(monkeypatch):
     """If commit_scan rolls back (any in-tx error), pending broadcasts must
     NOT fire — we don't broadcast findings that never made it to DB."""
