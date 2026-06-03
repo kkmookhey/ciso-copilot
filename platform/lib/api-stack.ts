@@ -56,6 +56,10 @@ export class ApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
 
+    // CFN's actual resource limit was raised to 1000 in Nov 2024 but CDK's
+    // soft cap stays at 500. We lift it to 1000 via the context flag
+    // `@aws-cdk/core:stackResourceLimit` set in cdk.json so synth proceeds.
+
     const dbEnv = {
       DB_CLUSTER_ARN: props.dbCluster.clusterArn,
       DB_SECRET_ARN:  props.dbCluster.secret!.secretArn,
@@ -1168,6 +1172,15 @@ export class ApiStack extends cdk.Stack {
     //   GET    /callback/{kind}    — UNAUTHED (state JWT is the gate; vendor hits this)
     //   DELETE /{conn_id}          — Cognito-authed, revoke connection
     //   GET    /me                 — Cognito-authed, list current user's connectors
+    // CFN 500-resource limit means Slice 2's 7 admin connector routes can't
+    // live in this stack. Existing user routes stay in CDK. Admin routes
+    // (`/connectors/admin/slack/...` + `/connectors/connect/slack-workspace-bot`
+    // + `/connectors/callback/slack-workspace-bot`) are managed OUT-OF-CDK
+    // via aws apigateway CLI — see scripts/apigw-admin-routes-bootstrap.sh.
+    // The Lambda's internal `_route` dispatcher handles all the patterns; CDK
+    // here only wires the *parents* of those routes via existing resources
+    // (`/connect/{kind}` catches `/connect/slack-workspace-bot` as a path
+    // param value; same for `/callback/{kind}`).
     const connectorsRes = api.root.addResource('connectors');
     const connectorsConnect = connectorsRes.addResource('connect').addResource('{kind}');
     const connectorsCallback = connectorsRes.addResource('callback').addResource('{kind}');
