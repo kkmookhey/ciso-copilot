@@ -100,6 +100,14 @@ export class ScanStack extends cdk.Stack {
       clusterName: 'ciso-copilot-scan',
       vpc:         props.vpc,
     });
+    // Exclude scan tasks from GuardDuty Runtime Monitoring's automated Fargate
+    // agent. With ECS_FARGATE_AGENT_MANAGEMENT enabled account-wide, GuardDuty
+    // injects a sidecar into every task; that sidecar intermittently fails to
+    // pull its image (CannotPullContainerError 403) and, being essential, kills
+    // the task before our scanner runs — leaving scans stuck at 'queued'. The
+    // GuardDutyManaged=false tag opts this cluster out while keeping GuardDuty
+    // monitoring everywhere else.
+    cdk.Tags.of(scanCluster).add('GuardDutyManaged', 'false');
 
     const scanTaskDef = new ecs.FargateTaskDefinition(this, 'ScanTaskDef', {
       family:         'ciso-copilot-aws-scan',
