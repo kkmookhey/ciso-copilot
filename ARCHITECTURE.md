@@ -742,6 +742,59 @@ arbitrary logs. (c) Customers on Sentinel can continue to use it
 alongside us; we don't lock them in. (d) GCP follows the same pattern
 — no Chronicle dependency.
 
+### ADR-016: Autonomous broadcast pipeline (scanner → SQS → Slack)
+
+**Context.** SOC analysts have day jobs; nobody refreshes a dashboard
+waiting for a critical-fail finding to arrive. We need an autonomous
+channel that pushes critical findings into the customer's existing
+collaboration surface (Slack today; Teams next) without an analyst
+opening a console.
+
+**Decision.** A best-effort fan-out from the writer to an SQS queue,
+consumed by a subscriber Lambda that posts a Block Kit card to a
+customer-picked broadcast channel. Three kill switches gate every
+post: a global SSM parameter (Shasta-side kill), a per-tenant toggle
+(`tenant_bot_connectors.autonomous_rule_enabled`), and channel-picked
+(no channel → no post). Three EMF metrics give us a drift signal:
+`CriticalFailWritten` (every critical-fail INSERT), `BroadcastQueued`
+(every successful SQS publish), `BroadcastFanoutFailed` (publish
+errors). A CloudWatch alarm fires when written > queued + 2 / hour.
+
+Three specific design choices worth pinning:
+
+1. **Best-effort, not transactional.** `publish_if_critical` swallows
+   its own SQS errors and emits a metric. A missed broadcast is
+   recoverable (the finding is in Aurora; the next scan's flip
+   re-fires); a failed Aurora write is data loss. Broadcasts must
+   never propagate failures back into the scanner's commit path.
+2. **Post-commit, not in-tx (the race fix).** The broadcast accumulates
+   `(tenant_id, fid, scan_id, severity, status)` tuples during the
+   in-tx INSERT loop and fires them AFTER `commit_transaction`
+   succeeds. If we publish inside the open tx, SQS delivery to the
+   subscriber outraces the commit; subscriber's `SELECT WHERE
+   finding_id = :fid` returns empty and silently no-ops at
+   `findings_subscriber/main.py:92`. Surfaced live during the
+   2026-06-02 GCP smoke; documented in HANDOFF.
+3. **Container-override env injection for Fargate scanners.** CDK
+   `addEnvironment` works for Lambda scanners but `ContainerDefinition`
+   has no post-construction env mutation API. The Azure + GCP Fargate
+   scanners receive `AUTONOMOUS_BROADCAST_QUEUE_URL` via
+   `containerOverrides[].environment` on `ecs:RunTask`, set by the
+   3 caller Lambdas (`connections_list`, `onboarding_azure_complete`,
+   `onboarding_gcp_complete`). IAM `sqs:SendMessage` is granted on the
+   task role; env wiring is per-dispatch.
+
+**Consequences.** (a) Slack is the customer's existing alerting
+surface — zero new UI to learn. (b) The broadcast is silent when
+mis-configured (no channel, kill switch on, IAM missing); the drift
+alarm is the safety net. (c) Adding a second broadcast target (Teams,
+PagerDuty, email) is a new subscriber on the same queue; the writer
+side is fan-out-shaped. (d) Risk: the `fid` in the broadcast is a
+client-side UUID, not the DB-persisted finding_id, so repeat-scan
+ON CONFLICT cases broadcast a UUID that doesn't exist in DB —
+subscriber silent-returns. Open follow-up to add `RETURNING
+finding_id::text` to the upsert.
+
 ---
 
 ## Operational concerns

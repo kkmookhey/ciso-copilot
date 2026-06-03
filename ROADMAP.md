@@ -4,7 +4,7 @@
 > see [HANDOFF.md](HANDOFF.md) for what's shipped and
 > [BACKLOG.md](BACKLOG.md) for open items + triage.
 >
-> Last updated: 2026-05-26.
+> Last updated: 2026-06-03.
 
 ## The vision
 
@@ -68,8 +68,12 @@ for usage beyond it.
   4. Stripe + credit top-ups (charging live; credits priced at 3× COGS)
 - UX polish: framework drill-down on `/ai` tiles + Entra licensing
   hint cleanup
-- Secrets / hardcoded-ARN audit (the last gate before the MIT-licensed
-  repo can go public)
+- ✅ Secrets / hardcoded-ARN audit + repo MIT-public (shipped 2026-05-27,
+  PRs #26 + #30 + #31)
+- ✅ MCP Connectors — per-user OAuth (Slack-as-MCP) + autonomous
+  CRITICAL → Slack broadcast across every scanner (shipped 2026-05-30 →
+  2026-06-03, PRs #33 + #35–#39 + #41 + #43). Foundation for the
+  M5 action-layer roadmap.
 
 ---
 

@@ -1,46 +1,181 @@
 # Shasta by Transilience — Handoff & State
 
-## 🔔 MCP Connectors Slice 2 — autonomous CRITICAL broadcast (shipped in 5 sub-slices)
+## 🔔 Azure + GCP autonomous broadcast — fully wired end-to-end (2026-06-03, PR #43)
 
-**Status (2026-06-01):** all 5 sub-slice PRs open, stacked.
+Closes the Slice 2 follow-up that left Azure + GCP findings non-broadcasting,
+and fixes a pre-existing in-transaction race that was silently dropping
+broadcasts for warm-subscriber invocations across **every** scanner.
 
-| PR | Branch | Scope |
-|---|---|---|
-| #35 | `feat/mcp-connectors-slice-2.1-broadcast-fanout` | `_shared/broadcast_fanout.py` + scanner wiring (4 scanners) |
-| #36 | `feat/mcp-connectors-slice-2.2-admin-bot-install` | Admin Slack workspace bot OAuth (initiate + callback + `_require_admin`) |
-| #37 | `feat/mcp-connectors-slice-2.3-channel-picker` | `mcp_oauth.get_admin_session` + 5 admin routes (channel picker, autonomous toggle, revoke, status) + web admin block |
-| #38 | `feat/mcp-connectors-slice-2.4-broadcast-plumbing` | CDK queue+DLQ+DDB+findings_subscriber Lambda (in ScanStack — ApiStack would have hit CFN 500-resource limit) |
-| (TBD) | `feat/mcp-connectors-slice-2.5-deeplink-gate` | `<DeepLinkGate>` + EMF drift metric + CloudWatch drift alarm |
+**Status (2026-06-03):** merged + deployed + verified live on the real
+`99d08352-...` tenant in `#log-alerts`. PR #43 = 2 commits, 7 files.
 
-**Merge order:** #35 → #36 → #37 → #38 → 2.5. Each PR's base auto-rebases to main as predecessors merge.
+### What changed
+
+1. **CDK + Python env-var injection** (commit `eba9574`). Threads
+   `data.autonomousBroadcastQueue` through `ApiStack` and injects
+   `AUTONOMOUS_BROADCAST_QUEUE_URL` into 3 caller Lambdas
+   (`connections_list`, `onboarding_azure_complete`, `onboarding_gcp_complete`).
+   Each one forwards the URL as a `containerOverrides[].environment` entry on
+   the 4 `ecs:RunTask` sites for Azure + GCP scans (CDK `ContainerDefinition`
+   has no post-construction env mutation API; container overrides are the
+   only path).
+2. **Post-commit broadcast** (commit `e14b1f5`). Refactors
+   `ai_scanner/unified_writer.py` so `publish_if_critical` fires AFTER
+   `_rds.commit_transaction(...)` succeeds, not from inside the open tx.
+   Pre-existing Slice 2.1 race: SQS publish is synchronous, subscriber
+   Lambda fires within ms, subscriber's `SELECT WHERE finding_id = :fid`
+   races the commit and silently early-returns at `findings_subscriber/main.py:92`.
+   The fix accumulates `(tenant_id, fid, scan_id, severity, status)` tuples
+   during the loop, iterates after commit. Rollback path leaves the list
+   unused. All 4 scanners share this file via `build.sh` staging.
+
+### Smoke verified live (2026-06-03)
+
+- `cdk deploy CisoCopilotApi --hotswap` (12s).
+- `aws lambda get-function-configuration` confirmed env var on all 3 caller
+  Lambdas.
+- Triggered GCP rescan via `aws lambda invoke` against `ConnectionsListFn`
+  with a synthetic event carrying KK's `sso_subject`.
+- `aws ecs describe-tasks` confirmed `AUTONOMOUS_BROADCAST_QUEUE_URL` in
+  the running Azure + GCP Fargate container overrides alongside the per-scan
+  params.
+- GCP scan emitted 2 fresh critical-fail findings
+  (`gcp-storage-bucket-public-access` + `gcp-firewall-admin-ports`).
+- CloudWatch EMF: `CriticalFailWritten=2 / BroadcastQueued=2 / drift=0 /
+  BroadcastFanoutFailed=0`.
+- `seen` DDB table grew by exactly 2; both Block Kit cards landed in
+  `#log-alerts`; click-through deep-link landed on `/risks/:finding_id`
+  with the correct metadata.
+
+### Gotchas paid in this session
+
+- **Scanner ECR images had been stale since before Slice 2.1.**
+  `:latest` tags on `shasta-runner`, `shasta-runner-azure`, `shasta-runner-gcp`,
+  and `ai-scanner` all predated the 2026-05-30 `publish_if_critical` call site
+  in `ai_scanner/unified_writer.py`. Even with env-var + IAM correct, the
+  running images didn't carry the call. Rebuilding + pushing all four images
+  was load-bearing for the smoke.
+- **AWS Lambda doesn't auto-resolve `:latest`; Fargate does.** After
+  `docker push :latest`, Fargate task defs pick up the new digest on the next
+  `RunTask`. AWS Lambda Image-mode caches the digest from the original deploy
+  and needs an explicit `aws lambda update-function-code --image-uri <digest>`
+  to re-resolve. Today did this for `ciso-copilot-shasta-runner` and
+  `ciso-copilot-ai-scanner`.
+- **The cloud-scanner `unified_writer.py` files are gitignored runtime
+  stagings.** Each scanner's `build.sh` does
+  `cp ../ai_scanner/unified_writer.py app/unified_writer.py` on every build;
+  the canonical source is `ai_scanner/unified_writer.py`. Edits to the local
+  copy are no-ops, overwritten on the next build. Always edit the canonical
+  source.
+
+### Still-open broadcast follow-ups (not blocking)
+
+- ✅ **`fid` ↔ DB `finding_id` mismatch on ON CONFLICT** — **closed by
+  PR #44** (`30c9c6b`, 2026-06-03). `_insert_finding` now uses
+  `RETURNING finding_id::text` and returns the persisted id; the
+  broadcast carries it unchanged. Repeat-scan ON CONFLICT findings now
+  broadcast correctly. Verified live the same afternoon.
+- **JIT bot-token refresh in `findings_subscriber`.** Surfaced live
+  2026-06-03 during the PR #44 verification smoke: admin Slack bot
+  token expired, subscriber threw `slack chat.postMessage: token_expired`,
+  2 messages went to DLQ. Subscriber already `SELECT`s `access_expires_at`
+  (main.py:66) but never refreshes. Mirror the per-user OAuth pattern:
+  call `mcp_oauth.refresh_if_near_expiry` before `chat.postMessage`.
+  Schema already carries `refresh_token_enc` + `refresh_data_key_ct`
+  on `tenant_bot_connectors`. ~1 session.
+- **`shasta_runner_entra` doesn't import `broadcast_fanout`.** The MCP
+  Connectors Slice 2 entry below lists it among the wired scanners but the
+  code disagrees. Entra's writer path is `_insert_findings` in `main.py`,
+  not `unified_writer.py` — separate plumbing work.
+
+### Operational note for future scanner code bumps
+
+When changing any file that's `build.sh`-staged into a scanner image
+(`unified_writer.py`, anything under `_shared/`, anything under `detectors/`,
+anything under `scanner_core/`), you must:
+
+1. Rebuild + push each affected scanner image
+   (`cd platform/lambda/shasta_runner* && ./build.sh`, plus `ai_scanner` if
+   touched).
+2. For the **Lambda** scanners (`ciso-copilot-shasta-runner`,
+   `ciso-copilot-shasta-runner-entra`, `ciso-copilot-ai-scanner`), run
+   `aws lambda update-function-code --function-name <fn> --image-uri <repo>@<digest>`
+   to re-resolve `:latest`. Fargate scanners (Azure + GCP) auto-resolve on
+   the next `RunTask`, no action needed.
+3. CloudWatch sanity-check: trigger a rescan, watch
+   `Shasta/AutonomousBroadcast.CriticalFailWritten` vs `BroadcastQueued` —
+   drift > 0 signals a broken broadcast.
+
+---
+
+## 🔔 MCP Connectors Slice 2 — autonomous CRITICAL broadcast (shipped)
+
+**Status (2026-06-03):** all 5 sub-slices + cloud-scanner follow-up merged.
+Live end-to-end across AWS Lambda scanners (aiScanner, shastaRunner) and
+Azure + GCP Fargate scanners.
+
+| PR | Branch | Scope | Status |
+|---|---|---|---|
+| #35 | `feat/mcp-connectors-slice-2.1-broadcast-fanout` | `_shared/broadcast_fanout.py` + writer call site (canonical in `ai_scanner/unified_writer.py`, staged into 3 cloud scanners via build.sh) | merged |
+| #36 | `feat/mcp-connectors-slice-2.2-admin-bot-install` | Admin Slack workspace bot OAuth (initiate + callback + `_require_admin`) | merged |
+| #37 | `feat/mcp-connectors-slice-2.3-channel-picker` | `mcp_oauth.get_admin_session` + 5 admin routes (channel picker, autonomous toggle, revoke, status) + web admin block | merged |
+| #38 | `feat/mcp-connectors-slice-2.4-broadcast-plumbing` | CDK queue+DLQ+DDB+findings_subscriber Lambda (in ScanStack — ApiStack would have hit CFN 500-resource limit) | merged |
+| #39 | `feat/mcp-connectors-slice-2.5-deeplink-gate` | `<DeepLinkGate>` + EMF drift metric + CloudWatch drift alarm | merged |
+| #41 | `fix/connectors-admin-routes-bootstrap` | Hotfix: admin routes via out-of-CDK bootstrap, Slack Web API for bot-token paths | merged |
+| #43 | `fix/azure-gcp-broadcast-pipeline` | Azure + GCP env-var injection + post-commit race fix (see entry above) | merged 2026-06-03 |
 
 **Spec:** `docs/superpowers/specs/2026-05-31-mcp-connectors-slice-2-design.md`
 **Plan:** `docs/superpowers/plans/2026-05-31-mcp-connectors-slice-2.md`
 
-### What's live after all 5 merge
+### What's live
 
-- Scanner Lambdas publish to `autonomous-broadcast-queue` on every critical-fail finding via `_shared/broadcast_fanout.publish_if_critical`.
-- `findings_subscriber/` Lambda consumes the queue, gates on three kill switches (SSM global / per-tenant toggle / channel-not-picked), re-reads the finding, posts a Block Kit card to the configured Slack channel.
-- Admin block on `/settings` → Connectors tab: install, channel picker, autonomous toggle, disconnect.
-- `<DeepLinkGate>` wraps `/risks/:finding_id` so Slack-card clicks survive unauthenticated tabs.
-- CloudWatch: DLQ depth alarm + drift alarm (`CriticalFailWritten` vs `BroadcastQueued`).
+- Scanner Lambdas + Azure + GCP Fargate tasks publish to
+  `autonomous-broadcast-queue` on every critical-fail finding via
+  `_shared/broadcast_fanout.publish_if_critical`, fired POST-commit.
+- `findings_subscriber/` Lambda consumes the queue, gates on three kill
+  switches (SSM global / per-tenant toggle / channel-not-picked), re-reads
+  the finding, posts a Block Kit card to the configured Slack channel.
+- Admin block on `/settings` → Connectors tab: install, channel picker,
+  autonomous toggle, disconnect.
+- `<DeepLinkGate>` wraps `/risks/:finding_id` so Slack-card clicks survive
+  unauthenticated tabs.
+- CloudWatch: DLQ depth alarm + drift alarm (`CriticalFailWritten` vs
+  `BroadcastQueued`).
 
-### Manual smoke checklist (post-deploy, after all 5 merge)
+### Manual smoke checklist (regression)
 
 1. Admin installs Slack workspace bot via Settings → Connectors → admin block.
 2. Pick a broadcast channel via the modal.
-3. Manually `INSERT` a critical-fail finding into Aurora dev (`severity='critical' AND status='fail'`).
+3. Trigger any cloud rescan that produces a critical-fail finding (or
+   manually `INSERT` one into Aurora with `severity='critical' AND status='fail'`).
 4. Verify Block Kit card lands in the configured channel within 60s.
-5. Click "View details" from a fresh Incognito tab → bounces through `/signin?after=...` → lands on `/risks/:id`.
-6. Set `aws ssm put-parameter /cisocopilot/autonomous_rule/enabled false` → next insert: no broadcast.
-7. Flip the per-tenant toggle (`UPDATE tenant_bot_connectors SET autonomous_rule_enabled=false WHERE tenant_id=...`) → next insert: no broadcast.
-8. Set the channel to a deleted channel → DLQ accumulates after 5 retries → alarm fires within 5 min.
+5. Click "View details" from a fresh Incognito tab → bounces through
+   `/signin?after=...` → lands on `/risks/:id`.
+6. Set `aws ssm put-parameter /cisocopilot/autonomous_rule/enabled false` →
+   next critical-fail: no broadcast.
+7. Flip the per-tenant toggle (`UPDATE tenant_bot_connectors SET
+   autonomous_rule_enabled=false WHERE tenant_id=...`) → next critical-fail:
+   no broadcast.
+8. Set the channel to a deleted channel → DLQ accumulates after 5 retries →
+   alarm fires within 5 min.
 
-### Known limitations / follow-ups
+### Open follow-ups (see PR #43 entry above for full context)
 
-- **Azure + GCP ECS scanners**: IAM granted but `AUTONOMOUS_BROADCAST_QUEUE_URL` needs to be injected at `RunTask` time as a container override (CDK `ContainerDefinition` has no post-construction env mutation API). For v1, autonomous broadcasts fire for AWS Lambda scanner findings (aiScanner, shastaRunner, shastaRunnerEntra) only. Azure + GCP findings won't broadcast until follow-up.
-- **`unified_writer` consolidation deferred**: spec §5.D called for hoisting the duplicated writer modules into `_shared/`; investigation found drift across the 4 copies (CME-v2 normalize counters in `ai_scanner` only, per-scanner detector emission types). Slice 2.1 narrowed to fan-out hook only. Full consolidation is a separate cleanup PR.
-- **Subscriber tool name is `send_message`** — verify against Slack's MCP server tool catalog during deploy; might be `chat_postMessage` or `slack_send_message` depending on which MCP server the bot connects to. Test accepts all three names; runtime uses `send_message`.
+- ✅ `RETURNING finding_id` on `_insert_finding` — **closed by PR #44**
+  (`30c9c6b`, 2026-06-03).
+- JIT bot-token refresh in `findings_subscriber` — surfaced as a
+  follow-on bug during PR #44 verification; see entry under PR #43
+  above. Currently leaves the bot's expired-token broadcasts on the
+  DLQ.
+- Wire `broadcast_fanout` into `shasta_runner_entra` (the writer path
+  there is `_insert_findings` in `main.py`, separate from
+  `unified_writer.py`).
+- `unified_writer` consolidation across the 4 scanner copies — drift
+  exists (CME-v2 normalize counters in `ai_scanner` only); separate
+  cleanup PR.
+- Subscriber posts via Slack Web API (`chat.postMessage`) directly per
+  the #41 hotfix; HANDOFF's earlier reference to the MCP server tool
+  catalog (`send_message` vs `slack_send_message`) is obsolete.
 
 ---
 

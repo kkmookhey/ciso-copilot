@@ -136,7 +136,14 @@ in `docs/superpowers/specs/`; plans in `docs/superpowers/plans/`.
 | 2026-05-24 | Compliance Mapping Engine v2 — 8 frameworks, two-stage normalize → augment | Shipped |
 | 2026-05-25 | SOC Slice 1 — AWS Config drift + AI enrichment + `/soc` console | Shipped |
 | 2026-05-26 | SOC Slice 1c — Threat-intel substrate (5,726 IOCs) | Shipped |
-| Next | "Shasta by Transilience" branding + capability gating + billing module | In progress |
+| 2026-05-26 | "Shasta by Transilience" branding + docs trio + MIT license | Shipped |
+| 2026-05-27 | Phase 2 Tier 2/3 — secrets/identifier sweep + repo MIT-public | Shipped |
+| 2026-05-28 | Wow demo — voice-first agentic investigation (Demo A + B) | Shipped |
+| 2026-05-30 | MCP Connectors Slice 1 — per-user OAuth + Slack-as-MCP + KMS-envelope tokens | Shipped |
+| 2026-06-02 | MCP Connectors Slice 2 — autonomous CRITICAL → Slack broadcast (admin bot + channel picker + subscriber Lambda + deep-link gate + drift alarm) | Shipped |
+| 2026-06-03 | Azure + GCP autonomous broadcast — env-var injection + post-commit race fix; all 4 scanners broadcasting end-to-end | Shipped |
+| 2026-06-03 | Broadcast `RETURNING finding_id` — repeat-scan ON CONFLICT findings now carry the persisted id, so Slack cards land on every critical-fail | Shipped |
+| Next | Capability gating + billing module sub-phases (usage → dashboard → caps → Stripe) | Planned |
 | Next | SOC Slice 2 — Identity drift (AWS IAM + Entra audit logs) | Planned |
 
 ---
