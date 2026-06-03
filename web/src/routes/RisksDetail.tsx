@@ -1,43 +1,77 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api, type Risk } from "../lib/api";
+import { api, type Risk, type Finding } from "../lib/api";
 
 export function RisksDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
   const [risk, setRisk] = useState<Risk | null>(null);
+  const [finding, setFinding] = useState<Finding | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) {
-      setError("No finding ID provided");
+      setError("No ID provided");
       setLoading(false);
       return;
     }
 
-    // Load all risks and find the one matching the ID
-    api.listRisks({ status: "all" })
-      .then((r) => {
-        const found = r.risks.find((risk) => risk.risk_id === id || risk.finding_id === id);
-        if (found) {
-          setRisk(found);
-        } else {
-          setError("Risk not found");
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // 1. Try risks first — they're the analyst-curated layer.
+        const risksResp = await api.listRisks({ status: "all" });
+        const matched = risksResp.risks.find(
+          (r) => r.risk_id === id || r.finding_id === id,
+        );
+        if (matched) {
+          if (!cancelled) {
+            setRisk(matched);
+            setLoading(false);
+          }
+          return;
         }
-        setLoading(false);
-      })
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "Failed to load risk");
-        setLoading(false);
-      });
+
+        // 2. Fall back to findings — Slack-card "View details" buttons link
+        // to /risks/{finding_id}, and a finding that hasn't been promoted to
+        // a risk yet won't match above. Scan the first page of findings;
+        // good enough for the autonomous-broadcast critical-finding case.
+        const findingsResp = await api.listFindings({ limit: 200 });
+        const matchedFinding = findingsResp.findings.find(
+          (f) => f.finding_id === id,
+        );
+        if (matchedFinding) {
+          if (!cancelled) {
+            setFinding(matchedFinding);
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setError("Not found in risks or findings");
+          setLoading(false);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load");
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (loading) {
     return <div className="p-8 text-neutral-500">Loading…</div>;
   }
 
-  if (error || !risk) {
+  if (error || (!risk && !finding)) {
     return (
       <div className="max-w-2xl">
         <button
@@ -47,11 +81,67 @@ export function RisksDetail() {
           ← Back to risks
         </button>
         <div className="p-4 rounded-lg bg-red-50 text-red-700 text-sm">
-          {error || "Risk not found"}
+          {error || "Not found"}
         </div>
       </div>
     );
   }
+
+  if (finding && !risk) {
+    return (
+      <div className="max-w-2xl">
+        <button
+          onClick={() => nav("/findings")}
+          className="mb-4 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm transition"
+        >
+          ← Back to findings
+        </button>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
+          <div className="flex items-start justify-between mb-4">
+            <h1 className="text-2xl font-bold tracking-tight">{finding.title}</h1>
+            <SeverityPill sev={finding.severity} />
+          </div>
+          {finding.description && (
+            <p className="text-slate-600 mb-6">{finding.description}</p>
+          )}
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-xs uppercase text-slate-500 font-semibold mb-1">Finding ID</h3>
+              <code className="text-sm font-mono text-slate-700 bg-slate-50 px-3 py-2 rounded-lg block">
+                {finding.finding_id}
+              </code>
+            </div>
+            <div>
+              <h3 className="text-xs uppercase text-slate-500 font-semibold mb-1">Status</h3>
+              <p className="text-sm text-slate-700 capitalize">{finding.status}</p>
+            </div>
+            {finding.resource_arn && (
+              <div>
+                <h3 className="text-xs uppercase text-slate-500 font-semibold mb-1">Resource</h3>
+                <code className="text-sm font-mono text-slate-700 bg-slate-50 px-3 py-2 rounded-lg block">
+                  {finding.resource_arn}
+                </code>
+              </div>
+            )}
+            {finding.check_id && (
+              <div>
+                <h3 className="text-xs uppercase text-slate-500 font-semibold mb-1">Check</h3>
+                <p className="text-sm text-slate-700">{finding.check_id}</p>
+              </div>
+            )}
+            {finding.domain && (
+              <div>
+                <h3 className="text-xs uppercase text-slate-500 font-semibold mb-1">Scanner</h3>
+                <p className="text-sm text-slate-700 capitalize">{finding.domain}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!risk) return null;
 
   return (
     <div className="max-w-2xl">
