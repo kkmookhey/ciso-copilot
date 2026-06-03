@@ -5,15 +5,22 @@ SQS-fed (batch=1). For each message:
   2. global kill switch (SSM, 60s cache)
   3. tenant_bot_connectors lookup (silent ack if missing/disabled/no channel)
   4. findings row re-read (silent ack if missing — race with retention)
-  5. open MCP admin session, post Block Kit card
+  5. POST the Block Kit card to Slack via direct Web API (chat.postMessage)
   6. mark_seen (conditional PutItem; log & swallow if fails AFTER successful send)
+
+Implementation note: step 5 uses Slack's direct Web API
+(https://slack.com/api/chat.postMessage) with the bot token rather than
+mcp_oauth.get_admin_session. Slack's MCP server only accepts user-scope
+tokens (xoxp-...) — bot tokens (xoxb-...) get 401. Direct API works for
+both token types and is simpler for fire-and-forget posts.
 """
 from __future__ import annotations
-import asyncio
 import json
 
+import requests
+
 from findings_subscriber import idempotency, kill_switch, block_kit
-from mcp_oauth import get_admin_session
+from mcp_oauth.crypto import decrypt_token
 from mcp_oauth.session import (
     _db,
     ConnectorMissingError,
@@ -88,13 +95,39 @@ def _process(body: dict) -> None:
         "created_at_epoch": finding.get("created_at_epoch") or 0,
     })
 
-    async def _post():
-        async with get_admin_session(tenant_id, "slack") as session:
-            await session.call_tool("send_message", {
-                "channel": bot["broadcast_channel_id"],
-                "blocks":  blocks,
-            })
-    asyncio.run(_post())
+    # Decrypt the bot token and post via Slack Web API directly.
+    token_row = _db().execute("""
+        SELECT access_token_enc, access_data_key_ct
+        FROM tenant_bot_connectors
+        WHERE tenant_id = :tid::uuid AND oauth_provider = 'slack'
+          AND status = 'active'
+        LIMIT 1
+    """, [{"name": "tid", "value": {"stringValue": tenant_id}}]).fetchone()
+    if not token_row:
+        # Race: revoked between the gate query and now. Silent ack.
+        return
+    bot_token = decrypt_token(
+        token_row["access_token_enc"], token_row["access_data_key_ct"],
+    )
+    resp = requests.post(
+        "https://slack.com/api/chat.postMessage",
+        headers={
+            "Authorization": f"Bearer {bot_token}",
+            "Content-Type":  "application/json; charset=utf-8",
+        },
+        json={
+            "channel": bot["broadcast_channel_id"],
+            "blocks":  blocks,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if not body.get("ok"):
+        # Slack returned 200 with ok=false (e.g. channel_not_found,
+        # not_in_channel). Re-raise so the message goes to DLQ after retries
+        # — admin needs to fix the channel config.
+        raise RuntimeError(f"slack chat.postMessage: {body.get('error', 'unknown')}")
 
     try:
         idempotency.mark_seen(tenant_id=tenant_id,

@@ -9,32 +9,94 @@ Routes registered here:
   POST   /connectors/admin/slack/broadcast-channel — set broadcast channel (anti-tamper)
   PATCH  /connectors/admin/slack/autonomous-rule   — toggle autonomous rule on/off
   DELETE /connectors/admin/slack                   — revoke workspace bot install
+
+Implementation note: the channel picker uses Slack's direct Web API
+(https://slack.com/api/conversations.list, auth.revoke) instead of
+mcp_oauth.get_admin_session, because Slack's MCP server
+(https://mcp.slack.com/mcp) only accepts user-scope tokens (xoxp-...).
+Bot tokens (xoxb-...) returned by oauth.v2.access for the admin install
+get 401 from MCP. Direct Slack Web API accepts both token types and is
+strictly simpler for fire-and-forget calls anyway.
 """
 from __future__ import annotations
-import asyncio
 import json
+
+import requests
 
 from connectors.main import _route, _resp
 import connectors.handlers_slack_workspace_bot as _wsbot
-from mcp_oauth import get_admin_session
 from mcp_oauth.session import _db, ConnectorMissingError
+from mcp_oauth.crypto import decrypt_token
+
+
+def _bot_token(tenant_id: str) -> str:
+    """Decrypt and return the active bot token for the tenant.
+
+    Raises ConnectorMissingError if no active row exists.
+    """
+    row = _db().execute("""
+        SELECT access_token_enc, access_data_key_ct
+        FROM tenant_bot_connectors
+        WHERE tenant_id = :tid::uuid AND oauth_provider = 'slack'
+          AND status = 'active'
+        LIMIT 1
+    """, [{"name": "tid", "value": {"stringValue": tenant_id}}]).fetchone()
+    if not row:
+        raise ConnectorMissingError(f"no active slack bot for tenant {tenant_id}")
+    return decrypt_token(row["access_token_enc"], row["access_data_key_ct"])
+
+
+def _slack_get(method: str, token: str, params: dict | None = None) -> dict:
+    """Call a Slack Web API method with the bot token; raise on non-ok."""
+    resp = requests.get(
+        f"https://slack.com/api/{method}",
+        headers={"Authorization": f"Bearer {token}"},
+        params=params or {},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if not body.get("ok"):
+        raise RuntimeError(f"slack {method}: {body.get('error', 'unknown')}")
+    return body
+
+
+def _slack_post(method: str, token: str, data: dict | None = None) -> dict:
+    """Call a Slack Web API method (POST form-encoded) with the bot token."""
+    resp = requests.post(
+        f"https://slack.com/api/{method}",
+        headers={"Authorization": f"Bearer {token}"},
+        data=data or {},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if not body.get("ok"):
+        raise RuntimeError(f"slack {method}: {body.get('error', 'unknown')}")
+    return body
+
+
+def _list_channels(tenant_id: str) -> list[dict]:
+    """Return [{id, name, is_private}] for channels the bot is in or can see."""
+    token = _bot_token(tenant_id)
+    # Need both public + private channels (groups). One call with types= covers both.
+    body = _slack_get("conversations.list", token, params={
+        "types": "public_channel,private_channel",
+        "limit": 1000,
+        "exclude_archived": "true",
+    })
+    return [
+        {"id": c["id"], "name": c["name"], "is_private": bool(c.get("is_private"))}
+        for c in body.get("channels", [])
+    ]
 
 
 def _channel_exists(tenant_id: str, channel_id: str) -> bool:
-    """Return True iff channel_id appears in the bot's conversations_list.
-
-    Anti-tamper: prevent an attacker (or buggy UI) from setting
-    broadcast_channel_id to a channel the bot doesn't have access to.
-    Re-runs conversations_list — cheap (cached in Slack's MCP for ~30s).
-    """
+    """Anti-tamper: confirm the supplied channel_id is in the bot's
+    conversations.list response. Prevents setting broadcast_channel_id
+    to a channel the bot can't post to."""
     try:
-        async def _check():
-            async with get_admin_session(tenant_id, "slack") as session:
-                result = await session.call_tool("conversations_list", {})
-                payload = json.loads(result.content[0].text)
-                ids = {c["id"] for c in payload.get("channels", [])}
-                return channel_id in ids
-        return asyncio.run(_check())
+        return channel_id in {c["id"] for c in _list_channels(tenant_id)}
     except ConnectorMissingError:
         return False
 
@@ -46,15 +108,11 @@ def list_channels(event, claims, _params):
         return _resp(403, {"error": "admin_required"})
 
     try:
-        async def _fetch():
-            async with get_admin_session(tenant_id, "slack") as session:
-                result = await session.call_tool("conversations_list", {})
-                return json.loads(result.content[0].text)
-        payload = asyncio.run(_fetch())
+        channels = _list_channels(tenant_id)
     except ConnectorMissingError:
         return _resp(409, {"error": "bot_not_installed"})
 
-    return _resp(200, {"channels": payload.get("channels", [])})
+    return _resp(200, {"channels": channels})
 
 
 @_route("POST", r"^/connectors/admin/slack/broadcast-channel$")
@@ -115,12 +173,12 @@ def revoke_workspace_bot(event, claims, _params):
     if not tenant_id:
         return _resp(403, {"error": "admin_required"})
 
-    # Best-effort Slack auth.revoke — if it fails the local revoke still happens.
+    # Best-effort Slack auth.revoke — if it fails, the local revoke still
+    # happens. Uses direct Web API for the same reason _list_channels does
+    # (MCP rejects bot tokens with 401).
     try:
-        async def _revoke_upstream():
-            async with get_admin_session(tenant_id, "slack") as session:
-                await session.call_tool("auth_revoke", {})
-        asyncio.run(_revoke_upstream())
+        token = _bot_token(tenant_id)
+        _slack_get("auth.revoke", token)
     except Exception as e:
         print(f"[connectors] Slack auth.revoke failed: {e!r} (continuing)")
 
