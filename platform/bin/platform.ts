@@ -75,4 +75,5 @@ new ApiStack(app, 'CisoCopilotApi', {
   webRedirectUri:     config.webRedirectUri,
   connectorTokensKey: data.connectorTokensKey,
   pkceVerifierTable:  data.pkceVerifierTable,
+  autonomousBroadcastQueue: data.autonomousBroadcastQueue,
 });
