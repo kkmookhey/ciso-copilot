@@ -50,6 +50,14 @@ interface ApiStackProps extends cdk.StackProps {
   // KMS key + table outlive ApiStack redeploys.
   connectorTokensKey: kms.IKey;
   pkceVerifierTable:  dynamodb.ITable;
+  // Slice 2.4 broadcast queue. Optional so the stack can deploy before the
+  // queue exists (initial bootstrap). When present, the queue URL is injected
+  // into the caller Lambdas (connections_list, onboarding_{azure,gcp}_complete)
+  // and forwarded as a RunTask container override — the only way to get the
+  // env var onto the Azure + GCP Fargate scanners, since CDK ContainerDefinition
+  // has no post-construction env mutation API. IAM grant lives on the task
+  // roles in ScanStack.
+  autonomousBroadcastQueue?: sqs.IQueue;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -197,6 +205,9 @@ export class ApiStack extends cdk.Stack {
         SCAN_TASK_DEF_ARN:      props.scanTaskDefFamily,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
         SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
+        ...(props.autonomousBroadcastQueue
+          ? { AUTONOMOUS_BROADCAST_QUEUE_URL: props.autonomousBroadcastQueue.queueUrl }
+          : {}),
       },
     });
     props.dbCluster.grantDataApiAccess(connectionsListFn);
@@ -628,6 +639,9 @@ export class ApiStack extends cdk.Stack {
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
         SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
+        ...(props.autonomousBroadcastQueue
+          ? { AUTONOMOUS_BROADCAST_QUEUE_URL: props.autonomousBroadcastQueue.queueUrl }
+          : {}),
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingAzureCompleteFn);
@@ -736,6 +750,9 @@ export class ApiStack extends cdk.Stack {
         SCAN_CLUSTER_ARN:       props.scanCluster.clusterArn,
         SCAN_SUBNET_IDS:        props.vpc.privateSubnets.map(s => s.subnetId).join(','),
         SCAN_SECURITY_GROUP_ID: props.scanTaskSecurityGroupId,
+        ...(props.autonomousBroadcastQueue
+          ? { AUTONOMOUS_BROADCAST_QUEUE_URL: props.autonomousBroadcastQueue.queueUrl }
+          : {}),
       },
     });
     props.dbCluster.grantDataApiAccess(onboardingGcpCompleteFn);

@@ -80,6 +80,13 @@ def commit_scan(ctx, *,
             "normalize_rewrote": {},
             "normalize_passthrough": {},
         }
+        # Accumulate broadcast tuples during the in-tx INSERT loop, then fire
+        # them AFTER commit_transaction succeeds. Firing inside the tx races
+        # the subscriber Lambda: SQS publish is synchronous and the subscriber
+        # triggers within ms; its `SELECT WHERE finding_id = :fid` runs before
+        # the scanner commits and silently early-returns at main.py:92, dropping
+        # the broadcast. Post-commit broadcast guarantees the row is visible.
+        pending_broadcasts: list[tuple[str, str, str, str, str]] = []
         for f in findings:
             entity_id = None
             if f.subject_entity_kind and f.subject_entity_natural_key:
@@ -109,7 +116,10 @@ def commit_scan(ctx, *,
                     "check_id": f.finding_type, "err": str(e),
                 })
             # --- end framework registry pass ---
-            _insert_finding(tx, f, entity_id, scan_id=ctx.scan_id, ctx=ctx)
+            fid = _insert_finding(tx, f, entity_id, scan_id=ctx.scan_id, ctx=ctx)
+            pending_broadcasts.append(
+                (f.tenant_id, fid, ctx.scan_id, f.severity, f.status)
+            )
 
         log.info("registry_apply_summary", extra={
             "rules_fired_count":           rules_fired_count,
@@ -129,6 +139,24 @@ def commit_scan(ctx, *,
             resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, transactionId=tx,
         )
         raise
+
+    # Post-commit fan-out. publish_if_critical short-circuits on non-critical
+    # and swallows its own SQS errors, but we still wrap each call defensively
+    # so one bad message can't tank the others.
+    for tenant_id, finding_id, scan_id, severity, status in pending_broadcasts:
+        try:
+            broadcast_fanout.publish_if_critical(
+                tenant_id=tenant_id,
+                finding_id=finding_id,
+                scan_id=scan_id,
+                severity=severity,
+                status=status,
+            )
+        except Exception as e:
+            log.warning("broadcast_fanout_unexpected_error", extra={
+                "err": f"{type(e).__name__}: {e}",
+                "finding_id": finding_id,
+            })
 
 
 def mark_scan_failed(ctx, error_message: str) -> None:
@@ -287,11 +315,13 @@ def _upsert_edge(tx: str, e: EdgeEmission, source_id: str, target_id: str,
 
 
 def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
-                     scan_id: str, ctx) -> None:
+                     scan_id: str, ctx) -> str:
     """Upsert a finding on its natural key (tenant, conn, check_id, resource,
     region) so re-scans refresh in place rather than accumulate a fresh row.
     `first_seen` is preserved on conflict; `last_seen` + mutable state are
-    refreshed and `resolved_at` is cleared (the finding was seen again)."""
+    refreshed and `resolved_at` is cleared (the finding was seen again).
+    Returns the client-side fid used in the INSERT (caller accumulates these
+    for post-commit broadcast)."""
     fid = str(uuid.uuid4())
     _rds.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
@@ -338,15 +368,7 @@ def _insert_finding(tx, f: FindingEmission, entity_id: str | None,
                       else {"stringValue": entity_id}},
         ],
     )
-    # Autonomous broadcast fan-out (Slice 2). Best-effort; failures don't
-    # propagate. See _shared/broadcast_fanout.py.
-    broadcast_fanout.publish_if_critical(
-        tenant_id=f.tenant_id,
-        finding_id=fid,
-        scan_id=scan_id,
-        severity=f.severity,
-        status=f.status,
-    )
+    return fid
 
 
 def _update_scan(tx, ctx, entity_count, edge_count, finding_count, status):

@@ -40,6 +40,10 @@ AZURE_SCAN_TASK_DEF    = os.environ.get("AZURE_SCAN_TASK_DEF", "")
 GCP_SCAN_TASK_DEF      = os.environ.get("GCP_SCAN_TASK_DEF", "")
 SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
 SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
+# Slice 2.4 follow-up: forwarded to the Azure + GCP Fargate scanners as a
+# RunTask container override so their broadcast_fanout hook can publish to
+# the autonomous-broadcast SQS queue. Empty when the queue isn't deployed yet.
+AUTONOMOUS_BROADCAST_QUEUE_URL = os.environ.get("AUTONOMOUS_BROADCAST_QUEUE_URL", "")
 
 rds_data      = boto3.client("rds-data")
 sm            = boto3.client("secretsmanager")
@@ -281,7 +285,10 @@ def _rescan_azure(conn: dict, tenant_id: str, tier: str) -> str:
                         {"name": "SECRET_ARN",       "value": secret_arn},
                         {"name": "SUBSCRIPTION_IDS", "value": ",".join(subscriptions)},
                         {"name": "SCAN_TIER",        "value": tier},
-                    ],
+                    ] + ([
+                        {"name": "AUTONOMOUS_BROADCAST_QUEUE_URL",
+                         "value": AUTONOMOUS_BROADCAST_QUEUE_URL},
+                    ] if AUTONOMOUS_BROADCAST_QUEUE_URL else []),
                 }],
             },
         )
@@ -377,7 +384,10 @@ def _rescan_gcp(conn: dict, tenant_id: str, tier: str) -> str:
                         {"name": "WIF_POOL",           "value": scope["wif_pool"]},
                         {"name": "WIF_PROVIDER",       "value": scope["wif_provider"]},
                         {"name": "SCAN_TIER",          "value": tier},
-                    ],
+                    ] + ([
+                        {"name": "AUTONOMOUS_BROADCAST_QUEUE_URL",
+                         "value": AUTONOMOUS_BROADCAST_QUEUE_URL},
+                    ] if AUTONOMOUS_BROADCAST_QUEUE_URL else []),
                 }],
             },
         )

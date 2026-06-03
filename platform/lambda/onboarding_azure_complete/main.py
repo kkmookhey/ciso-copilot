@@ -32,6 +32,9 @@ AZURE_SCAN_TASK_DEF    = os.environ.get("AZURE_SCAN_TASK_DEF", "")
 SCAN_CLUSTER_ARN       = os.environ.get("SCAN_CLUSTER_ARN", "")
 SCAN_SUBNET_IDS        = os.environ.get("SCAN_SUBNET_IDS", "")
 SCAN_SECURITY_GROUP_ID = os.environ.get("SCAN_SECURITY_GROUP_ID", "")
+# Slice 2.4 follow-up: forwarded to the Azure Fargate scanner as a RunTask
+# container override so broadcast_fanout can publish to the broadcast queue.
+AUTONOMOUS_BROADCAST_QUEUE_URL = os.environ.get("AUTONOMOUS_BROADCAST_QUEUE_URL", "")
 
 rds_data = boto3.client("rds-data")
 sm       = boto3.client("secretsmanager")
@@ -190,7 +193,10 @@ def _run_initial_scan(*, tenant_id: str, conn_id: str, azure_tenant_id: str,
                         {"name": "SECRET_ARN",       "value": secret_arn},
                         {"name": "SUBSCRIPTION_IDS", "value": ",".join(subscription_ids)},
                         {"name": "SCAN_TIER",        "value": "quick"},
-                    ],
+                    ] + ([
+                        {"name": "AUTONOMOUS_BROADCAST_QUEUE_URL",
+                         "value": AUTONOMOUS_BROADCAST_QUEUE_URL},
+                    ] if AUTONOMOUS_BROADCAST_QUEUE_URL else []),
                 }],
             },
         )
