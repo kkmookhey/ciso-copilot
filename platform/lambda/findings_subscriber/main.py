@@ -19,7 +19,13 @@ import json
 
 import requests
 
-from findings_subscriber import idempotency, kill_switch, block_kit
+# CDK bundles findings_subscriber/ flat under /var/task (cp -r src/. dest).
+# Tests use fully-qualified names; at runtime we import the bare modules.
+# Per CLAUDE.md "CDK lambda.Code.fromAsset(directory) bundles flat".
+try:
+    from findings_subscriber import idempotency, kill_switch, block_kit  # tests
+except ImportError:
+    import idempotency, kill_switch, block_kit  # type: ignore  # runtime
 from mcp_oauth.crypto import decrypt_token
 from mcp_oauth.session import (
     _db,
