@@ -291,6 +291,77 @@ def test_critical_fail_triggers_fanout(monkeypatch):
     assert body["tenant_id"] == "t1"
 
 
+def test_broadcast_fires_after_commit(monkeypatch):
+    """Regression: the broadcast must publish AFTER commit_transaction. If it
+    fires inside the open tx, the subscriber's `SELECT WHERE finding_id = :fid`
+    races the commit and silently early-returns (subscriber main.py:92). See
+    the 2026-06-02 GCP smoke that surfaced this — one of two critical-fail
+    findings made it to Slack, the other was dropped on the in-tx race."""
+    from unittest.mock import MagicMock, call as mock_call
+    from _shared import broadcast_fanout as bf
+
+    fake_sqs = MagicMock()
+    monkeypatch.setenv("AUTONOMOUS_BROADCAST_QUEUE_URL",
+                       "https://sqs.us-east-1.amazonaws.com/000000000000/q")
+    monkeypatch.setattr(bf, "_sqs", fake_sqs)
+
+    import unified_writer
+    from detectors.base import FindingEmission
+    fake_rds, _calls = _stub_rds(monkeypatch)
+
+    # Attach commit_transaction and send_message to one parent mock so we can
+    # assert ordering across them via mock_calls.
+    parent = MagicMock()
+    parent.attach_mock(fake_rds.commit_transaction, "commit_transaction")
+    parent.attach_mock(fake_sqs.send_message,       "send_message")
+
+    f = FindingEmission(
+        tenant_id="t1", finding_type="critical_test", title="t", description="d",
+        severity="critical", status="fail",
+        subject_entity_kind=None, subject_entity_natural_key=None,
+        subject_type=None, subject_ref=None,
+        evidence_packet={}, confidence="high",
+    )
+    unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    names = [c[0] for c in parent.mock_calls]
+    assert "commit_transaction" in names, "commit must have been called"
+    assert "send_message"       in names, "broadcast must have been called"
+    assert names.index("commit_transaction") < names.index("send_message"), (
+        f"commit must precede broadcast, got call order: {names}"
+    )
+
+
+def test_broadcast_does_not_fire_on_rollback(monkeypatch):
+    """If commit_scan rolls back (any in-tx error), pending broadcasts must
+    NOT fire — we don't broadcast findings that never made it to DB."""
+    from unittest.mock import MagicMock
+    from _shared import broadcast_fanout as bf
+
+    fake_sqs = MagicMock()
+    monkeypatch.setenv("AUTONOMOUS_BROADCAST_QUEUE_URL",
+                       "https://sqs.us-east-1.amazonaws.com/000000000000/q")
+    monkeypatch.setattr(bf, "_sqs", fake_sqs)
+
+    import unified_writer
+    from detectors.base import FindingEmission
+    fake_rds, _calls = _stub_rds(monkeypatch)
+    fake_rds.commit_transaction.side_effect = RuntimeError("aurora unavailable")
+
+    f = FindingEmission(
+        tenant_id="t1", finding_type="critical_test", title="t", description="d",
+        severity="critical", status="fail",
+        subject_entity_kind=None, subject_entity_natural_key=None,
+        subject_type=None, subject_ref=None,
+        evidence_packet={}, confidence="high",
+    )
+    with pytest.raises(RuntimeError, match="aurora unavailable"):
+        unified_writer.commit_scan(_ctx(), entities=[], edges=[], findings=[f])
+
+    fake_sqs.send_message.assert_not_called()
+    fake_rds.rollback_transaction.assert_called_once()
+
+
 def test_non_critical_does_not_trigger_fanout(monkeypatch):
     """Findings with severity != critical (or status != fail) must not publish."""
     from unittest.mock import MagicMock
