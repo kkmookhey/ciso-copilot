@@ -50,40 +50,18 @@ _signing_key_cache: bytes | None = None
 # these at the IdP layer; this is a backup check.
 MS_PERSONAL_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
 
-# Personal email providers. Users at these domains get a per-user tenant
-# (keyed on full email) instead of sharing one with everyone else at the same
-# domain. Corporate domains keep the shared-tenant behavior so colleagues at
-# acme.com land in the same workspace.
-#
-# Why this matters: tenants.email_domain was UNIQUE — without this split, the
-# first kkmookhey@gmail.com to sign up created a tenant; every subsequent
-# gmail.com user auto-joined as a 'member' with full read access. This is the
-# classic multi-tenant SaaS leak when keying on domain.
-PERSONAL_EMAIL_DOMAINS = {
-    "gmail.com", "googlemail.com",
-    "outlook.com", "hotmail.com", "live.com", "msn.com",
-    "yahoo.com", "yahoo.co.uk", "yahoo.co.in", "ymail.com",
-    "icloud.com", "me.com", "mac.com",
-    "aol.com",
-    "proton.me", "protonmail.com", "pm.me",
-    "zoho.com",
-    "fastmail.com",
-    "duck.com",
-    "tutanota.com", "tuta.io",
-    "gmx.com", "gmx.net", "mail.com",
-}
-
-
-def _tenant_key(email: str, email_domain: str) -> tuple[str, str]:
+def _tenant_key(email: str) -> tuple[str, str]:
     """Returns (tenant_key, display_name) — the unique identifier used to
-    find/create a tenant.
+    find/create a tenant. Always the full email: every user gets their own
+    isolated workspace.
 
-    For corporate domains: key = domain, display = domain.
-    For personal-email domains: key = full email, display = full email.
+    We deliberately do NOT key on email_domain. Doing so made the first user
+    at a domain create a tenant that every subsequent colleague auto-joined as
+    a 'member' with full read access to each other's cloud connections and
+    findings — the classic multi-tenant SaaS leak. Sharing a workspace across
+    colleagues must be an explicit invite flow, never an implicit domain match.
     """
-    if email_domain in PERSONAL_EMAIL_DOMAINS:
-        return (email, email)
-    return (email_domain, email_domain)
+    return (email, email)
 
 
 def handler(event: dict, context) -> dict:
@@ -95,7 +73,6 @@ def handler(event: dict, context) -> dict:
         print("skip: no valid email attribute")
         return event
 
-    email_domain = email.split("@", 1)[1]
     sso_provider, sso_subject = _resolve_identity(attrs)
     if not sso_subject:
         print("skip: no SSO identity in claims")
@@ -105,7 +82,7 @@ def handler(event: dict, context) -> dict:
         print(f"skip: personal Microsoft account ({email})")
         return event
 
-    tenant_key, tenant_display = _tenant_key(email, email_domain)
+    tenant_key, tenant_display = _tenant_key(email)
     tenant = _find_tenant_by_key(tenant_key)
     if tenant is None:
         tenant_id = str(uuid.uuid4())
