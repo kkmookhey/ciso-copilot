@@ -1,11 +1,23 @@
-# AI Security Slice 1 — Workspace shadow AI + Bedrock + AI compliance + AI-BOM
+# AI Security Slice 1 — Workspace shadow AI + Bedrock runtime + AI-BOM
 
 > First slice of the AI Security sub-project. Targets the CISO worried about
-> shadow AI: broadens discovery beyond Entra, lands two AI-specific
-> compliance frameworks (NIST AI RMF + OWASP LLM Top 10), and ships a
-> regulator-grade AI-BOM export. Brainstormed 2026-06-04 (notes:
-> conversation captured at brainstorm time; not persisted to a separate
-> notes file).
+> shadow AI: broadens discovery beyond Entra (Google Workspace scanner +
+> AWS Bedrock runtime detection), adds new mapping rules against the
+> **existing** 8 AI-specific framework packs already shipped in CME-v2,
+> and ships a regulator-grade CycloneDX-ML AI-BOM export. Brainstormed
+> 2026-06-04.
+>
+> **Spec correction 2026-06-04 (post-audit):** original draft of this
+> spec claimed NIST AI RMF + OWASP LLM Top 10 were new framework packs.
+> **Both are already shipped** — along with ISO 42001, EU AI Act, SOC 2
+> + AI, NIST AI 600-1, OWASP Agentic, and MITRE ATLAS. `scanner_core/`
+> is the canonical registry home (mirrored to 4 scanner copies via
+> `sync_framework_map.py`); 13 mapping rules already populate the
+> registry, including full tagging for the Entra `ai_signin_personal_tier`
+> check. Slice 1's compliance work is reduced to adding ~8-10 *new
+> mapping rules* for the new detectors' `check_id`s — no new packs, no
+> registry rewrite. Re-framing is reflected throughout §1, §3, §4, §6.3,
+> §7, §10 below.
 >
 > Cross-refs:
 > - [`2026-05-24-compliance-mapping-engine-v2.md`](2026-05-24-compliance-mapping-engine-v2.md) — CME-v2 + `framework_registry` selectors + `framework_meta` (the substrate this slice extends)
@@ -17,12 +29,16 @@
 
 **Goal:** make Shasta the AI-security platform a mid-market or enterprise
 CISO will deploy for shadow-AI visibility. Today's coverage is Entra-only
-sign-in detection plus a single AI Exposure Score. Slice 1 broadens
-discovery to a second identity surface (Google Workspace) and adds a
-cloud-side AI signal (AWS Bedrock invocations); ships two AI-specific
-compliance frameworks (NIST AI RMF + OWASP LLM Top 10) wired into the
-existing CME-v2 substrate; and delivers a CycloneDX-ML AI-BOM export the
-CISO can hand to their auditor.
+sign-in detection plus the existing AI scanner (GitHub repos + cloud AI
+components) feeding 8 AI-specific framework packs (NIST AI RMF, NIST AI
+600-1, ISO 42001, EU AI Act, SOC 2 + AI, OWASP LLM Top 10, OWASP Agentic,
+MITRE ATLAS) via 13 already-populated mapping rules in
+`scanner_core/ai_framework_registry.json`. Slice 1 broadens discovery to a
+second identity surface (Google Workspace), adds AWS Bedrock runtime
+detection through the existing `event_router` (the inventory-side
+`bedrock_model` entity kind already exists), wires the new detectors'
+`check_id`s into the existing framework packs via new mapping rules, and
+delivers a CycloneDX-ML AI-BOM export the CISO can hand to their auditor.
 
 **Success criteria:**
 
@@ -35,17 +51,23 @@ CISO can hand to their auditor.
    in Shasta within 60 seconds as a `bedrock_invocation` rollup (per
    principal, per model, per day). Untracked Bedrock workloads surface as
    `aws_bedrock_invoke_high_volume` findings.
-3. The `/ai` page now has a **Compliance** row with NIST AI RMF and OWASP
-   LLM Top 10 tiles, each showing a real % score (not "Coming soon"). The
-   tiles drill into `/findings?framework=…`.
+3. The existing AI-family framework tiles on `/ai` (NIST AI RMF + OWASP
+   LLM Top 10 + EU AI Act + NIST AI 600-1 + ISO 42001 + MITRE ATLAS) all
+   incorporate the new detectors' findings in their score % within one
+   scan cycle after Slice 1 ships — i.e., the new mapping rules are
+   wired and `compliance_summary` returns updated numbers.
 4. Clicking **Export AI-BOM** on `/ai` downloads a valid CycloneDX-ML 1.6
    JSON file (validates against the public CycloneDX JSON schema) that
    inventories every AI entity the tenant has, with dependencies + AI-attached
    findings as vulnerabilities.
-5. The hoisted `_shared/cme/` module is the only source of truth for the
-   framework registry — the `shasta_runner_entra/app/framework_registry.py`
-   copy is deleted, not duplicated. Workspace + Bedrock + Entra all import
-   from one place.
+5. The shared `framework_meta` duplication between `ai_summary/` and
+   `compliance_summary/` is consolidated (single canonical source — most
+   likely `scanner_core/framework_meta.py` to live next to the existing
+   `scanner_core/framework_registry.py` master + mirror script). The
+   5-way duplication of `framework_registry.py` itself stays — that's by
+   design (Lambda zip bundling needs the file local; `sync_framework_map.py`
+   mirrors from the canonical `scanner_core/` master at build time). New
+   scanners (Workspace) get added to the mirror script's target list.
 6. Findings broadcast pipeline works for the new detectors without code
    change in `findings_subscriber/`. None of the Slice 1 default
    severities (high / medium / informational) qualify under the existing
@@ -68,13 +90,18 @@ CISO can hand to their auditor.
   framework dashboard. The chosen shape lands one demo beat per pillar
   (Workspace = discovery wow, Bedrock = platform-team wow, NIST AI RMF =
   CISO wow, AI-BOM = regulator wow) and they converge on the same page.
-- **`_shared/cme/` hoist is in Slice 1, not deferred.** The framework
-  registry currently lives in `shasta_runner_entra/app/`. Workspace +
-  Bedrock both need to consume it. Adding two new importers to a
-  module living inside one scanner's directory tree would entrench the
-  drift problem CME-v2's spec §17 already flagged as forward-compat work.
-  Hoisting it now is one cheap PR; deferring it costs a duplicated registry
-  copy in every scanner that gains AI tagging in Slices 2+.
+- **No `_shared/cme/` hoist needed — `scanner_core/` already is the
+  canonical home.** Post-audit: `framework_registry.py` lives in
+  `scanner_core/` as the master + is mirrored to ai_scanner +
+  shasta_runner_azure + shasta_runner_entra + shasta_runner_gcp via
+  `sync_framework_map.py`. The 5-way duplication is intentional (Lambda
+  zips need the file local; mirror script keeps them in sync). What
+  Slice 1 actually does: (a) add `shasta_runner_workspace` to the
+  mirror target list, (b) `event_router` imports directly from
+  `scanner_core/` (already a Lambda layer / shared module pattern that
+  exists in this codebase), (c) consolidate the genuine duplication —
+  `framework_meta.py` in `ai_summary/` and `compliance_summary/` —
+  into one canonical copy (likely `scanner_core/framework_meta.py`).
 - **Workspace OAuth, not service-account JSON.** Service-account JSON with
   Domain-Wide Delegation is the lower-friction implementation path but
   pushes JSON-handling friction onto the customer (every Workspace admin
@@ -125,24 +152,27 @@ CISO can hand to their auditor.
 - Extension to existing `event_router/` for Bedrock InvokeModel +
   Converse + InvokeAgent + Retrieve event handling. Per-principal
   per-model per-day rollup writer.
-- New `_shared/cme/` module (hoisted from `shasta_runner_entra/app/`):
-  - `framework_registry.py` (selectors + apply engine)
-  - `framework_map.py` (registry application + control aggregation)
-  - `framework_meta.py` (display metadata, source-doc URLs)
-  - `ai_framework_registry.json` (the JSON pack)
-- Two new framework packs added to `ai_framework_registry.json`:
-  - `nist_ai_rmf` (NIST AI Risk Management Framework 1.0 — 4 functions,
-    72 sub-categories; Slice 1 selectors hit ~20 sub-categories)
-  - `owasp_llm_top10` (OWASP LLM Top 10, 2025 edition; Slice 1 selectors
-    hit LLM01/03/05/06/08/09)
-- New Lambda `ai_bom_export/` behind `GET /v1/ai/bom?format=cyclonedx`.
+- New `ai_bom_export/` Lambda behind `GET /v1/ai/bom?format=cyclonedx`.
   Streams CycloneDX-ML 1.6 JSON. Uses `cyclonedx-python-lib`.
-- Schema migration `016_workspace_connector_and_ai_compliance.sql` —
-  new `tenant_workspace_oauth` table.
+- Schema migration `016_workspace_connector.sql` — new
+  `tenant_workspace_oauth` table.
+- **New mapping rules** added to `scanner_core/ai_framework_registry.json`
+  (~8-10 new rules, one per new `check_id`): tag the new detectors'
+  findings against the **already-shipped** NIST AI RMF, NIST AI 600-1,
+  ISO 42001, EU AI Act, OWASP LLM Top 10, MITRE ATLAS. Pattern mirrors
+  the existing rule `ai_signin_personal_tier_controls` (id, when, add_frameworks).
+- **Update `sync_framework_map.py` target list** to include
+  `shasta_runner_workspace` so the registry mirrors at build time.
+- **Consolidate `framework_meta` duplication** — move from `ai_summary/`
+  and `compliance_summary/` into one canonical location next to
+  `scanner_core/framework_registry.py`; both consumers import from there.
 - UI extension to `/ai` (`AISummary.tsx`):
   - New **Shadow AI** row (3 count tiles)
-  - New **Compliance** row (2 framework tiles)
   - **Export AI-BOM** button in page header
+  - (No new Compliance row needed — the existing AI-family framework
+    tiles on `/ai` already render NIST AI RMF / OWASP LLM Top 10 / EU
+    AI Act / etc. via `compliance_summary` + `framework_meta.ai_family_meta()`;
+    they'll auto-pick-up the new findings via the new mapping rules.)
 - UI extension to `/connect-clouds` — Google Workspace tile + OAuth
   callback handling.
 - Test coverage per §10. Manual smoke on KK's Workspace tenant + an
@@ -152,7 +182,9 @@ CISO can hand to their auditor.
 
 - M365 Copilot usage reports (Slice 2)
 - Slack / Notion / Atlassian AI audit logs (Slice 2)
-- EU AI Act + ISO 42001 framework packs (Slice 2)
+- Mapping-rule deepening — broader coverage of NIST AI RMF / EU AI Act
+  controls against existing detector check_ids (Slice 2 — incremental
+  ruleset expansion on the already-shipped packs)
 - AWS Bedrock per-prompt content capture + data-exfil detection (Slice 3)
 - AI vendor risk inventory (Cranium-style) (Slice 3)
 - Whitney prompt-injection Semgrep rules → OWASP LLM01 findings (Slice 4 —
@@ -178,12 +210,16 @@ CISO can hand to their auditor.
 │           │   findings + entities    │   findings + entities             │
 │           ▼                          ▼                                   │
 │  ┌──────────────────────────────────────────────────────┐                │
-│  │ _shared/cme/                                         │                │
-│  │  framework_registry.apply() tags findings.frameworks │  ← HOISTED     │
-│  │   (selectors: check_id_glob, ai_touching, …)         │   from         │
-│  │  + ai_framework_registry.json                        │   entra/app/   │
-│  │   (existing soc2/iso/pci/… + NEW nist_ai_rmf +       │                │
-│  │    NEW owasp_llm_top10)                              │                │
+│  │ scanner_core/  (already canonical)                   │                │
+│  │  framework_registry.apply() tags findings.frameworks │                │
+│  │   (selectors: check_id_eq, check_id_glob, domain,    │                │
+│  │    resource_type_glob, ai_touching, evidence_packet_eq)│              │
+│  │  + ai_framework_registry.json                        │                │
+│  │   (8 AI packs + ~20 security/industry packs already  │                │
+│  │    populated; 13 mapping rules → +8-10 NEW rules     │                │
+│  │    in this slice for gws_* + aws_bedrock_* check_ids)│                │
+│  │  + framework_meta.py (NEW — consolidated from        │                │
+│  │    ai_summary/ + compliance_summary/ duplication)    │                │
 │  └─────────────────────────┬────────────────────────────┘                │
 │                            │                                             │
 │                            ▼                                             │
@@ -236,13 +272,15 @@ CISO can hand to their auditor.
 | OAuth token storage (KMS envelope, per-row data key) | `_shared/mcp_oauth/crypto.py` (MCP Slice 1) |
 | JIT refresh (advisory lock + re-read + UPDATE in one txn) | `_shared/mcp_oauth/admin_session.py` (MCP Slice 2 + 2026-06-03 fix) |
 | Findings broadcast on CRITICAL | `_shared/broadcast_fanout.publish_if_critical` (MCP Slice 2.1; post-commit fix 2026-06-03) |
-| Framework selectors + apply engine | `_shared/cme/framework_registry.py` (hoisted from Entra) |
+| Framework selectors + apply engine | `scanner_core/framework_registry.py` (already canonical; mirrored to all scanners via `sync_framework_map.py`) |
+| 8 AI-family + ~20 security/industry framework packs | `scanner_core/ai_framework_registry.json` (already shipped; Slice 1 adds new mapping rules only) |
+| `framework_meta` for UI display | NEW `scanner_core/framework_meta.py` (consolidates `ai_summary/` + `compliance_summary/` duplication) |
 | Findings + entities + edges schema | Existing — no shape changes |
 | Fargate container scanner pattern | `shasta_runner_azure` + `shasta_runner_gcp` |
 
 ## 5. Data model & migrations
 
-### Migration `016_workspace_connector_and_ai_compliance.sql`
+### Migration `016_workspace_connector.sql`
 
 ```sql
 CREATE TABLE tenant_workspace_oauth (
@@ -316,7 +354,7 @@ entries are immutable + monotonically timestamped so cursor pagination is
 safe.
 
 Detectors emitted (framework tags auto-applied at write time by
-`_shared/cme/framework_registry.apply()`):
+`scanner_core.framework_registry.apply()` via the new mapping rules from §7):
 
 | `check_id` | Trigger | Severity | Entity emitted | Frameworks tagged |
 |---|---|---|---|---|
@@ -374,73 +412,67 @@ a runaway tenant. Configurable per tenant in
 
 Today's pattern: scanner emits raw finding → `framework_registry.apply()`
 enriches `findings.frameworks` JSON object via selector matching → INSERT.
-Slice 1 leaves this exact flow alone; the new packs are JSON additions to
-`ai_framework_registry.json` consumed by the same apply engine.
+The existing rule for `ai_signin_personal_tier` is the template:
 
-Selectors used in Slice 1:
+```json
+{
+  "id": "ai_signin_personal_tier_controls",
+  "when": {"check_id_eq": "ai_signin_personal_tier"},
+  "add_frameworks": {
+    "nist_ai_rmf":   ["GOVERN 3.2", "GOVERN 6.1"],
+    "nist_ai_600_1": ["NIST.AI.600-1:2.4", "NIST.AI.600-1:2.8",
+                      "NIST.AI.600-1:2.9", "NIST.AI.600-1:2.12"],
+    "eu_ai_act":     ["Article 9", "Article 26"],
+    "owasp_llm_top10": ["LLM02:2025"],
+    "mitre_atlas":   ["AML.T0057"]
+  }
+}
+```
 
-- `check_id_eq` — exact match (used for the 4 Workspace + 4 Bedrock
-  `check_id`s)
-- `check_id_glob` — pattern (used for `sca_vuln:*` → `owasp_llm_top10:
-  [LLM03]`)
-- `ai_touching` — entity-kind set membership (used for inventory-style
-  controls — anything touching an AI resource maps to NIST AI RMF MAP-1.1)
+Slice 1 adds one new rule per new `check_id` (8 total: 4 Workspace +
+4 Bedrock). Selectors used:
 
-No new selector types in Slice 1. The full mapping table (~60 rule rows
-across NIST AI RMF + OWASP LLM Top 10) lives in
-`_shared/cme/ai_framework_registry.json` after the hoist.
+- `check_id_eq` — exact match (used for all 8 new `check_id`s)
+- `check_id_glob` — already wired for existing `sca_vuln:*` rules
+- `ai_touching` — entity-kind set membership; new mapping rules for
+  `bedrock_*` entity-kinds get tagged via the existing `ai_touching`
+  selector for inventory-style coverage of NIST AI RMF MAP 1.1
 
-## 7. Compliance packs
+No new selector types in Slice 1. Full mapping rules (the ~8 new entries
+plus the existing 13) live in `scanner_core/ai_framework_registry.json`.
 
-### 7.1 NIST AI RMF 1.0
+## 7. Mapping rules added to existing framework packs
 
-Source: NIST AI 100-1 (January 2023, with Generative AI Profile July 2024).
-Structure:
+The 8 AI-family packs (NIST AI RMF, NIST AI 600-1, ISO 42001, EU AI Act,
+SOC 2 + AI, OWASP LLM Top 10 2025, OWASP Agentic, MITRE ATLAS) are already
+in `scanner_core/ai_framework_registry.json` with full `frameworks{}`
+metadata + per-framework `rewrite_rules` + `control_descriptions`. The
+20 security/industry packs (SOC 2, ISO 27001, FedRAMP, CIS AWS/Azure/GCP,
+NIST 800-53, AWS FSBP, MS Cloud Security Benchmark, PCI DSS, HIPAA) are
+already there too via `framework_meta.py`.
 
-- 4 functions: **GOVERN** (19 sub-cats), **MAP** (18 sub-cats),
-  **MEASURE** (19 sub-cats), **MANAGE** (16 sub-cats)
-- Each sub-category gets a `control_id` like `GOVERN-1.1`,
-  `MAP-2.1`, `MEASURE-3.2`, `MANAGE-4.3`
-- Slice 1 selectors hit ~20 sub-categories naturally via the new detectors
-- Unmatched sub-categories return `not_assessed` in `compliance_summary` —
-  the existing CME-v2 pattern handles this correctly; the framework
-  rollup shows "X of 72 assessed"
-- `framework_meta` entry:
-  - `display_name`: "NIST AI RMF 1.0"
-  - `source_url`: <https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf>
-  - `family`: `ai`
-  - `description`: "NIST AI Risk Management Framework — four functions
-    (Govern, Map, Measure, Manage), 72 sub-categories. The U.S.
-    government-recommended baseline for AI risk."
+**Slice 1 adds ~8 new entries to the `rules` array** in
+`scanner_core/ai_framework_registry.json`, one per new `check_id`:
 
-### 7.2 OWASP LLM Top 10 (2025)
+| Rule `id` | `when.check_id_eq` | Frameworks tagged (control IDs) |
+|---|---|---|
+| `gws_ai_signin_personal_tier_controls` | `gws_ai_signin_personal_tier` | Same as existing `ai_signin_personal_tier_controls` (Workspace mirrors Entra: NIST AI RMF GOVERN 3.2/6.1, NIST AI 600-1 §2.4/2.8/2.9/2.12, EU AI Act Article 9/26, OWASP LLM02:2025, MITRE ATLAS AML.T0057) |
+| `gws_ai_oauth_grant_controls` | `gws_ai_oauth_grant` | NIST AI RMF MAP 4.1 + MANAGE 1.3; EU AI Act Article 26; OWASP LLM06:2025 |
+| `gws_drive_shared_to_ai_domain_controls` | `gws_drive_shared_to_ai_domain` | NIST AI RMF MAP 4.1 + GOVERN 6.1; NIST AI 600-1 §2.4 (data leakage); EU AI Act Article 10; OWASP LLM02:2025 |
+| `gws_gemini_assigned_controls` | `gws_gemini_assigned` | NIST AI RMF MAP 1.1 (inventory); ISO 42001 A.6.2.1 |
+| `aws_bedrock_invoke_unsanctioned_controls` | `aws_bedrock_invoke_unsanctioned` | NIST AI RMF GOVERN 1.1 + MANAGE 1.3; EU AI Act Article 9; OWASP LLM08:2025 (Excessive Agency) |
+| `aws_bedrock_invoke_high_volume_controls` | `aws_bedrock_invoke_high_volume` | NIST AI RMF MEASURE 2.3 + MANAGE 2.2; OWASP LLM10:2025 (Unbounded Consumption) |
+| `aws_bedrock_model_inventory_controls` | `aws_bedrock_model_inventory` | NIST AI RMF MAP 1.1; NIST AI 600-1 §2.4 |
+| `aws_bedrock_invoke_cross_region_controls` | `aws_bedrock_invoke_cross_region` | NIST AI RMF MAP 4.1 (data residency); EU AI Act Article 9 |
 
-Source: OWASP LLM Applications Top 10 — 2025 edition. Structure:
+Exact control IDs are interpretation calls subject to KK review during
+implementation. Pattern follows the existing 13 rules (id, when,
+add_frameworks). The rule format is schema-validated at module load via
+the existing `validate_registry()`.
 
-- 10 risks: LLM01 (Prompt Injection), LLM02 (Sensitive Information
-  Disclosure), LLM03 (Supply Chain), LLM04 (Data and Model Poisoning),
-  LLM05 (Improper Output Handling), LLM06 (Excessive Agency), LLM07
-  (System Prompt Leakage), LLM08 (Vector and Embedding Weaknesses),
-  LLM09 (Misinformation), LLM10 (Unbounded Consumption)
-  - (LLM01-LLM10 control IDs per the 2025 release; verify against
-    published spec at implementation time)
-- Slice 1 selectors hit LLM01 (placeholder for Whitney in Slice 4),
-  LLM02 (`gws_drive_shared_to_ai_domain` + `gws_ai_oauth_grant`),
-  LLM03 (`sca_vuln:*` via existing AI supply chain matcher),
-  LLM05, LLM06 (`aws_bedrock_invoke_unsanctioned` and friends),
-  LLM10 (`aws_bedrock_invoke_high_volume`)
-- LLM04, LLM07, LLM08, LLM09 stay `not_assessed` in Slice 1; Slice 4
-  (Whitney) closes most of these
-- `framework_meta` entry:
-  - `display_name`: "OWASP LLM Top 10 (2025)"
-  - `source_url`: <https://owasp.org/www-project-top-10-for-large-language-model-applications/>
-  - `family`: `ai`
-  - `description`: "OWASP's top 10 security risks for LLM applications,
-    2025 edition. Industry-standard taxonomy for application-layer LLM
-    vulnerabilities."
-
-(Exact control names + URLs verified against the published spec at
-implementation time per CLAUDE.md §7 — no invention.)
+No new framework definitions. No new selectors. No new metadata. The
+8 packs render on `/ai` today; after Slice 1 ships these rules, the new
+detector findings start contributing to each pack's score.
 
 ## 8. AI-BOM export
 
@@ -560,13 +592,11 @@ New rows added below, in order:
 - `Unsanctioned Bedrock invocations` — count of
   `aws_bedrock_invoke_unsanctioned`, drills into filtered findings
 
-**6. Compliance row** — two framework tiles using the existing
-`FrameworkTile` component from CME-v2 (split label-link / source-doc
-icon — already shipped):
-- NIST AI RMF: score % donut + "X of 72 controls assessed" + label-link to
-  `/findings?framework=nist_ai_rmf` + source-doc icon → NIST.AI.100-1 PDF
-- OWASP LLM Top 10: same pattern, label-link to
-  `/findings?framework=owasp_llm_top10` + source-doc icon → OWASP page
+**6. (No new Compliance row.)** The existing AI-family framework tiles
+already on `/ai` (rendered via `compliance_summary` + `framework_meta.ai_family_meta()`)
+auto-incorporate the new findings via the new mapping rules from §7. No
+React work needed beyond ensuring the existing tiles re-fetch after a
+fresh scan — they already do via `useEffect` on tenant/scan changes.
 
 **Page header**: new `[Export AI-BOM]` button (top-right). Click triggers
 `GET /v1/ai/bom?format=cyclonedx` → browser-side blob download as
@@ -600,21 +630,26 @@ lens, not a silo" memory, this slice deliberately does not fork into
 
 ### 10.1 Unit tests
 
-**`_shared/cme/` migration (lift-and-shift)**:
-- Pure refactor — existing `shasta_runner_entra` test suite stays green =
-  migration is clean. No new tests required for the move itself.
-- Verify imports update across all consumers: `shasta_runner_entra`,
-  `compliance_summary`, `ai_summary`, plus the new consumers
-  `shasta_runner_workspace`, `event_router`, `ai_bom_export`.
+**`framework_meta` consolidation**:
+- Pure refactor — move `FRAMEWORK_META` dict from `ai_summary/` and
+  `compliance_summary/` into `scanner_core/framework_meta.py`. Both
+  consumers re-import from the new location. Existing tests for
+  `compliance_summary` + `ai_summary` stay green = consolidation is clean.
+- `sync_framework_map.py` updated to include `shasta_runner_workspace`
+  in its mirror target list — verify the registry JSON propagates to
+  the new scanner image at build time.
 
-**Framework packs**:
-- `validate_registry()` (existing function) runs at module import; new
-  packs must pass schema validation.
-- New registry-application unit tests, one per selector-binding:
-  - ~20 NIST AI RMF selectors → ~20 tests
-  - ~6 OWASP LLM Top 10 selectors → ~6 tests
-- Add tests for the framework_meta entries (display name + source URL +
-  family).
+**New mapping rules**:
+- `validate_registry()` (existing function) runs at module import; the
+  ~8 new rules must pass schema validation (id present, when keys ⊆
+  `_KNOWN_SELECTORS`, add_frameworks keys ⊆ known framework keys,
+  control IDs resolve through `rewrite_rules` where shorthand is used).
+- New registry-application unit tests, one per new rule:
+  - Feed synthetic finding with each new `check_id` → assert
+    `findings.frameworks` matches the rule's `add_frameworks` block
+    after `apply()` runs.
+- 8 new tests total (one per `check_id`), mirroring the existing test
+  pattern for `ai_signin_personal_tier_controls`.
 
 **Workspace scanner**:
 - Mock Google API SDK responses with fixture audit-log payloads.
@@ -723,7 +758,7 @@ demo lesson (PR #29, 2026-05-27) but does not fix it.
 
 | Slice | Focus | Key adds |
 |---|---|---|
-| 2 | M365 Copilot + SaaS AI audit logs | Microsoft Graph Reports API for Copilot usage; Slack/Notion/Atlassian audit log integrations; EU AI Act + ISO 42001 framework packs; AI-BOM PDF render |
+| 2 | M365 Copilot + SaaS AI audit logs | Microsoft Graph Reports API for Copilot usage; Slack/Notion/Atlassian audit log integrations; deeper mapping-rule coverage against existing EU AI Act + ISO 42001 packs (new check_ids unlocking more controls); AI-BOM PDF render |
 | 3 | AI risk depth | Bedrock per-prompt content analysis (with opt-in customer config); AI vendor risk inventory + posture score; PII-in-prompt heuristics |
 | 4 | Code-side AI security (platform-team bridge) | Whitney Semgrep prompt-injection rules → `ai_code_finding` → OWASP LLM01 mapping; AI agent runtime tool-call monitoring |
 | 5 | CISO actions + reporting | Monthly AI Posture board PDF; AI Risk Register integration; daily/weekly Slack digest; SPDX-AI 3.0 export |
