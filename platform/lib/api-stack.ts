@@ -16,7 +16,38 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 import * as path from 'path';
+import * as fs from 'fs';
 import { config } from './config';
+
+// Bundles a Lambda's own directory PLUS scanner_core/framework_meta.py
+// (the canonical FRAMEWORK_META dict). Lets multiple read-side Lambdas
+// share one source of truth for framework metadata without per-Lambda
+// duplication or a Layer. Uses Node's fs.cpSync (no shell, no injection
+// surface); falls back to Docker bundling if local bundling is disabled.
+function lambdaCodeWithSharedMeta(lambdaDir: string): lambda.Code {
+  const sourceDir = path.join(__dirname, '..', 'lambda', lambdaDir);
+  const sharedFile = path.join(__dirname, '..', 'lambda', 'scanner_core', 'framework_meta.py');
+  return lambda.Code.fromAsset(sourceDir, {
+    bundling: {
+      image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+      command: [
+        'bash', '-c',
+        `cp -r /asset-input/. /asset-output/ && cp ${path.relative(sourceDir, sharedFile)} /asset-output/framework_meta.py`,
+      ],
+      local: {
+        tryBundle(outputDir: string): boolean {
+          try {
+            fs.cpSync(sourceDir, outputDir, { recursive: true });
+            fs.cpSync(sharedFile, path.join(outputDir, 'framework_meta.py'));
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      },
+    },
+  });
+}
 
 interface ApiStackProps extends cdk.StackProps {
   userPool:           cognito.UserPool;
@@ -281,7 +312,7 @@ export class ApiStack extends cdk.Stack {
     const complianceSummaryFn = new lambda.Function(this, 'ComplianceSummaryFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
-      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'compliance_summary')),
+      code:    lambdaCodeWithSharedMeta('compliance_summary'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       environment: dbEnv,
@@ -301,7 +332,7 @@ export class ApiStack extends cdk.Stack {
     const aiSummaryFn = new lambda.Function(this, 'AiSummaryFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
-      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_summary')),
+      code:    lambdaCodeWithSharedMeta('ai_summary'),
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
       environment: dbEnv,
