@@ -23,25 +23,42 @@ import { config } from './config';
 // (the canonical FRAMEWORK_META dict). Lets multiple read-side Lambdas
 // share one source of truth for framework metadata without per-Lambda
 // duplication or a Layer. Uses Node's fs.cpSync (no shell, no injection
-// surface); falls back to Docker bundling if local bundling is disabled.
+// surface) and skips __pycache__/*.pyc so the asset hash is deterministic
+// regardless of the developer's Python bytecode version.
+//
+// Docker bundling is NOT supported by this helper — CDK only mounts the
+// asset source at /asset-input, so `../scanner_core/` isn't reachable
+// from inside the container. If local bundling fails we re-throw rather
+// than silently falling through to the broken Docker command. If a future
+// CI environment forces Docker bundling, switch to an asset rooted at
+// platform/lambda/ with `exclude` filters; the Docker command below is
+// retained only to satisfy CDK's BundlingOptions schema.
 function lambdaCodeWithSharedMeta(lambdaDir: string): lambda.Code {
   const sourceDir = path.join(__dirname, '..', 'lambda', lambdaDir);
   const sharedFile = path.join(__dirname, '..', 'lambda', 'scanner_core', 'framework_meta.py');
+  const skipBytecode = (src: string) =>
+    !src.includes('__pycache__') && !src.endsWith('.pyc');
   return lambda.Code.fromAsset(sourceDir, {
     bundling: {
       image: lambda.Runtime.PYTHON_3_12.bundlingImage,
       command: [
         'bash', '-c',
-        `cp -r /asset-input/. /asset-output/ && cp ${path.relative(sourceDir, sharedFile)} /asset-output/framework_meta.py`,
+        // Unreachable under normal use — local.tryBundle returns true.
+        // Schema-required only; see helper docstring above.
+        'echo "Docker bundling not supported for lambdaCodeWithSharedMeta" >&2 && exit 1',
       ],
       local: {
         tryBundle(outputDir: string): boolean {
           try {
-            fs.cpSync(sourceDir, outputDir, { recursive: true });
+            fs.cpSync(sourceDir, outputDir, { recursive: true, filter: skipBytecode });
             fs.cpSync(sharedFile, path.join(outputDir, 'framework_meta.py'));
             return true;
-          } catch {
-            return false;
+          } catch (err) {
+            // Loud failure beats silent fallthrough to the (unsupported)
+            // Docker path. Surface the root cause.
+            throw new Error(
+              `lambdaCodeWithSharedMeta local bundle failed for ${lambdaDir}: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         },
       },
