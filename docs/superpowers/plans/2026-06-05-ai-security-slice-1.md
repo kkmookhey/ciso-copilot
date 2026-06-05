@@ -754,6 +754,12 @@ _SEVERITY_MAP = {
 
 def _select_ai_findings(tenant_id: str) -> list[dict]:
     in_kinds = ",".join(f"'{k}'" for k in _KIND_TO_TYPE.keys())
+    # NOTE: `f.frameworks ? 'owasp_llm_top10'` requires `frameworks` to be
+    # a JSON object; PER FINDINGS.md §A.4, ai_supply_chain_matcher emits
+    # `frameworks: []` (an array) for some critical findings. The `?`
+    # operator returns false for arrays, so those rows are NOT filtered
+    # in via that branch — they're caught instead by the
+    # `check_id LIKE 'sca_vuln:%'` branch. Keep both branches.
     rs = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
         sql=(
@@ -764,8 +770,11 @@ def _select_ai_findings(tenant_id: str) -> list[dict]:
             f"JOIN entities e          ON e.id = fe.entity_id "
             f"WHERE f.tenant_id = CAST(:tid AS UUID) "
             f"  AND e.kind IN ({in_kinds}) "
-            f"  AND (f.frameworks ? 'owasp_llm_top10' "
-            f"       OR f.check_id LIKE 'sca_vuln:%')"
+            f"  AND ( "
+            f"        (jsonb_typeof(f.frameworks) = 'object' "
+            f"         AND f.frameworks ? 'owasp_llm_top10') "
+            f"     OR f.check_id LIKE 'sca_vuln:%' "
+            f"  )"
         ),
         parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
     )
@@ -774,9 +783,22 @@ def _select_ai_findings(tenant_id: str) -> list[dict]:
          "check_id":   r[1].get("stringValue"),
          "severity":   r[2].get("stringValue"),
          "entity_id":  r[3].get("stringValue"),
-         "frameworks": json.loads(r[4].get("stringValue") or "{}")}
+         # Defensive: ai_supply_chain_matcher writes frameworks as [], not {}.
+         # Coerce to {} so downstream is array-safe (FINDINGS A.4).
+         "frameworks": _safe_frameworks(r[4].get("stringValue"))}
         for r in rs.get("records", [])
     ]
+
+
+def _safe_frameworks(raw: str | None) -> dict:
+    """Coerce frameworks JSON to a dict. Handles legacy buggy `[]` rows."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 ```
 
 In `_build_bom`:
@@ -1913,6 +1935,32 @@ ROUTES = {
 }
 ```
 
+**Step 5a: Preflight — CFN resource cap check before adding routes via CDK**
+
+Per `docs/codebase/FINDINGS.md` cross-cutting + the MCP Slice 2 hotfix
+(PR #41), the `CisoCopilotApi` stack has hit the **500-resource-per-stack
+CloudFormation cap** before — admin connector routes had to move out to a
+bootstrap script. Each new API Gateway method adds ~5-8 resources (Method
++ Permission + Deployment ref + ...). Two new routes = ~10-16 resources.
+
+Run:
+```bash
+cd platform && npm install --silent 2>/dev/null  # if needed
+npx cdk synth CisoCopilotApi 2>/dev/null | grep -c '"Type":'
+```
+
+Compare against the 500 cap. **If current count + 16 > 495 (5-resource
+safety margin):** do NOT add the 2 routes via CDK. Instead, follow the
+PR #41 pattern in `platform/scripts/bootstrap-admin-routes.sh` — wire
+the routes via the out-of-CDK bootstrap script that uses
+`aws apigateway create-resource` + `create-method` + `put-integration`
+directly. The route still terminates at the `connectors/main.py`
+handler (same registry entry).
+
+**If current count + 16 ≤ 495:** proceed with the normal CDK route
+addition in api-stack.ts (template in MCP Slice 1's PR #34 — find by
+`grep -n "connect/slack\|callback/slack" platform/lib/api-stack.ts`).
+
 - [ ] **Step 6: Run + commit**
 
 ```bash
@@ -2532,28 +2580,22 @@ git add platform/lambda/scanner_core/ai_framework_registry.json \
 git commit -m "feat(cme): 8 new mapping rules for Workspace + Bedrock detectors"
 ```
 
-### Task 1.5.2: Update `sync_framework_map.py`
+### Task 1.5.2: (REMOVED — no sync script exists)
 
-**Files:**
-- Modify: `platform/lambda/scripts/sync_framework_map.py` (path may differ — `grep -rn 'sync_framework_map' platform/`)
+Per `docs/codebase/FINDINGS.md` §A.7: `sync_framework_map.py` is referenced
+in 4 runner docstrings but does **not exist** in the repo. The "5-way
+duplication" of `framework_registry.py` + `ai_framework_registry.json` is
+handled by each scanner's `build.sh` doing `cp -r ../scanner_core scanner_core`
+at image build time — Task 1.4.4's Dockerfile + build.sh already does this
+for the Workspace scanner. So no per-runner registry edit is needed.
 
-- [ ] **Step 1: Add `shasta_runner_workspace` to target list**
+`framework_map.py` (the FedRAMP+PCI crosswalk) is a separate hand-mirrored
+file across 4 cloud runners. Workspace doesn't need it — Workspace
+findings are identity/SaaS-side and aren't tagged with FedRAMP/PCI.
 
-Find the array of scanner target directories and append `shasta_runner_workspace`.
-
-- [ ] **Step 2: Run the sync script**
-
-```bash
-python platform/lambda/scripts/sync_framework_map.py
-```
-Expected: copies the master `ai_framework_registry.json` + `framework_registry.py` into `shasta_runner_workspace/app/`. Working tree shows them as untracked (gitignored if the existing pattern gitignores them).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add platform/lambda/scripts/sync_framework_map.py
-git commit -m "chore(cme): sync_framework_map.py — add workspace scanner to targets"
-```
+**The latent drift bug (FINDINGS A.7) is out of scope for Slice 1.**
+Adding the script proper would be a cross-cutting refactor. Note it in
+HANDOFF as a follow-up.
 
 ### Task 1.5.3: End-to-end smoke
 

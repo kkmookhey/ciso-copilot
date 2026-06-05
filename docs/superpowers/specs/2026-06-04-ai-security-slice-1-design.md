@@ -434,9 +434,12 @@ Slice 1 adds one new rule per new `check_id` (8 total: 4 Workspace +
 
 - `check_id_eq` — exact match (used for all 8 new `check_id`s)
 - `check_id_glob` — already wired for existing `sca_vuln:*` rules
-- `ai_touching` — entity-kind set membership; new mapping rules for
-  `bedrock_*` entity-kinds get tagged via the existing `ai_touching`
-  selector for inventory-style coverage of NIST AI RMF MAP 1.1
+- ~~`ai_touching` for Bedrock entity-kind inventory~~ — **dropped**.
+  Per `docs/codebase/FINDINGS.md` §D, the `ai_touching` selector never
+  fires because stub entities aren't backfilled into `entity_index`
+  (`unified_writer.py:60-63`). All 8 new Slice 1 mappings use
+  `check_id_eq` instead. Fixing `ai_touching` is a separate cross-cutting
+  refactor and out of Slice 1 scope.
 
 No new selector types in Slice 1. Full mapping rules (the ~8 new entries
 plus the existing 13) live in `scanner_core/ai_framework_registry.json`.
