@@ -12,6 +12,8 @@ import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as lambda_event from 'aws-cdk-lib/aws-lambda-event-sources';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import { Construct } from 'constructs';
 import { config } from './config';
 
@@ -100,6 +102,14 @@ export class ScanStack extends cdk.Stack {
       clusterName: 'ciso-copilot-scan',
       vpc:         props.vpc,
     });
+    // Exclude scan tasks from GuardDuty Runtime Monitoring's automated Fargate
+    // agent. With ECS_FARGATE_AGENT_MANAGEMENT enabled account-wide, GuardDuty
+    // injects a sidecar into every task; that sidecar intermittently fails to
+    // pull its image (CannotPullContainerError 403) and, being essential, kills
+    // the task before our scanner runs — leaving scans stuck at 'queued'. The
+    // GuardDutyManaged=false tag opts this cluster out while keeping GuardDuty
+    // monitoring everywhere else.
+    cdk.Tags.of(scanCluster).add('GuardDutyManaged', 'false');
 
     const scanTaskDef = new ecs.FargateTaskDefinition(this, 'ScanTaskDef', {
       family:         'ciso-copilot-aws-scan',
@@ -144,6 +154,41 @@ export class ScanStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ScanClusterArn',   { value: scanCluster.clusterArn });
     new cdk.CfnOutput(this, 'ScanTaskDefArn',   { value: scanTaskDef.taskDefinitionArn });
     new cdk.CfnOutput(this, 'ScanTaskSgId',     { value: scanTaskSg.securityGroupId });
+
+    // ===== Stuck-scan reaper =====
+    // RunTask is fail-open: the caller only marks a scan `failed` if RunTask
+    // throws synchronously. A task that starts then dies — or an entra scan
+    // Lambda that times out — leaves the row stuck at queued/running forever
+    // ("Discovering regions…"). This sweeps every 10 min and fails any
+    // non-terminal scan older than 20 min that has no live ECS task backing it.
+    const scanReaperFn = new lambda.Function(this, 'ScanReaper', {
+      functionName: 'ciso-copilot-scan-reaper',
+      runtime:      lambda.Runtime.PYTHON_3_12,
+      handler:      'main.handler',
+      code:         lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'scan_reaper')),
+      timeout:      cdk.Duration.minutes(2),
+      memorySize:   256,
+      environment:  { ...dbEnv, SCAN_CLUSTER_ARN: scanCluster.clusterArn, GRACE_MINUTES: '20' },
+    });
+    props.dbCluster.grantDataApiAccess(scanReaperFn);
+    // ListTasks has no resource-level scoping; constrain it to the scan cluster
+    // via condition. DescribeTasks is scoped to that cluster's task ARNs.
+    scanReaperFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:    ['ecs:ListTasks'],
+      resources:  ['*'],
+      conditions: { ArnEquals: { 'ecs:cluster': scanCluster.clusterArn } },
+    }));
+    scanReaperFn.addToRolePolicy(new iam.PolicyStatement({
+      actions:   ['ecs:DescribeTasks'],
+      resources: [`arn:aws:ecs:${this.region}:${this.account}:task/${scanCluster.clusterName}/*`],
+    }));
+    new events.Rule(this, 'ScanReaperSchedule', {
+      ruleName:    'ciso-copilot-scan-reaper',
+      description: 'Fail scans stuck at queued/running with no live ECS task.',
+      schedule:    events.Schedule.rate(cdk.Duration.minutes(10)),
+      targets:     [new targets.LambdaFunction(scanReaperFn)],
+    });
+    new cdk.CfnOutput(this, 'ScanReaperFnName', { value: scanReaperFn.functionName });
 
     // ===== Azure scanner — Fargate task =====
     // Mirrors the AWS ScanTaskDef. Runs `python run.py` in the same Azure ECR
