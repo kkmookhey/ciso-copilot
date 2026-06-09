@@ -1,5 +1,106 @@
 # Shasta by Transilience — Handoff & State
 
+## 🤖 AI Security Slice 1 — Sub-slices 1.1 + 1.2 + 1.3 shipped (2026-06-08/09, PR #46 open)
+
+**Status:** three of five sub-slices live + deployed + smoke-verified. Two
+remain (1.4 Workspace scanner + 1.5 mapping rules + smoke). **Next session
+should NOT start Sub-slice 1.4 directly — the AI-stack extraction
+brainstorm must land first.** See "Architectural blocker" below.
+
+**Branch:** `feat/ai-security-slice-1` @ commit `1cab7f5`. **PR:** [#46](https://github.com/kkmookhey/ciso-copilot/pull/46) — single PR currently bundling Sub-slices 1.1, 1.2, 1.3 plus interim work (questionnaires FINDINGS A.1 fix + codebase doc sweep). Still open. KK can decide whether to merge as a Slice 1 part-1 PR or split later.
+
+### Sub-slice 1.1 — `framework_meta` consolidation ✅
+
+`framework_meta.py` was duplicated byte-identically in `ai_summary/` and
+`compliance_summary/` (drift risk). Now lives canonically at
+`scanner_core/framework_meta.py`; both consumer Lambdas pick it up at CDK
+synth time via a new bundling helper.
+
+- **New helper `lambdaCodeWithSharedMeta(lambdaDir)` in `platform/lib/api-stack.ts:22-65`** — `lambda.Code.fromAsset` with a `local.tryBundle` that does `fs.cpSync(sourceDir, outputDir, { recursive: true, filter: skipBytecode })` + `fs.cpSync(sharedFile, outputDir/framework_meta.py)`. No shell (no injection surface). Filters `__pycache__/*.pyc` so the asset hash is deterministic across developer machines. Local bundling failure → loud `throw` (the Docker fallback `command` is a stub `exit 1` because Docker can't reach `../scanner_core` from inside the asset-input mount).
+- **Pattern is reusable** for any future Lambda that needs to share `scanner_core/` content without a Layer.
+
+### Sub-slice 1.2 — AI-BOM CycloneDX-ML export ✅
+
+New `ai_bom_export/` Lambda at `GET /v1/ai/bom?format=cyclonedx`. Reads
+`entities` + `edges` + AI-attached `findings` for the caller's tenant and
+emits a CycloneDX-ML 1.6 JSON document via `cyclonedx-python-lib==11.9.0`.
+Browser-side blob download from the new **Export AI-BOM** button on `/ai`.
+
+- **Library pinned**: `platform/lambda/ai_bom_export/requirements.txt` → `cyclonedx-python-lib==11.9.0` (verified `ComponentType.MACHINE_LEARNING_MODEL` + `SchemaVersion.V1_6` + `JsonV1Dot6` all present).
+- **Schema gotcha caught by subagent**: the plan called for a fictitious `finding_entities` JOIN table. Subagent caught the verify-before-claiming-new violation and substituted the real `findings.subject_entity_id` column (migration `005_unified_entities.sql:48`). Good signal that the new process guards are catching what they're meant to.
+- **FINDINGS.md §A.4 defended**: `_select_ai_findings` SQL gates the `?` operator on `jsonb_typeof = 'object'` so legacy `ai_supply_chain_matcher` rows with `frameworks=[]` don't break the export. Helper `_safe_frameworks(raw)` coerces non-dict JSON to `{}`. Tests cover both shapes.
+- **7 unit tests** (`platform/lambda/ai_bom_export/tests/test_main.py`), all pass.
+
+### Sub-slice 1.3 — Bedrock InvokeModel runtime detector ✅
+
+`event_router/main.py` extended with a Bedrock branch that fires BEFORE
+the existing SOC flow. Per-call upserts `bedrock_model` entity +
+`bedrock_invocation` rollup (per principal × model × day × region, atomic
+`jsonb_set` counter) + `iam_principal` entity + uses-edge. Per-event
+detectors fire `aws_bedrock_invoke_unsanctioned` (when allowed-list set) and
+`aws_bedrock_model_inventory` (always, idempotent). Daily 00:05 UTC schedule
+fires `aws_bedrock_invoke_high_volume` for rollups over threshold.
+
+- **Customer-side CFN allowlist updated** (`platform/cfn/aws-onboard.yaml:155-163`) — added 7 Bedrock eventNames (`InvokeModel`, `InvokeModelWithResponseStream`, `Converse`, `ConverseStream`, `InvokeAgent`, `Retrieve`, `RetrieveAndGenerate`). **OPERATIONAL: existing tenants need to re-run their onboarding CFN stack** to pick this up. New tenants get it automatically.
+- **Synthetic-scan strategy** (`_ensure_bedrock_runtime_scan` in `event_router/main.py:57-105`) — `findings.scan_id` is `NOT NULL FK → scans(scan_id)`, but Bedrock events aren't part of a scan. Solution: deterministic `uuid5(NAMESPACE, "tenant::conn")` scan_id; `INSERT INTO scans … ON CONFLICT (scan_id) DO NOTHING`; `trigger='runtime'`. One sentinel row per (tenant, conn) — every Bedrock finding for that connection FKs cleanly. **This pattern is reusable for any future real-time detector that writes findings.**
+- **EventBridge schedule** (`platform/lib/events-stack.ts:228-244`) — `bedrock-daily-rollup` `cron(5 0 * * ? *)`, dispatches `event_router` with synthetic `{detail-type: shasta.scheduled.bedrock_daily_rollup}`. Verified live; direct-invoke smoke returns `{emitted: 0, day: 2026-06-08}`.
+- **End-to-end Bedrock smoke deferred** to Sub-slice 1.5 (needs a real Bedrock invocation in a connected account + CloudTrail propagation minutes).
+- **16 unit tests** (`platform/lambda/event_router/tests/test_bedrock.py`), all pass.
+
+### Cap relief landed in Sub-slice 1.2 (FYI for future deploys)
+
+`CisoCopilotApi` synth was 666 resources → CFN reported 506 actual (>500 cap). Removed 3 verified-dead routes in `api-stack.ts` to make room: `GET /v1/entities/{id}/graph`, `GET /v1/entities/{id}/relationships`, `DELETE /v1/ai/connections/{id}`. Web grep + iOS grep confirmed zero callers. Lambda handlers in `entities_api` + `ai_github` still support those operations; **re-adding the routes is one line each** if a caller appears. Freed ~6 resources; current actual ~494/500.
+
+### Architectural blocker — DO BEFORE Sub-slice 1.4
+
+**Stand up `CisoCopilotAi` stack.** Sub-slice 1.4 (Workspace OAuth routes + Fargate scanner + ConnectClouds tile) adds ~12-16 CDK resources to `CisoCopilotApi`. Even after today's cap relief, that takes us past 500 again. The fix that scales (per KK's 2026-06-05 criterion) is extracting AI-domain Lambdas into a separate stack with cross-stack `RestApi` reference.
+
+This is a real engineering project, **not a 30-min task**:
+- Cross-stack `RestApi.fromRestApiAttributes()` works but has gotchas (stage doesn't auto-redeploy on new routes added from a different stack — need explicit `Deployment` logicalId hash or manual `aws apigateway create-deployment`)
+- Must decide what moves: only the NEW Sub-slice 1.4 Lambdas, or also retrofit `aiSummaryFn` + `aiBomExportFn` + `entitiesApiFn`?
+- Permissions for cross-stack `LambdaFunction` invocation by API Gateway need care
+
+Should be its own brainstorm → spec → plan cycle. Estimated ~2-3 hours of careful CDK work + thorough testing.
+
+### Process guards landed in this slice (repo-wide, scales for all future specs)
+
+- **`docs/superpowers/SPEC_TEMPLATE.md`** — every new spec under `docs/superpowers/specs/` must include a §0 "Codebase baseline" section filled in via grep/Read against `docs/codebase/CODEBASE_MAP.md` + actual code. Worked example included.
+- **CLAUDE.md "Working principles for this build" §1** — "Verify before claiming new" rule. References the specific Slice 1 incident (commit `225e4d8`) where the spec wrongly claimed NIST AI RMF + OWASP LLM Top 10 were new framework packs.
+- **Auto-memory entry** `feedback_pre_spec_audit.md` persists the lesson across `/clear`.
+
+The verify-before-claiming rule was tested today by the AI-BOM subagent (caught the fabricated `finding_entities` table in the plan) and is working as intended.
+
+### Open follow-ups carried forward
+
+- **Sub-slice 1.4 — Google Workspace scanner.** **Blocked on AI-stack extraction (above).** Don't start without that.
+- **Sub-slice 1.5 — 8 new mapping rules** in `scanner_core/ai_framework_registry.json` + end-to-end smoke (real Workspace tenant + real Bedrock invocation + AI-BOM cyclonedx schema validation).
+- **`docs/codebase/FINDINGS.md` §A.4 still open** — `ai_supply_chain_matcher` writes `findings.frameworks` as `[]` not `{}`. AI-BOM export is defended against it, but other consumers (iOS Finding decoder per the FINDINGS note) still crash on `[]`. Worth a tiny fix PR.
+- **Tenant operational note** — Slice 1.3 needs existing tenants to re-run `aws-onboard.yaml` to get Bedrock eventNames forwarded. Either a customer-facing one-pager OR a script that auto-re-runs onboard CFN per-tenant.
+
+### Commit trail (Slice 1 work, top to bottom on `feat/ai-security-slice-1`)
+
+```
+1cab7f5 feat(cdk): EventBridge daily-rollup schedule for Bedrock high-volume detection
+ce3c065 fix(event-router): synthetic-scan strategy for Bedrock runtime findings + CFN allowlist
+d5a7d6f feat(event-router): Bedrock event branch + entity upserts (subagent: 1.3.2-1.3.4)
+3cb304c feat(web): Export AI-BOM button on /ai page
+a515c69 feat(cdk): wire ai_bom_export Lambda + /v1/ai/bom route, free CFN headroom
+0ceaeba feat(ai-bom): finding → vulnerability mapping with defensive frameworks parsing
+6852168 feat(ai-bom): edge → CycloneDX dependency mapping
+52c2797 feat(ai-bom): entity → CycloneDX component mapping
+0aff811 feat(ai-bom): handler skeleton with tenant resolution + format validation
+ea2a6fd feat(ai-bom): pin cyclonedx-python-lib==11.9.0 for CycloneDX-ML 1.6
+09d956f fix(cdk): harden lambdaCodeWithSharedMeta — skip bytecode, loud failure
+27aba70 refactor(framework-meta): consolidate to scanner_core canonical home
+4edf24a docs(process): require Codebase baseline §0 + Verify-before-claiming-new rule
+f3a59fb docs(plans,specs): apply codebase-map findings to Slice 1 plan + spec
+777ef03 docs(plans): AI Security Slice 1 implementation plan — 5 sub-slices, 31 tasks
+225e4d8 docs(specs): correct AI Security Slice 1 to match shipped baseline
+331b714 docs(specs): AI Security Slice 1 — initial draft
+```
+
+---
+
 ## 🔔 MCP Connectors Slice 2 — autonomous CRITICAL broadcast (shipped in 5 sub-slices)
 
 **Status (2026-06-01):** all 5 sub-slice PRs open, stacked.
