@@ -9,6 +9,7 @@ import boto3
 from cyclonedx.model import Property
 from cyclonedx.model.bom import Bom
 from cyclonedx.model.component import Component, ComponentType
+from cyclonedx.model.dependency import Dependency
 from cyclonedx.output.json import JsonV1Dot6
 
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
@@ -136,8 +137,46 @@ def _select_ai_entities(tenant_id: str) -> list[dict]:
 
 
 def _select_ai_edges(tenant_id: str) -> list[dict]:
-    """Task 1.2.4: filled below."""
-    return []
+    """Return edges between AI entities for this tenant.
+
+    Both source and target must be AI-kind entities (guard via JOIN).
+    Columns: source_entity_id, target_entity_id, kind
+    """
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql="""
+            SELECT e.source_entity_id::text,
+                   e.target_entity_id::text,
+                   e.kind
+            FROM edges e
+            JOIN entities src ON src.id = e.source_entity_id
+                              AND src.tenant_id = :tid
+                              AND src.kind IN (
+                                    'bedrock_model', 'vertex_model', 'openai_model',
+                                    'azure_openai_model', 'ai_framework',
+                                    'github_repo', 'docker_image'
+                                  )
+            JOIN entities tgt ON tgt.id = e.target_entity_id
+                              AND tgt.tenant_id = :tid
+                              AND tgt.kind IN (
+                                    'bedrock_model', 'vertex_model', 'openai_model',
+                                    'azure_openai_model', 'ai_framework',
+                                    'github_repo', 'docker_image'
+                                  )
+        """,
+        parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
+    )
+    rows = rs.get("records", [])
+    return [
+        {
+            "source_entity_id": row[0].get("stringValue", ""),
+            "target_entity_id": row[1].get("stringValue", ""),
+            "kind":             row[2].get("stringValue", ""),
+        }
+        for row in rows
+    ]
 
 
 def _select_ai_findings(tenant_id: str) -> list[dict]:
@@ -175,6 +214,27 @@ def _build_bom(entities: list, edges: list, findings: list) -> Bom:
         comp = _entity_to_component(entity)
         bom.components.add(comp)
         comp_map[entity["id"]] = comp
+
+    # 1.2.4 — edge → dependency
+    # Group edges by source so we can emit one Dependency per source node.
+    targets_by_source: dict[str, list[str]] = {}
+    for edge in edges:
+        src = edge["source_entity_id"]
+        tgt = edge["target_entity_id"]
+        # Only emit if both nodes are in our component map.
+        if src in comp_map and tgt in comp_map:
+            targets_by_source.setdefault(src, []).append(tgt)
+
+    for src_id, tgt_ids in targets_by_source.items():
+        src_comp = comp_map[src_id]
+        dep = Dependency(
+            ref=src_comp.bom_ref,
+            dependencies=[
+                Dependency(ref=comp_map[t].bom_ref)
+                for t in tgt_ids
+            ],
+        )
+        bom.dependencies.add(dep)
 
     return bom
 
