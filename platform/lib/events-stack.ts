@@ -226,6 +226,24 @@ export class EventsStack extends cdk.Stack {
       targets:     [new targets.LambdaFunction(tiFeedTorFn)],
     });
 
+    // AI Security Slice 1.3 — Bedrock daily high-volume rollup.
+    // Fires once a day at 00:05 UTC. Dispatches into event_router with
+    // a synthetic detail-type; the router's _handle_bedrock_daily_rollup
+    // branch scans yesterday's bedrock_invocation rollup entities and
+    // emits aws_bedrock_invoke_high_volume findings above the threshold.
+    new events.Rule(this, 'BedrockDailyRollupSchedule', {
+      ruleName:    'bedrock-daily-rollup',
+      description: 'Daily rollup that emits aws_bedrock_invoke_high_volume above threshold.',
+      schedule:    events.Schedule.cron({ minute: '5', hour: '0' }),
+      targets: [
+        new targets.LambdaFunction(this.routerFn, {
+          event: events.RuleTargetInput.fromObject({
+            'detail-type': 'shasta.scheduled.bedrock_daily_rollup',
+          }),
+        }),
+      ],
+    });
+
     new cdk.CfnOutput(this, 'TiFeedAbusechFnName', { value: tiFeedAbusechFn.functionName });
     new cdk.CfnOutput(this, 'TiFeedKevFnName',     { value: tiFeedKevFn.functionName });
     new cdk.CfnOutput(this, 'TiFeedTorFnName',     { value: tiFeedTorFn.functionName });
