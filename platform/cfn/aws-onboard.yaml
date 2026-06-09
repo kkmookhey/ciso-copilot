@@ -168,6 +168,19 @@ Resources:
             - PutRestPolicy
             - CreateLoginProfile
             - UpdateLoginProfile
+            # AI Security Slice 1.3 — Bedrock runtime detection. These
+            # land in event_router with the same flow as other CloudTrail
+            # events (detail-type: AWS API Call via CloudTrail). The
+            # router upserts bedrock_model + bedrock_invocation rollup
+            # entities and emits findings (unsanctioned principal,
+            # high-volume, model inventory, cross-region).
+            - InvokeModel
+            - InvokeModelWithResponseStream
+            - Converse
+            - ConverseStream
+            - InvokeAgent
+            - Retrieve
+            - RetrieveAndGenerate
       Targets:
         - Id: CentralBus
           Arn: !Ref CentralEventBusArn

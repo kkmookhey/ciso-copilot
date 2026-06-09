@@ -89,6 +89,32 @@ def test_is_bedrock_event_recognizes_InvokeModel():
     assert main._is_bedrock_event(_bedrock_invoke_event(event_name="InvokeModel")) is True
 
 
+def test_synthetic_scan_id_is_deterministic_per_tenant_conn():
+    """Same (tenant, conn) → same scan_id. Different inputs → different scan_id."""
+    a = main._bedrock_synthetic_scan_id("t-1", "c-1")
+    b = main._bedrock_synthetic_scan_id("t-1", "c-1")
+    c = main._bedrock_synthetic_scan_id("t-1", "c-2")
+    d = main._bedrock_synthetic_scan_id("t-2", "c-1")
+    assert a == b
+    assert a != c
+    assert a != d
+    # Must be a real UUID (parses)
+    import uuid as _u
+    _u.UUID(a)
+
+
+def test_ensure_bedrock_runtime_scan_issues_insert_on_conflict(mock_rds):
+    """The synthetic-scan helper INSERTs into scans with ON CONFLICT DO NOTHING."""
+    mock_rds.execute_statement.return_value = {"records": []}
+    sid = main._ensure_bedrock_runtime_scan("t-1", "c-1")
+    assert sid == main._bedrock_synthetic_scan_id("t-1", "c-1")
+    call = mock_rds.execute_statement.call_args
+    sql = call.kwargs["sql"]
+    assert "INSERT INTO scans" in sql
+    assert "ON CONFLICT (scan_id) DO NOTHING" in sql
+    assert "'runtime'" in sql  # trigger column value
+
+
 def test_is_bedrock_event_recognizes_all_names():
     for name in ("InvokeModelWithResponseStream", "Converse", "ConverseStream",
                  "InvokeAgent", "Retrieve", "RetrieveAndGenerate"):
@@ -120,7 +146,9 @@ def _entity_only_side_effects(include_finding: bool = True) -> list:
       4. _upsert_bedrock_entity (iam_principal)
       5. _upsert_bedrock_edge
       6. _bedrock_allowed_principals (evidence_packet lookup by conn_id)
-      7. _emit_bedrock_finding (model_inventory — always emitted)
+      For each emitted finding:
+        N.  _ensure_bedrock_runtime_scan (INSERT ON CONFLICT DO NOTHING — no rows)
+        N+1. _emit_bedrock_finding (INSERT/UPSERT — returns finding_id)
     """
     effects = [
         {"records": [[{"stringValue": "c-1"}, {"stringValue": "t-1"}]]},  # conn lookup
@@ -131,7 +159,8 @@ def _entity_only_side_effects(include_finding: bool = True) -> list:
         {"records": [[{"stringValue": "{}"}]]},    # evidence_packet (no allowed list)
     ]
     if include_finding:
-        effects.append({"records": [[{"stringValue": "f-1"}]]})  # model_inventory finding
+        effects.append({"records": []})                              # synthetic scan ON CONFLICT
+        effects.append({"records": [[{"stringValue": "f-1"}]]})      # model_inventory finding
     return effects
 
 
@@ -193,7 +222,9 @@ def test_unsanctioned_principal_emits_finding(mock_rds):
         {"records": [[{"stringValue": "e-3"}]]},                           # iam_principal
         {"records": []},                                                    # edge
         {"records": [[{"stringValue": allowed_ep}]]},                      # evidence_packet
+        {"records": []},                                                    # synthetic scan (unsanctioned)
         {"records": [[{"stringValue": "f-unsanctioned"}]]},                # unsanctioned finding
+        {"records": []},                                                    # synthetic scan (inventory)
         {"records": [[{"stringValue": "f-inventory"}]]},                   # model_inventory finding
     ]
     main.handler(_bedrock_invoke_event(), None)
@@ -215,6 +246,7 @@ def test_unsanctioned_principal_no_finding_when_in_allowed_list(mock_rds):
         {"records": [[{"stringValue": "e-3"}]]},                           # iam_principal
         {"records": []},                                                    # edge
         {"records": [[{"stringValue": allowed_ep}]]},                      # evidence_packet
+        {"records": []},                                                    # synthetic scan (inventory)
         {"records": [[{"stringValue": "f-inventory"}]]},                   # model_inventory finding
     ]
     main.handler(_bedrock_invoke_event(), None)
@@ -276,7 +308,9 @@ def test_daily_rollup_emits_high_volume_for_over_threshold(mock_rds):
         {"records": []},
         # 3. conn_id lookup for the tenant
         {"records": [[{"stringValue": "c-1"}]]},
-        # 4. Finding upsert
+        # 4. Synthetic scan ensure (ON CONFLICT DO NOTHING — no rows)
+        {"records": []},
+        # 5. Finding upsert
         {"records": [[{"stringValue": "f-1"}]]},
     ]
     resp = main.handler({"detail-type": "shasta.scheduled.bedrock_daily_rollup"}, None)

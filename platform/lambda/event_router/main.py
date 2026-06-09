@@ -54,14 +54,49 @@ _BEDROCK_EVENT_NAMES = frozenset({
     "RetrieveAndGenerate",
 })
 
-# Sentinel scan_id used when a finding is not produced by a scheduled scan.
-# NOTE: findings.scan_id is NOT NULL FK → scans(scan_id). A sentinel row with
-# this UUID must exist in the scans table (seeded once at DB bootstrap).
-# Follows the same pattern as ai_supply_chain_matcher._NIL_UUID.
-# TODO: add the sentinel row seed to the next schema migration.
-_NIL_UUID = "00000000-0000-0000-0000-000000000000"
+# Synthetic-scan strategy for runtime detections (Bedrock InvokeModel etc.):
+# findings.scan_id is NOT NULL FK → scans(scan_id), but real-time events
+# aren't part of a scheduled scan. We synthesize one stable scan_id per
+# (tenant, conn_id) using uuid5 — the row is INSERTed ON CONFLICT DO NOTHING
+# the first time a runtime finding lands for that connection. All Bedrock
+# findings for the connection share that scan_id (so the row only exists once
+# regardless of how many findings fire). Namespace is a fixed UUID so the
+# computation is deterministic.
+import uuid as _uuid
+_BEDROCK_SCAN_NAMESPACE = _uuid.UUID('a4e2b6f0-7d1c-4a4d-bd5e-b9c2c2c4a9b1')
 
 _BEDROCK_HIGH_VOLUME_DEFAULT = 10_000
+
+
+def _bedrock_synthetic_scan_id(tenant_id: str, conn_id: str) -> str:
+    """Deterministic scan_id per (tenant, conn) for Bedrock runtime detections."""
+    return str(_uuid.uuid5(_BEDROCK_SCAN_NAMESPACE, f"{tenant_id}::{conn_id}"))
+
+
+def _ensure_bedrock_runtime_scan(tenant_id: str, conn_id: str) -> str:
+    """Ensure a synthetic scans row exists for runtime findings on this
+    (tenant, conn) so the findings.scan_id FK is satisfied. Idempotent
+    via ON CONFLICT DO NOTHING."""
+    scan_id = _bedrock_synthetic_scan_id(tenant_id, conn_id)
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=(
+            "INSERT INTO scans "
+            "  (scan_id, tenant_id, conn_id, trigger, status, scope, "
+            "   started_at, finished_at, stats) "
+            "VALUES "
+            "  (CAST(:s AS UUID), CAST(:t AS UUID), CAST(:c AS UUID), "
+            "   'runtime', 'completed', '{}'::jsonb, "
+            "   NOW(), NOW(), '{\"source\": \"event_router_bedrock\"}'::jsonb) "
+            "ON CONFLICT (scan_id) DO NOTHING"
+        ),
+        parameters=[
+            {"name": "s", "value": {"stringValue": scan_id}},
+            {"name": "t", "value": {"stringValue": tenant_id}},
+            {"name": "c", "value": {"stringValue": conn_id}},
+        ],
+    )
+    return scan_id
 
 
 def handler(event: dict, context) -> dict:
@@ -832,13 +867,15 @@ def _emit_bedrock_finding(
 ) -> str:
     """Upsert a finding.  Uses ON CONFLICT on the natural key so re-fire is idempotent.
 
-    scan_id uses _NIL_UUID (sentinel) because these findings are not produced by
-    a scheduled scan. The sentinel row must exist in the scans table.
+    scan_id resolves to a per-(tenant, conn) synthetic 'runtime' scan row
+    (see _ensure_bedrock_runtime_scan above) so the findings.scan_id FK is
+    satisfied without needing a global sentinel.
     findings.frameworks must be a JSON object {}, never an array (Aurora schema gotcha).
     findings.status enum: fail / pass / partial / not_assessed / not_applicable (no 'open').
     """
     assert isinstance(frameworks, dict), "frameworks must be a dict, not a list"
     finding_id = str(uuid.uuid4())
+    scan_id = _ensure_bedrock_runtime_scan(tenant_id, conn_id)
     rs = rds_data.execute_statement(
         resourceArn=DB_CLUSTER_ARN,
         secretArn=DB_SECRET_ARN,
@@ -866,7 +903,7 @@ def _emit_bedrock_finding(
             {"name": "fid",          "value": {"stringValue": finding_id}},
             {"name": "tid",          "value": {"stringValue": tenant_id}},
             {"name": "cid",          "value": {"stringValue": conn_id}},
-            {"name": "sid",          "value": {"stringValue": _NIL_UUID}},
+            {"name": "sid",          "value": {"stringValue": scan_id}},
             {"name": "check_id",     "value": {"stringValue": check_id}},
             {"name": "title",        "value": {"stringValue": title[:500]}},
             {"name": "desc",         "value": {"stringValue": description}},
