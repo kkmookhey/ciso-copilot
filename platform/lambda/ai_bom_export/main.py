@@ -10,6 +10,13 @@ from cyclonedx.model import Property
 from cyclonedx.model.bom import Bom
 from cyclonedx.model.component import Component, ComponentType
 from cyclonedx.model.dependency import Dependency
+from cyclonedx.model.vulnerability import (
+    BomTarget,
+    Vulnerability,
+    VulnerabilityRating,
+    VulnerabilitySeverity,
+    VulnerabilitySource,
+)
 from cyclonedx.output.json import JsonV1Dot6
 
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
@@ -23,6 +30,15 @@ _SUPPORTED_FORMATS = ["cyclonedx"]
 # Map Shasta entity kind → CycloneDX ComponentType
 # All AI/ML entity kinds map to MACHINE_LEARNING_MODEL; infrastructure-adjacent
 # kinds (github_repo, docker_image) map to CONTAINER / LIBRARY as appropriate.
+_SEVERITY_MAP: dict[str, VulnerabilitySeverity] = {
+    "critical":      VulnerabilitySeverity.CRITICAL,
+    "high":          VulnerabilitySeverity.HIGH,
+    "medium":        VulnerabilitySeverity.MEDIUM,
+    "low":           VulnerabilitySeverity.LOW,
+    "informational": VulnerabilitySeverity.INFO,
+    "info":          VulnerabilitySeverity.INFO,
+}
+
 _KIND_TO_TYPE: dict[str, ComponentType] = {
     "bedrock_model":       ComponentType.MACHINE_LEARNING_MODEL,
     "vertex_model":        ComponentType.MACHINE_LEARNING_MODEL,
@@ -180,8 +196,71 @@ def _select_ai_edges(tenant_id: str) -> list[dict]:
 
 
 def _select_ai_findings(tenant_id: str) -> list[dict]:
-    """Task 1.2.5: filled below."""
-    return []
+    """Return AI-related findings for this tenant.
+
+    FINDINGS.md §A.4: ai_supply_chain_matcher emits frameworks=[] (array)
+    instead of {} (object). We handle this two ways:
+    - The sca_vuln:% branch selects by check_id prefix so it catches rows
+      regardless of frameworks shape.
+    - The frameworks-object branch uses jsonb_typeof to safely query tags,
+      but only for rows where frameworks IS an object.
+
+    Columns: finding_id, check_id, status, conn_id, frameworks_raw
+    """
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql="""
+            SELECT f.finding_id::text,
+                   f.check_id,
+                   f.severity,
+                   COALESCE(f.subject_entity_id::text, ''),
+                   f.frameworks::text
+            FROM findings f
+            JOIN cloud_connections cc ON cc.conn_id = f.conn_id
+                                     AND cc.tenant_id = :tid
+            WHERE f.status = 'fail'
+              AND (
+                    -- sca_vuln:* findings from ai_supply_chain_matcher
+                    -- (may have bad-shape frameworks=[])
+                    f.check_id LIKE 'sca_vuln:%'
+                    OR
+                    -- other AI findings that are properly tagged
+                    (
+                      jsonb_typeof(f.frameworks) = 'object'
+                      AND f.frameworks ? 'owasp_llm_top10'
+                    )
+                  )
+            ORDER BY f.finding_id
+        """,
+        parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
+    )
+    rows = rs.get("records", [])
+    return [
+        {
+            "finding_id":       row[0].get("stringValue", ""),
+            "check_id":         row[1].get("stringValue", ""),
+            "severity":         row[2].get("stringValue", ""),
+            "subject_entity_id": row[3].get("stringValue", ""),
+            "frameworks_raw":   row[4].get("stringValue", "{}"),
+        }
+        for row in rows
+    ]
+
+
+def _safe_frameworks(raw: str) -> dict:
+    """Coerce frameworks JSON to a dict, regardless of shape.
+
+    FINDINGS.md §A.4: ai_supply_chain_matcher writes frameworks=[] (array).
+    Any non-dict value is normalised to {} so callers can safely call
+    .get() / .items() without crashing.
+    """
+    try:
+        parsed = json.loads(raw) if raw else {}
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 def _entity_to_component(e: dict) -> Component:
@@ -201,6 +280,27 @@ def _entity_to_component(e: dict) -> Component:
         bom_ref=e["id"],
         name=e["name"],
         properties=props,
+    )
+
+
+def _finding_to_vulnerability(f: dict) -> Vulnerability:
+    """Map one Shasta AI finding dict → CycloneDX Vulnerability."""
+    severity_str = f.get("severity", "medium")
+    sev = _SEVERITY_MAP.get(severity_str.lower(), VulnerabilitySeverity.MEDIUM)
+    rating = VulnerabilityRating(
+        source=VulnerabilitySource(name="shasta"),
+        severity=sev,
+    )
+    affects = []
+    entity_id = f.get("subject_entity_id", "")
+    if entity_id:
+        affects.append(BomTarget(ref=entity_id))
+
+    return Vulnerability(
+        bom_ref=f["finding_id"],
+        id=f["check_id"],
+        ratings=[rating],
+        affects=affects if affects else None,
     )
 
 
@@ -235,6 +335,13 @@ def _build_bom(entities: list, edges: list, findings: list) -> Bom:
             ],
         )
         bom.dependencies.add(dep)
+
+    # 1.2.5 — finding → vulnerability
+    # _safe_frameworks coerces any bad-shape data (FINDINGS.md §A.4) to {}.
+    for finding in findings:
+        _ = _safe_frameworks(finding.get("frameworks_raw", "{}"))  # validate; not used in Slice 1
+        vuln = _finding_to_vulnerability(finding)
+        bom.vulnerabilities.add(vuln)
 
     return bom
 
