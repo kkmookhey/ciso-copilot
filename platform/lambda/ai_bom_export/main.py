@@ -6,7 +6,9 @@ import os
 from datetime import datetime, timezone
 
 import boto3
+from cyclonedx.model import Property
 from cyclonedx.model.bom import Bom
+from cyclonedx.model.component import Component, ComponentType
 from cyclonedx.output.json import JsonV1Dot6
 
 DB_CLUSTER_ARN = os.environ["DB_CLUSTER_ARN"]
@@ -16,6 +18,19 @@ DB_NAME        = os.environ["DB_NAME"]
 rds_data = boto3.client("rds-data")
 
 _SUPPORTED_FORMATS = ["cyclonedx"]
+
+# Map Shasta entity kind → CycloneDX ComponentType
+# All AI/ML entity kinds map to MACHINE_LEARNING_MODEL; infrastructure-adjacent
+# kinds (github_repo, docker_image) map to CONTAINER / LIBRARY as appropriate.
+_KIND_TO_TYPE: dict[str, ComponentType] = {
+    "bedrock_model":       ComponentType.MACHINE_LEARNING_MODEL,
+    "vertex_model":        ComponentType.MACHINE_LEARNING_MODEL,
+    "openai_model":        ComponentType.MACHINE_LEARNING_MODEL,
+    "azure_openai_model":  ComponentType.MACHINE_LEARNING_MODEL,
+    "ai_framework":        ComponentType.LIBRARY,
+    "github_repo":         ComponentType.LIBRARY,
+    "docker_image":        ComponentType.CONTAINER,
+}
 
 
 def handler(event: dict, context) -> dict:
@@ -84,8 +99,40 @@ def _resolve_tenant_id(event: dict) -> str | None:
 
 
 def _select_ai_entities(tenant_id: str) -> list[dict]:
-    """Task 1.2.3: filled below."""
-    return []
+    """Return AI-related entities for this tenant.
+
+    Columns: id, kind, name, external_id, detector_id, discovered_at
+    """
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql="""
+            SELECT id::text, kind, name, external_id, detector_id,
+                   discovered_at::text
+            FROM entities
+            WHERE tenant_id = :tid
+              AND kind IN (
+                'bedrock_model', 'vertex_model', 'openai_model',
+                'azure_openai_model', 'ai_framework', 'github_repo',
+                'docker_image'
+              )
+            ORDER BY discovered_at DESC
+        """,
+        parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
+    )
+    rows = rs.get("records", [])
+    return [
+        {
+            "id":            row[0].get("stringValue", ""),
+            "kind":          row[1].get("stringValue", ""),
+            "name":          row[2].get("stringValue", ""),
+            "external_id":   row[3].get("stringValue", ""),
+            "detector_id":   row[4].get("stringValue", ""),
+            "discovered_at": row[5].get("stringValue", ""),
+        }
+        for row in rows
+    ]
 
 
 def _select_ai_edges(tenant_id: str) -> list[dict]:
@@ -98,9 +145,38 @@ def _select_ai_findings(tenant_id: str) -> list[dict]:
     return []
 
 
+def _entity_to_component(e: dict) -> Component:
+    """Map one Shasta AI entity dict → CycloneDX Component."""
+    kind = e["kind"]
+    comp_type = _KIND_TO_TYPE.get(kind, ComponentType.LIBRARY)
+    props = [
+        Property(name="shasta:kind",        value=kind),
+        Property(name="shasta:detector_id", value=e["detector_id"]),
+    ]
+    if e.get("external_id"):
+        props.append(Property(name="shasta:external_id", value=e["external_id"]))
+    if e.get("discovered_at"):
+        props.append(Property(name="shasta:discovered_at", value=e["discovered_at"]))
+    return Component(
+        type=comp_type,
+        bom_ref=e["id"],
+        name=e["name"],
+        properties=props,
+    )
+
+
 def _build_bom(entities: list, edges: list, findings: list) -> Bom:
-    """Tasks 1.2.3–1.2.5 enrich this."""
-    return Bom()
+    """Assemble a CycloneDX Bom from Shasta AI inventory data."""
+    bom = Bom()
+
+    # 1.2.3 — entity → component
+    comp_map: dict[str, Component] = {}
+    for entity in entities:
+        comp = _entity_to_component(entity)
+        bom.components.add(comp)
+        comp_map[entity["id"]] = comp
+
+    return bom
 
 
 def _resp_json(status: int, body: dict) -> dict:
