@@ -356,6 +356,30 @@ export class ApiStack extends cdk.Stack {
     });
     props.dbCluster.grantDataApiAccess(aiSummaryFn);
 
+    // /v1/ai/bom — CycloneDX-ML 1.6 AI-BOM export. Lambda has a
+    // cyclonedx-python-lib dependency in requirements.txt; pip-installs
+    // it into the asset at synth time via Docker bundling.
+    const aiBomExportFn = new lambda.Function(this, 'AiBomExportFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(
+        path.join(__dirname, '..', 'lambda', 'ai_bom_export'),
+        {
+          bundling: {
+            image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+            command: [
+              'bash', '-c',
+              'pip install --no-cache-dir -r requirements.txt -t /asset-output && cp -r . /asset-output/',
+            ],
+          },
+        },
+      ),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(aiBomExportFn);
+
     const findingsRollupFn = new lambda.Function(this, 'FindingsRollupFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
@@ -910,7 +934,10 @@ export class ApiStack extends cdk.Stack {
     const aiGithub   = aiConns.addResource('github');
 
     aiConns.addMethod( 'GET',    new apigw.LambdaIntegration(aiGithubFn), authedOpts);
-    aiConnId.addMethod('DELETE', new apigw.LambdaIntegration(aiGithubFn), authedOpts);
+    // DELETE /v1/ai/connections/{id} route removed 2026-06-08 for CFN-cap
+    // relief — web revokeAIConnection had no callers (FINDINGS B
+    // verified across web/src + ios). aiGithubFn handler still supports
+    // DELETE; re-add the addMethod here if revoke UX is built.
     aiConnId.addResource('repos').addMethod(
       'GET', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
     );
@@ -934,14 +961,21 @@ export class ApiStack extends cdk.Stack {
       'GET', new apigw.LambdaIntegration(aiSummaryFn), authedOpts,
     );
 
+    // /v1/ai/bom — CycloneDX-ML 1.6 AI-BOM export (AI Security Slice 1.2)
+    aiRes.addResource('bom').addMethod(
+      'GET', new apigw.LambdaIntegration(aiBomExportFn), authedOpts,
+    );
+
     const entities     = api.root.addResource('entities');
     const entityId     = entities.addResource('{id}');
-    const entityGraph  = entityId.addResource('graph');
-    const entityRels   = entityId.addResource('relationships');
     entities.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     entityId.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
-    entityGraph.addMethod( 'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
-    entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    // /v1/entities/{id}/graph and /v1/entities/{id}/relationships routes
+    // removed 2026-06-08 for CFN-cap relief — web functions
+    // getEntityGraph + getEntityRelationships had no callers
+    // (FINDINGS B verified across web/src + ios). Lambda handler in
+    // entities_api still supports them; re-add the Resource/Method here
+    // if a caller is added.
 
     // ========================================================================
     // V2-8 — GET /v1/scans/{scan_id} — scan progress (tier/status/phase/scope)
