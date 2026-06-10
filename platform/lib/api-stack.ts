@@ -559,17 +559,17 @@ export class ApiStack extends cdk.Stack {
     };
 
     // Cross-stack exports for CisoCopilotAi (see docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.a)
-    new cdk.CfnOutput(this, 'RestApiIdExport', {
+    new cdk.CfnOutput(this, 'RestApiId', {
       value:      api.restApiId,
       exportName: 'CisoCopilotApi-RestApiId',
       description: 'Consumed by CisoCopilotAi via Fn.importValue',
     });
-    new cdk.CfnOutput(this, 'RestApiRootResourceIdExport', {
+    new cdk.CfnOutput(this, 'RootResourceId', {
       value:      api.restApiRootResourceId,
       exportName: 'CisoCopilotApi-RootResourceId',
       description: 'Consumed by CisoCopilotAi via Fn.importValue',
     });
-    new cdk.CfnOutput(this, 'CognitoAuthorizerIdExport', {
+    new cdk.CfnOutput(this, 'CognitoAuthorizerId', {
       value:      cognitoAuth.authorizerId,
       exportName: 'CisoCopilotApi-CognitoAuthorizerId',
       description: 'Consumed by CisoCopilotAi via Fn.importValue',
