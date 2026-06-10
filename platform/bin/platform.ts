@@ -10,6 +10,7 @@ import { StaticStack } from '../lib/static-stack';
 import { EventsStack } from '../lib/events-stack';
 import { ScanStack } from '../lib/scan-stack';
 import { ApiStack } from '../lib/api-stack';
+import { AiStack } from '../lib/ai-stack';
 
 const app = new cdk.App();
 
@@ -77,3 +78,17 @@ new ApiStack(app, 'CisoCopilotApi', {
   pkceVerifierTable:  data.pkceVerifierTable,
   autonomousBroadcastQueue: data.autonomousBroadcastQueue,
 });
+
+// AI-domain extension stack — shares the CisoCopilotApi RestApi via cross-stack
+// import. New AI Lambdas (Sub-slice 1.4+) land here to dodge CisoCopilotApi's
+// 500-resource CFN cap. See docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md.
+const aiStack = new AiStack(app, 'CisoCopilotAi', {
+  env,
+  vpc:       network.vpc,
+  dbCluster: data.cluster,
+  userPool:  auth.userPool,
+});
+// CisoCopilotAi imports CFN exports from CisoCopilotApi; CDK auto-detects
+// the dependency from Fn.importValue, but addDependency makes it explicit
+// and protects against future export-name drift.
+aiStack.addDependency(app.node.findChild('CisoCopilotApi') as cdk.Stack);
