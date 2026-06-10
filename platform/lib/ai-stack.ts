@@ -86,7 +86,11 @@ export class AiStack extends cdk.Stack {
     const aiRoutesDeployment = new apigw.Deployment(this, 'AiRoutesDeployment', { api });
     aiRoutesDeployment.node.addDependency(healthMethod);
     aiRoutesDeployment.addToLogicalId({
-      aiHealth: aiHealthFn.functionArn,
+      aiHealth:        aiHealthFn.functionArn,
+      // Bump this when you intentionally need to force a fresh Deployment
+      // even though no Lambda ARN changed (e.g., to recover from a deploy
+      // where the snapshot was taken before all Methods existed).
+      redeployTrigger: 'v2-method-dependency-fix',
       // Extend per new AI Lambda registered on this stack (Sub-slice 1.4+).
       // When adding a new Method, also `aiRoutesDeployment.node.addDependency(newMethod)`.
     });
