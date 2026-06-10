@@ -39,14 +39,14 @@ findings_subscriber), EventBridge cron (ti_feed_*), API Gateway (events_list).
 - **Entry point / handler:** `handler(event, context)` (line 39). EventBridge invokes with one event payload.
 - **Key symbols:**
   - `_find_connection_by_account()` (line 147) — resolves tenant_id+conn_id from `cloud_connections.account_identifier` (AWS only, status='active').
-  - `_archive_raw()` (line 181) / `_archive_stranded()` (line 193) — write raw event JSON to S3 (`raw/...` or `stranded/...` prefix).
-  - `_normalize()` (line 209) — source-specific shape → `{title, description, resource_arn, actor}`. Handles guardduty/inspector2/securityhub by `source`; CloudTrail + Config by `detail-type`.
-  - `_classify_kind()` (line 291) — `drift` for CloudTrail/Config detail-types, else `alert`. Keys on **detail-type, not source** (line 293).
-  - `_extract_states()` (line 298) — returns `(before_state, after_state)` for drift; keys on **detail-type** (line 300, 310).
-  - `_source_event_id()` (line 316) — per-source idempotency key. CloudTrail → `detail.eventID`; Config → `captureTime:resourceId`; guardduty → `detail.id`; etc. Branches on **detail-type first** (line 322), then source.
-  - `_severity()` (line 339) — normalizes to {critical,high,medium,low,info}; drift severities delegate to `severity_rules.drift_severity`.
-  - `_extract_source_ip()` (line 276) — CloudTrail caller IP only; drops AWS service-principal strings.
-  - `_insert_event()` (line 370) — INSERT with `ON CONFLICT (tenant_id, source, source_event_id) ... DO NOTHING RETURNING event_id`; returns False on dedup.
+  - `_archive_raw()` (line 253) / `_archive_stranded()` (line 265) — write raw event JSON to S3 (`raw/...` or `stranded/...` prefix).
+  - `_normalize()` (line 281) — source-specific shape → `{title, description, resource_arn, actor}`. Handles guardduty/inspector2/securityhub by `source`; CloudTrail + Config by `detail-type`.
+  - `_classify_kind()` (line 363) — `drift` for CloudTrail/Config detail-types, else `alert`. Keys on **detail-type, not source** (line 365).
+  - `_extract_states()` (line 370) — returns `(before_state, after_state)` for drift; keys on **detail-type** (line 372, 382).
+  - `_source_event_id()` (line 388) — per-source idempotency key. CloudTrail → `detail.eventID`; Config → `captureTime:resourceId`; guardduty → `detail.id`; etc. Branches on **detail-type first** (line 394), then source.
+  - `_severity()` (line 411) — normalizes to {critical,high,medium,low,info}; drift severities delegate to `severity_rules.drift_severity`.
+  - `_extract_source_ip()` (line 348) — CloudTrail caller IP only; drops AWS service-principal strings.
+  - `_insert_event()` (line 442) — INSERT with `ON CONFLICT (tenant_id, source, source_event_id) ... DO NOTHING RETURNING event_id`; returns False on dedup.
   - `_insert_drift()` (line 425) — INSERT into `drift_events`, `ON CONFLICT (event_id) DO NOTHING`.
 - **Reads:** `cloud_connections`, `users` (device_token); env DB_* / RAW_EVENTS_BUCKET / APNS_PLATFORM_APPLICATION_ARN / ENRICHMENT_QUEUE_URL.
 - **Writes:** S3 raw bucket; `events`; `drift_events`; SNS APNs push; SQS enrichment queue; DynamoDB push counters (via `spend_cap`).
@@ -129,9 +129,9 @@ CLAUDE.md warns: EventBridge "AWS API Call via CloudTrail" events arrive with
 the router must key on `detail-type`. Confirmed in **all four** named functions
 and at the infra level:
 
-- `_normalize()` (main.py:238, 246) — `if detail_type == "AWS API Call via CloudTrail"` / `"Configuration Item Change Notification"`. Comment at lines 235-237 documents exactly this. GuardDuty/Inspector2/SecurityHub branch on `source` because those DO arrive as `aws.guardduty` etc.
-- `_classify_kind()` (main.py:293) — `if detail_type in ("AWS API Call via CloudTrail", "Configuration Item Change Notification")`.
-- `_extract_states()` (main.py:300, 310) — branches on `detail_type` only.
+- `_normalize()` (main.py:310, 318) — `if detail_type == "AWS API Call via CloudTrail"` / `"Configuration Item Change Notification"`. Comment at lines 307-309 documents exactly this. GuardDuty/Inspector2/SecurityHub branch on `source` because those DO arrive as `aws.guardduty` etc.
+- `_classify_kind()` (main.py:365) — `if detail_type in ("AWS API Call via CloudTrail", "Configuration Item Change Notification")`.
+- `_extract_states()` (main.py:372, 382) — branches on `detail_type` only.
 - `_source_event_id()` (main.py:322, 324) — branches on `detail_type` first (`detail.eventID` / `captureTime:resourceId`), THEN source for the native-detector sources.
 - **Infra level:** the EventBridge rule `fan-all-to-router` (events-stack.ts:240-243) is a **catch-all** matching `account: {exists: true}` — it does NOT filter on `source` at all, so no real events are dropped at the rule. The whole detail-type discrimination happens in code.
 
