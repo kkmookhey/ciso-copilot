@@ -49,8 +49,17 @@ export class AiStack extends cdk.Stack {
       authorizer,
     };
 
-    // /v1/ai resource — Lambdas + routes attached in subsequent tasks
-    const aiRes = api.root.addResource('ai');
+    // /v1/ai already exists on the imported RestApi (created by CisoCopilotApi
+    // at api-stack.ts:954, which owns the existing /v1/ai/* AI Lambdas). API
+    // Gateway forbids two resources with the same name under one parent, so
+    // we IMPORT the existing /ai resource here instead of creating a new one.
+    // Children added below land as siblings of CisoCopilotApi's /ai/summary,
+    // /ai/bom, /ai/connections, etc.
+    const aiRes = apigw.Resource.fromResourceAttributes(this, 'ImportedAiResource', {
+      restApi:    api,
+      resourceId: cdk.Fn.importValue('CisoCopilotApi-AiResourceId'),
+      path:       '/ai',
+    });
 
     // ── Stub Lambda: proves end-to-end wiring; deleted by Sub-slice 1.4's first real route ──
     const aiHealthFn = new lambda.Function(this, 'AiHealthFn', {

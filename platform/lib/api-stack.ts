@@ -952,6 +952,15 @@ export class ApiStack extends cdk.Stack {
 
     // /v1/ai/connections — GitHub App install + listing
     const aiRes      = api.root.addResource('ai');
+    // Export the /ai resource ID so CisoCopilotAi can import-and-extend it
+    // (API Gateway forbids duplicate path segments under the same parent —
+    // a 2nd stack calling addResource('ai') would 409 with AlreadyExists).
+    // See docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.a
+    new cdk.CfnOutput(this, 'AiResourceId', {
+      value:       aiRes.resourceId,
+      exportName:  'CisoCopilotApi-AiResourceId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue to extend /v1/ai/*',
+    });
     const aiConns    = aiRes.addResource('connections');
     const aiConnId   = aiConns.addResource('{id}');
     const aiGithub   = aiConns.addResource('github');
