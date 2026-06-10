@@ -5,6 +5,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import * as path from 'path';
@@ -105,9 +106,19 @@ export class AiStack extends cdk.Stack {
         // exactly when the deployment is re-hashed; no-op otherwise.
         physicalResourceId: cr.PhysicalResourceId.of(aiRoutesDeployment.deploymentId),
       },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
-        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
-      }),
+      // API Gateway management plane uses HTTP-verb IAM actions, NOT SDK-call
+      // names. `fromSdkCalls` would infer `apigateway:updateStage` which is
+      // not a valid IAM action — the actual permission needed is `apigateway:PATCH`
+      // on the stage ARN (PATCH is the HTTP verb the SDK uses to call
+      // UpdateStage under the hood). Scope tight to the imported RestApi's v1 stage.
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          actions:   ['apigateway:PATCH'],
+          resources: [
+            `arn:aws:apigateway:${cdk.Stack.of(this).region}::/restapis/${cdk.Fn.importValue('CisoCopilotApi-RestApiId')}/stages/v1`,
+          ],
+        }),
+      ]),
     });
 
     // Mute unused-variable warnings for handles consumed in Sub-slice 1.4
