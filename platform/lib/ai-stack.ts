@@ -51,8 +51,22 @@ export class AiStack extends cdk.Stack {
 
     // /v1/ai resource — Lambdas + routes attached in subsequent tasks
     const aiRes = api.root.addResource('ai');
-    // Suppress unused-variable warning in skeleton state; consumed in Task 5
-    void aiRes;
+
+    // ── Stub Lambda: proves end-to-end wiring; deleted by Sub-slice 1.4's first real route ──
+    const aiHealthFn = new lambda.Function(this, 'AiHealthFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_health')),
+      timeout: cdk.Duration.seconds(5),
+      description: 'Stub /v1/ai/_health — verifies CisoCopilotAi → API Gateway wiring',
+    });
+
+    // GET /v1/ai/_health (no auth — wiring test, not user-facing)
+    aiRes.addResource('_health').addMethod(
+      'GET', new apigw.LambdaIntegration(aiHealthFn),
+    );
+
+    // Mute unused-variable warnings for handles consumed in Task 6 / Sub-slice 1.4
     void authedOpts;
     void props;
   }
