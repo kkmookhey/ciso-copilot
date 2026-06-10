@@ -101,6 +101,29 @@ f3a59fb docs(plans,specs): apply codebase-map findings to Slice 1 plan + spec
 
 ---
 
+## 🏗️ CisoCopilotAi stack — cross-stack RestApi extension (shipped 2026-06-10)
+
+`CisoCopilotApi` was at 494/500 CFN resources. Sub-slice 1.4 would have
+blown the cap. Fixed by extracting NEW AI-domain Lambdas into
+`CisoCopilotAi`, which shares the existing `RestApi` + Cognito authorizer
+via `Fn.importValue`. The four existing AI Lambdas (AiSummaryFn,
+AiBomExportFn, AiGithubFn, EntitiesApiFn) stay in CisoCopilotApi — "new
+work only" scope.
+
+**Spec:** `docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md`
+**Plan:** `docs/superpowers/plans/2026-06-10-ai-stack-extraction.md`
+
+**Operational rules — read before deploying:**
+
+- **Deploy order, first time:** `npx cdk deploy CisoCopilotApi CisoCopilotAi --require-approval never`. CDK auto-resolves the order from `Fn.importValue` references; the explicit `addDependency` in `bin/platform.ts` is belt-and-suspenders.
+- **AI route changes require full deploy.** `cdk deploy CisoCopilotAi --hotswap` works for Lambda code/env-only changes. It does NOT fire the `AwsCustomResource` that re-points the stage, so any route addition/removal/rename needs `cdk deploy CisoCopilotAi` (no `--hotswap`).
+- **The `aiStackExtensionVersion: 'v1'` pin in `api-stack.ts` is load-bearing.** It keeps `CisoCopilotApi`'s `latestDeployment` logicalId stable when `CisoCopilotApi` is deployed independently — without it, a `CisoCopilotApi`-only redeploy would silently drop all routes added by `CisoCopilotAi`. Bump `'v1'` → `'v2'` only on intentional major route-layout changes.
+- **`/v1/ai/_health` is a stub.** It exists only to prove the wiring. Sub-slice 1.4's first real Workspace OAuth route should delete it.
+- **Authorizer is imported as an `IAuthorizer` object literal**, not via a CDK factory (CDK v2 doesn't expose `fromAttributes` for Authorizer). The literal references `CisoCopilotApi-CognitoAuthorizerId` and adds zero CFN resources — see `platform/lib/ai-stack.ts` lines ~37-45 for the pattern when adding new authed AI routes.
+- **Both stacks together must stay under 500 resources each.** CisoCopilotApi: ~494. CisoCopilotAi: ~14 after this work. Headroom for Sub-slice 1.4+1.5: ~480 in CisoCopilotAi, ~6 in CisoCopilotApi. Watch the latter — non-AI features will eat that fast.
+
+---
+
 ## 🔔 MCP Connectors Slice 2 — autonomous CRITICAL broadcast (shipped in 5 sub-slices)
 
 **Status (2026-06-01):** all 5 sub-slice PRs open, stacked.

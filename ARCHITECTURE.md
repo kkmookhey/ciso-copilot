@@ -744,6 +744,28 @@ alongside us; we don't lock them in. (d) GCP follows the same pattern
 
 ---
 
+### ADR-016: Cross-stack RestApi extension via `fromRestApiAttributes`
+
+**Context.** `CisoCopilotApi` was approaching the CloudFormation 500-resource hard cap (494/500 as of 2026-06-08). AI Security Sub-slice 1.4 alone added ~12-16 resources, which would exceed the cap. Continued route-deletion to free space was unsustainable.
+
+**Decision.** New AI-domain Lambdas land in a separate `CisoCopilotAi` stack that imports the existing `RestApi` + Cognito authorizer via named CFN exports (`Fn.importValue`). One API Gateway, one `/v1` stage, one CORS config, one authorizer. The Workspace OAuth Lambdas (Sub-slice 1.4) and all subsequent AI features go here by default.
+
+**Mitigation of known limitations:**
+- API Gateway stages don't auto-redeploy when routes are added from a different stack. Mitigated by an `AwsCustomResource` in `CisoCopilotAi` that calls `apigateway:UpdateStage` on every deploy where the AI `Deployment`'s logicalId changes.
+- `CisoCopilotApi`-only redeploys would otherwise overwrite the served deployment and drop AI routes. Mitigated by a `latestDeployment?.addToLogicalId({ aiStackExtensionVersion: 'v1' })` pin in `CisoCopilotApi` that keeps its deployment logicalId stable across non-AI changes.
+- CDK v2 doesn't expose a `fromAttributes` factory for `Authorizer`. The cross-stack authorizer is constructed as an inline `IAuthorizer` object literal (just `authorizerId` + `authorizationType`), which adds zero CFN resources and consumes the `CisoCopilotApi-CognitoAuthorizerId` CFN export.
+
+**Rejected alternatives:**
+- Separate RestApi at `ai-api.shasta.io` — split CORS, split rate-limit, web/iOS clients need to know which host to call per route.
+- CloudFront path-routing to two API Gateways — extra failure mode, doubles monitoring surface.
+- Move all existing AI Lambdas now — bigger blast radius for a deploy that was primarily about unblocking Sub-slice 1.4.
+
+**Boundary discipline:** "New work only." Existing AI Lambdas stay in `CisoCopilotApi`. Opportunistic migration is allowed when `CisoCopilotApi` hits the cap again, not before.
+
+**Spec:** `docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md`.
+
+---
+
 ## Operational concerns
 
 ### Cost attribution
