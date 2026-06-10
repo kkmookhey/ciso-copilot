@@ -76,62 +76,67 @@ export class AiStack extends cdk.Stack {
       'GET', new apigw.LambdaIntegration(aiHealthFn),
     );
 
-    // ── Deployment: re-hashes logicalId whenever an AI Lambda ARN changes ──
-    // CRITICAL: must depend on the Method explicitly. The Deployment's
-    // CreateDeployment API call snapshots the live API state at creation time,
-    // so if CFN creates Deployment before Method (as it does by default in
-    // parallel), the snapshot is empty and the route doesn't serve. The
-    // high-level RestApi construct adds these deps automatically; with
-    // fromRestApiAttributes we lose that and must add them by hand.
-    const aiRoutesDeployment = new apigw.Deployment(this, 'AiRoutesDeployment', { api });
-    aiRoutesDeployment.node.addDependency(healthMethod);
-    aiRoutesDeployment.addToLogicalId({
-      aiHealth:        aiHealthFn.functionArn,
-      // Bump this when you intentionally need to force a fresh Deployment
-      // even though no Lambda ARN changed (e.g., to recover from a deploy
-      // where the snapshot was taken before all Methods existed).
-      redeployTrigger: 'v2-method-dependency-fix',
-      // Extend per new AI Lambda registered on this stack (Sub-slice 1.4+).
-      // When adding a new Method, also `aiRoutesDeployment.node.addDependency(newMethod)`.
-    });
+    // ── Atomic deploy-and-update via Custom Resource ──
+    // We tried the CFN-managed apigw.Deployment + separate UpdateStage CR
+    // path and hit a reproducible bug: the CFN-created Deployment's
+    // CreateDeployment API call did NOT include cross-stack Methods in its
+    // snapshot, even with explicit addDependency. Same call made manually
+    // via aws-cli works fine. The cleanest workaround is to skip CFN's
+    // Deployment entirely and have one CR do `createDeployment` with
+    // `stageName: 'v1'`, which atomically creates a fresh snapshot (at CR
+    // execution time, after all Methods are live) AND points the stage at
+    // it in one API call. No CFN→APIGW timing window to lose.
+    //
+    // The CR runs on every stack update where any AI Lambda ARN changes,
+    // because the `description` parameter embeds the ARNs — CR sees them as
+    // changed inputs and re-fires. To force a redeploy when nothing else
+    // changed (e.g., emergency recovery), bump REDEPLOY_TRIGGER below.
+    const REDEPLOY_TRIGGER = 'v3-cr-managed-deployment';
+    const aiLambdaFingerprint = [aiHealthFn.functionArn].join('|');
 
-    // Expose deployment id so Task 8 verification can compare it to the
-    // currently-served stage deployment.
-    new cdk.CfnOutput(this, 'AiDeploymentId', {
-      value:       aiRoutesDeployment.deploymentId,
-      description: 'CisoCopilotAi-managed deployment; the v1 stage is re-pointed here on every changed deploy',
-    });
-
-    // ── Custom Resource: apigateway:UpdateStage on every changed deploy ──
-    new cr.AwsCustomResource(this, 'PointStageAtNewDeployment', {
+    new cr.AwsCustomResource(this, 'CreateDeploymentAndPointStage', {
       onUpdate: {
         service: 'APIGateway',
-        action:  'updateStage',
+        action:  'createDeployment',
         parameters: {
-          restApiId: cdk.Fn.importValue('CisoCopilotApi-RestApiId'),
-          stageName: 'v1',
-          patchOperations: [
-            { op: 'replace', path: '/deploymentId', value: aiRoutesDeployment.deploymentId },
-          ],
+          restApiId:   cdk.Fn.importValue('CisoCopilotApi-RestApiId'),
+          stageName:   'v1',
+          description: `CisoCopilotAi auto-deploy [${REDEPLOY_TRIGGER}] [${aiLambdaFingerprint}]`,
         },
-        // physicalResourceId keyed on deploymentId means the CR fires
-        // exactly when the deployment is re-hashed; no-op otherwise.
-        physicalResourceId: cr.PhysicalResourceId.of(aiRoutesDeployment.deploymentId),
+        // The created deployment's id becomes the physicalResourceId. On
+        // CFN update, if any input changes (description changes when an
+        // ARN changes), CR fires and gets a new id.
+        physicalResourceId: cr.PhysicalResourceId.fromResponse('id'),
       },
-      // API Gateway management plane uses HTTP-verb IAM actions, NOT SDK-call
-      // names. `fromSdkCalls` would infer `apigateway:updateStage` which is
-      // not a valid IAM action — the actual permission needed is `apigateway:PATCH`
-      // on the stage ARN (PATCH is the HTTP verb the SDK uses to call
-      // UpdateStage under the hood). Scope tight to the imported RestApi's v1 stage.
+      // Same call shape on initial Create too (handles fresh-stack case).
+      onCreate: {
+        service: 'APIGateway',
+        action:  'createDeployment',
+        parameters: {
+          restApiId:   cdk.Fn.importValue('CisoCopilotApi-RestApiId'),
+          stageName:   'v1',
+          description: `CisoCopilotAi auto-deploy [${REDEPLOY_TRIGGER}] [${aiLambdaFingerprint}]`,
+        },
+        physicalResourceId: cr.PhysicalResourceId.fromResponse('id'),
+      },
+      // Needs apigateway:POST on /deployments + apigateway:PATCH on /stages/v1
+      // (createDeployment with stageName does both internally). HTTP-verb-based
+      // IAM, not SDK-call-name-based — `fromSdkCalls` would generate the wrong
+      // action name (`apigateway:createDeployment` is not a real IAM action).
       policy: cr.AwsCustomResourcePolicy.fromStatements([
         new iam.PolicyStatement({
-          actions:   ['apigateway:PATCH'],
+          actions: ['apigateway:POST', 'apigateway:PATCH'],
           resources: [
+            `arn:aws:apigateway:${cdk.Stack.of(this).region}::/restapis/${cdk.Fn.importValue('CisoCopilotApi-RestApiId')}/deployments`,
             `arn:aws:apigateway:${cdk.Stack.of(this).region}::/restapis/${cdk.Fn.importValue('CisoCopilotApi-RestApiId')}/stages/v1`,
           ],
         }),
       ]),
     });
+
+    // Method handle preserved so that addDependency could be added if we
+    // ever switch back to a CFN-managed Deployment.
+    void healthMethod;
 
     // Mute unused-variable warnings for handles consumed in Sub-slice 1.4
     void authedOpts;
