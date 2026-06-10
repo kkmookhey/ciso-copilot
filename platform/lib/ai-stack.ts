@@ -66,7 +66,42 @@ export class AiStack extends cdk.Stack {
       'GET', new apigw.LambdaIntegration(aiHealthFn),
     );
 
-    // Mute unused-variable warnings for handles consumed in Task 6 / Sub-slice 1.4
+    // ── Deployment: re-hashes logicalId whenever an AI Lambda ARN changes ──
+    const aiRoutesDeployment = new apigw.Deployment(this, 'AiRoutesDeployment', { api });
+    aiRoutesDeployment.addToLogicalId({
+      aiHealth: aiHealthFn.functionArn,
+      // Extend per new AI Lambda registered on this stack (Sub-slice 1.4+).
+    });
+
+    // Expose deployment id so Task 8 verification can compare it to the
+    // currently-served stage deployment.
+    new cdk.CfnOutput(this, 'AiDeploymentId', {
+      value:       aiRoutesDeployment.deploymentId,
+      description: 'CisoCopilotAi-managed deployment; the v1 stage is re-pointed here on every changed deploy',
+    });
+
+    // ── Custom Resource: apigateway:UpdateStage on every changed deploy ──
+    new cr.AwsCustomResource(this, 'PointStageAtNewDeployment', {
+      onUpdate: {
+        service: 'APIGateway',
+        action:  'updateStage',
+        parameters: {
+          restApiId: cdk.Fn.importValue('CisoCopilotApi-RestApiId'),
+          stageName: 'v1',
+          patchOperations: [
+            { op: 'replace', path: '/deploymentId', value: aiRoutesDeployment.deploymentId },
+          ],
+        },
+        // physicalResourceId keyed on deploymentId means the CR fires
+        // exactly when the deployment is re-hashed; no-op otherwise.
+        physicalResourceId: cr.PhysicalResourceId.of(aiRoutesDeployment.deploymentId),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+      }),
+    });
+
+    // Mute unused-variable warnings for handles consumed in Sub-slice 1.4
     void authedOpts;
     void props;
   }
