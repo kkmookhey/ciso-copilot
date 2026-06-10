@@ -34,12 +34,15 @@ export class AiStack extends cdk.Stack {
       rootResourceId: cdk.Fn.importValue('CisoCopilotApi-RootResourceId'),
     });
 
-    // Create a new authorizer referencing the same user pool (cross-stack reuse pattern).
-    // We can't import the existing authorizer directly; instead we create a new one
-    // that points to the same user pool. API Gateway will deduplicate on deployment.
-    const authorizer = new apigw.CognitoUserPoolsAuthorizer(this, 'CognitoAuthorizer', {
-      cognitoUserPools: [props.userPool],
-    });
+    // Cross-stack authorizer reuse. CDK v2 doesn't expose a fromAttributes
+    // factory for Authorizer, but IAuthorizer is a tiny interface (id +
+    // type) that we can satisfy with an inline object — no Construct, no
+    // duplicate AWS::ApiGateway::Authorizer resource. The id is imported
+    // from CisoCopilotApi's CfnOutput exported in api-stack.ts.
+    const authorizer: apigw.IAuthorizer = {
+      authorizerId:      cdk.Fn.importValue('CisoCopilotApi-CognitoAuthorizerId'),
+      authorizationType: apigw.AuthorizationType.COGNITO,
+    };
 
     const authedOpts: apigw.MethodOptions = {
       authorizationType: apigw.AuthorizationType.COGNITO,
