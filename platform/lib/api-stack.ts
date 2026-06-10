@@ -536,6 +536,12 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
+    // Pin the deployment logicalId so CisoCopilotApi-only redeploys don't
+    // clobber routes added by CisoCopilotAi. Bump 'v1' → 'v2' only on
+    // intentional major route-layout changes. See
+    // docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.d
+    api.latestDeployment?.addToLogicalId({ aiStackExtensionVersion: 'v1' });
+
     // Gateway-level rejections (e.g., 401 from the Cognito authorizer on expired
     // tokens) don't reach our Lambdas, so they don't pick up the CORS header
     // those Lambdas now emit. Add them at the gateway response layer too,
