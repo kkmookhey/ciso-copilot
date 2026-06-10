@@ -558,6 +558,23 @@ export class ApiStack extends cdk.Stack {
       authorizationType: apigw.AuthorizationType.COGNITO,
     };
 
+    // Cross-stack exports for CisoCopilotAi (see docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.a)
+    new cdk.CfnOutput(this, 'RestApiIdExport', {
+      value:      api.restApiId,
+      exportName: 'CisoCopilotApi-RestApiId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue',
+    });
+    new cdk.CfnOutput(this, 'RestApiRootResourceIdExport', {
+      value:      api.restApiRootResourceId,
+      exportName: 'CisoCopilotApi-RootResourceId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue',
+    });
+    new cdk.CfnOutput(this, 'CognitoAuthorizerIdExport', {
+      value:      cognitoAuth.authorizerId,
+      exportName: 'CisoCopilotApi-CognitoAuthorizerId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue',
+    });
+
     // /me — GET caller's user+tenant + POST device-token registration.
     const deviceTokenFn = new lambda.Function(this, 'DeviceTokenRegisterFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
