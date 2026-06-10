@@ -122,6 +122,11 @@ work only" scope.
 - **Authorizer is imported as an `IAuthorizer` object literal**, not via a CDK factory (CDK v2 doesn't expose `fromAttributes` for Authorizer). The literal references `CisoCopilotApi-CognitoAuthorizerId` and adds zero CFN resources — see `platform/lib/ai-stack.ts` lines ~37-45 for the pattern when adding new authed AI routes.
 - **Both stacks together must stay under 500 resources each.** CisoCopilotApi: ~494. CisoCopilotAi: ~14 after this work. Headroom for Sub-slice 1.4+1.5: ~480 in CisoCopilotAi, ~6 in CisoCopilotApi. Watch the latter — non-AI features will eat that fast.
 
+**Known limitations:**
+
+- **Stack teardown footgun.** If `CisoCopilotAi` is ever destroyed (full `cdk destroy CisoCopilotAi` or stack reprovision), the `AwsCustomResource` has no `onDelete` handler, so the `v1` stage is left pointing at the now-deleted `AiRoutesDeployment` ID. Every API call would 500 until the stage is manually re-pointed at `CisoCopilotApi`'s own deployment. Mitigation: before any teardown, run `aws apigateway update-stage --rest-api-id <RestApiId> --stage-name v1 --patch-operations op=replace,path=/deploymentId,value=<CisoCopilotApi-default-deployment-id>` to swap the stage back to CisoCopilotApi's deployment. Then it's safe to destroy `CisoCopilotAi`.
+- **Sub-slice 1.4 will need `connectorTokensKey` prop.** Workspace OAuth stores tokens with KMS envelope encryption (reusing `_shared/mcp_oauth/crypto.py`). The first 1.4 task to add a Lambda must extend `AiStackProps` with `connectorTokensKey: kms.IKey` and wire it from `data.connectorTokensKey` in `bin/platform.ts`. Not pre-added today (YAGNI), but flagged so 1.4's planning pass doesn't miss it.
+
 ---
 
 ## 🔔 MCP Connectors Slice 2 — autonomous CRITICAL broadcast (shipped in 5 sub-slices)
