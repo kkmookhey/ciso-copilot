@@ -7,8 +7,7 @@
 > rebuilding the malicious-IP judgment GuardDuty already makes.
 >
 > Cross-refs:
-> - [`../../codebase/06-soc-ti.md`](../../codebase/06-soc-ti.md) — SOC + TI subsystem map (the pipeline being extended)
-> - [`../../codebase/FINDINGS.md`](../../codebase/FINDINGS.md) — flagged "enrichment is drift-only; native alerts get no TI" as a real gap
+> - [`../../codebase/06-soc-ti.md`](../../codebase/06-soc-ti.md) — SOC + TI subsystem map; flags "Enrichment is drift-only" (line 240), the gap this spec closes
 
 ## 0. Codebase baseline — verified 2026-06-10
 
@@ -33,7 +32,7 @@ Everything below was confirmed by `grep`/`Read` against the working tree, not me
   - `greynoise.py` — **inert without an API key** (returns `None`); no key is provisioned today.
 - **Feeds** (producers, unchanged by this spec) — `ti_feed_abusech` (Feodo `botnet_c2` + ThreatFox, hourly), `ti_feed_kev` (CISA KEV, daily), `ti_feed_tor` (`tor_exit`, hourly). Write `threat_indicators(indicator_value, kind, source, confidence, tags, …)`.
 - **Schema** — `events` table created in `platform/sql/002_phase_a.sql`; `source_ip` added in `013_phase_soc_ti.sql`; `ai_*` columns added in `011_phase_soc.sql`. **No `iocs` column exists** (`grep iocs platform/sql/*.sql` → empty). Last migration is **`015_mcp_connectors.sql`; next is 016.**
-- **SOC UI** — `web/src/routes/Soc.tsx` (list + `getEventDetail`), `web/src/components/soc/DetailPane.tsx` renders `ai_narrative` / `ai_next_steps` / `ai_anomaly_*` (also referenced in `Timeline.tsx`). `FeedbackButtons.tsx`, `FilterChips.tsx` present. The same `DetailPane` will render GuardDuty briefs with zero new rendering code.
+- **SOC UI** — `web/src/routes/Soc.tsx` calls `api.listEvents` only (line 17) and **hardcodes `kind: 'drift'` at line 18** — so GuardDuty alerts would be filtered out of the list even once enriched (real gap; see §5.6). Header (line 32) already reads "Live drift + alert feed". `getEventDetail` lives in `web/src/components/soc/DetailPane.tsx:12` (defined `api.ts:585`); `DetailPane.tsx` renders `ai_narrative` / `ai_next_steps` / `ai_anomaly_*` (also `Timeline.tsx`). `FeedbackButtons.tsx`, `FilterChips.tsx` present (FilterChips controls severity + source, **not** kind). `DetailPane` will render GuardDuty briefs with zero new rendering code.
 - **GuardDuty native TI** (verified via AWS docs, `guardduty/latest/ug`): GuardDuty "uses threat intelligence feeds, such as lists of malicious IP addresses and domains, file hashes, and ML models." Findings carry `service.action.{networkConnectionAction,awsApiCallAction,dnsRequestAction}.remoteIpDetails.ipAddressV4` (+ org/ASN/ISP, country/city/geo) and `dnsRequestAction.domain`. **The malicious-IP verdict already exists in the finding.**
 
 **What's genuinely new in this slice:**
@@ -43,6 +42,7 @@ Everything below was confirmed by `grep`/`Read` against the working tree, not me
 4. Enrichment: read `events.iocs` and feed it into `_ti_matches`.
 5. LLM: make `SYSTEM` kind-aware (GuardDuty framing that adds context, not restating the verdict).
 6. UI: a free-tier cap note in the SOC view.
+7. Web: widen `Soc.tsx` list query — drop the hardcoded `kind: 'drift'` so GuardDuty alerts surface in the timeline. (Also promote `ioc_extract._is_lookup_worthy_ipv4` → public; second caller.)
 
 ## 1. Goal and success criteria
 
@@ -56,6 +56,7 @@ Success criteria (testable):
 5. Drift enrichment behavior is byte-for-byte unchanged (regression-guarded).
 6. Spend over the **shared** $10/day/tenant cap returns `cap_reached` for GuardDuty briefs exactly as for drift.
 7. The SOC view shows a free-tier cap note.
+8. A high-severity `aws.guardduty` alert appears in the SOC timeline (not filtered out by the list query's `kind` constraint).
 
 ## 2. Why this design (and what was reconsidered)
 
@@ -69,7 +70,7 @@ GuardDuty already owns the malicious-IP verdict (§0), so the value-add is *cont
 
 ## 3. Scope
 
-**In scope:** GuardDuty (`source == "aws.guardduty"`) alerts at severity ≥ high; the 6 changes listed in §0.
+**In scope:** GuardDuty (`source == "aws.guardduty"`) alerts at severity ≥ high; the 7 changes listed in §0.
 
 **Out of scope (YAGNI):**
 - Inspector2 / SecurityHub / other native alert sources (GuardDuty-only by decision).
@@ -105,7 +106,7 @@ New helper near `_extract_source_ip`. Reads, defensively:
 - `service.action.networkConnectionAction.remoteIpDetails.ipAddressV4`
 - `service.action.awsApiCallAction.remoteIpDetails.ipAddressV4`
 - `service.action.dnsRequestAction.domain`
-Returns `{"ip":[...], "domain":[...]}` deduped; reuse `ioc_extract`'s RFC1918/noise filter for IPs. Called only when `source == "aws.guardduty"`. Result written to `events.iocs` in `_insert_event` (add one column to the INSERT).
+Returns `{"ip":[...], "domain":[...]}` deduped. **No IP filtering here.** The router is flat-zipped and does not vendor `_shared/ioc_extract.py` (it only copies `push.py` / symlinks `spend_cap.py`); pulling in ioc_extract just to make one filter call isn't worth it. Filtering runs enrichment-side (§5.4), where `ioc_extract` already lives. (GuardDuty `remoteIpDetails` is the adversary's public IP — RFC1918 is essentially never present, so the filter is a safety net, not a hot path.) Called only when `source == "aws.guardduty"`. Result written to `events.iocs` in `_insert_event` (add one column to the INSERT).
 
 ### 5.3 Router — enqueue gate (line 197)
 ```python
@@ -119,19 +120,21 @@ if enrich and ENRICHMENT_QUEUE_URL:
 
 ### 5.4 Enrichment — consume `events.iocs`
 - `_load_event_row` SELECT: add `e.iocs::text`; parse JSON into the row dict (mirror the `before/after_state` JSON handling).
-- `features._ti_matches`: union the pre-extracted `row["iocs"]` with `ioc_extract.extract_iocs(row)` before `bulk_lookup`. Drift rows have `iocs=None` → unchanged. (For GuardDuty, `extract_iocs` finds nothing useful; `events.iocs` carries the signal.)
+- **Promote `ioc_extract._is_lookup_worthy_ipv4` → `is_lookup_worthy_ipv4`** (drop the underscore; update the existing internal call site in `extract_iocs`). It now has a second caller and is a shared utility.
+- `features._ti_matches`: union the pre-extracted `row["iocs"]` with `ioc_extract.extract_iocs(row)` before `bulk_lookup`, passing `events.iocs` IPs through `is_lookup_worthy_ipv4` first (the filter the router deliberately skipped, §5.2). Drift rows have `iocs=None` → unchanged. (For GuardDuty, `extract_iocs` finds nothing useful; `events.iocs` carries the signal.)
 
 ### 5.5 LLM — kind-aware SYSTEM prompt
 `llm.py`: branch the framing on `row["kind"]` (or `source`). For GuardDuty: *"You are summarizing a GuardDuty security finding for a CISO. GuardDuty has ALREADY judged the remote IP/domain malicious — do NOT restate that. Your job: add account-specific context using the behavioral `features` and `features.ti_matches` (supplemental attribution: Tor/KEV/abuse.ch), and give the top concrete next steps."* Output schema unchanged. Drift prompt unchanged.
 
-### 5.6 UI — free-tier cap note
-`web/src/components/soc/DetailPane.tsx`: in the AI-enrichment section, a small muted note: *"AI briefs are rate-limited on the free tier — $10/day of analysis per workspace."* Static copy (no new API). When `ai_model_version == "cap_reached"`, show the matching empty-state ("daily AI budget reached") rather than a blank brief.
+### 5.6 UI — surface GuardDuty briefs + free-tier cap note
+- **`web/src/routes/Soc.tsx:18` — drop the hardcoded `kind: 'drift'`** from the `api.listEvents` call so GuardDuty alerts appear in the timeline. The header (line 32) already reads "Live drift + alert feed" — both were always intended; the filter was never wired. Severity default `['critical','high']` (line 10) already aligns with the sev≥high gate. Leaving `kind` unconstrained returns both kinds; a `kind` FilterChip is a future nicety, out of scope.
+- **`web/src/components/soc/DetailPane.tsx`** — in the AI-enrichment section, a small muted note: *"AI briefs are rate-limited on the free tier — $10/day of analysis per workspace."* Static copy (no new API). When `ai_model_version == "cap_reached"`, show the matching empty-state ("daily AI budget reached") rather than a blank brief.
 
 ## 6. Testing
 - **Router (`event_router/tests`):** GuardDuty high → enqueued + `iocs` populated; GuardDuty medium → not enqueued; non-GuardDuty alert → not enqueued; drift → still enqueued. `_extract_iocs_guardduty` over real `networkConnectionAction` / `dnsRequestAction` fixtures; RFC1918 remote IP filtered.
 - **Enrichment (`soc_enrichment/tests`):** `_load_event_row` parses `iocs`; `_ti_matches` returns the seeded Tor/KEV/abuse.ch match for a GuardDuty IP; drift path unchanged (existing tests stay green).
 - **LLM:** `build_messages` selects the GuardDuty SYSTEM for `kind="alert"`/guardduty and the drift SYSTEM otherwise (no live model call).
-- **Web:** `DetailPane.test.tsx` renders the cap note; `cap_reached` empty-state.
+- **Web:** `Soc.test.tsx` — a high-severity `aws.guardduty` alert renders in the `Timeline` (regression guard for the dropped `kind:'drift'` constraint). `DetailPane.test.tsx` renders the cap note; `cap_reached` empty-state.
 
 ## 7. Risks
 - **LLM cost on alert volume** — mitigated by the sev≥high gate + the existing shared $10/day cap. The cap is now shared across drift + GuardDuty; a GuardDuty burst could exhaust a tenant's drift budget (acceptable; documented in UI).
@@ -141,4 +144,4 @@ if enrich and ENRICHMENT_QUEUE_URL:
 ## 8. References
 - AWS GuardDuty finding format — `https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_finding-format.html`
 - SOC + TI subsystem doc — `docs/codebase/06-soc-ti.md`
-- Pipeline gap note — `docs/codebase/FINDINGS.md` §D
+- Pipeline gap note — `docs/codebase/06-soc-ti.md` line 240 ("Enrichment is drift-only")
