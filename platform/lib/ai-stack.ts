@@ -72,15 +72,23 @@ export class AiStack extends cdk.Stack {
     });
 
     // GET /v1/ai/_health (no auth — wiring test, not user-facing)
-    aiRes.addResource('_health').addMethod(
+    const healthMethod = aiRes.addResource('_health').addMethod(
       'GET', new apigw.LambdaIntegration(aiHealthFn),
     );
 
     // ── Deployment: re-hashes logicalId whenever an AI Lambda ARN changes ──
+    // CRITICAL: must depend on the Method explicitly. The Deployment's
+    // CreateDeployment API call snapshots the live API state at creation time,
+    // so if CFN creates Deployment before Method (as it does by default in
+    // parallel), the snapshot is empty and the route doesn't serve. The
+    // high-level RestApi construct adds these deps automatically; with
+    // fromRestApiAttributes we lose that and must add them by hand.
     const aiRoutesDeployment = new apigw.Deployment(this, 'AiRoutesDeployment', { api });
+    aiRoutesDeployment.node.addDependency(healthMethod);
     aiRoutesDeployment.addToLogicalId({
       aiHealth: aiHealthFn.functionArn,
       // Extend per new AI Lambda registered on this stack (Sub-slice 1.4+).
+      // When adding a new Method, also `aiRoutesDeployment.node.addDependency(newMethod)`.
     });
 
     // Expose deployment id so Task 8 verification can compare it to the
