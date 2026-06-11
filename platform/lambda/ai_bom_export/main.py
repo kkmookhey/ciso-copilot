@@ -72,6 +72,7 @@ def handler(event: dict, context) -> dict:
         "headers": {
             "Content-Type": "application/vnd.cyclonedx+json; version=1.6",
             "Content-Disposition": f'attachment; filename="shasta-ai-bom-{tenant_id}-{date_str}.cdx.json"',
+            **_CORS_HEADERS,
         },
         "body": body,
     }
@@ -346,9 +347,15 @@ def _build_bom(entities: list, edges: list, findings: list) -> Bom:
     return bom
 
 
+_CORS_HEADERS = {
+    "Access-Control-Allow-Origin":  "*",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
+}
+
+
 def _resp_json(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {"Content-Type": "application/json", **_CORS_HEADERS},
         "body": json.dumps(body),
     }
