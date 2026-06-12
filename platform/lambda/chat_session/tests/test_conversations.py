@@ -72,3 +72,37 @@ def test_patch_title_returns_false_when_no_row(monkeypatch):
 def test_soft_delete_returns_false_when_no_row(monkeypatch):
     monkeypatch.setattr(C, "_q", lambda sql, params=None: [])
     assert C.soft_delete("tenant-1", "nonexistent-id") is False
+
+
+def test_patch_title_if_default_returns_true_when_row_updated(monkeypatch):
+    captured = {}
+
+    def fake_q(sql, params=None):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [[{"stringValue": "conv-uuid"}]]
+
+    monkeypatch.setattr(C, "_q", fake_q)
+    assert C.patch_title_if_default("tenant-1", "conv-uuid", "Auto Title") is True
+    assert "UPDATE conversations" in captured["sql"]
+    assert "title = 'New conversation'" in captured["sql"]
+    assert "tenant_id = :tenant_id::uuid" in captured["sql"]
+    assert "id = :id::uuid" in captured["sql"]
+    assert captured["params"]["title"] == "Auto Title"
+    assert captured["params"]["tenant_id"] == "tenant-1"
+    assert captured["params"]["id"] == "conv-uuid"
+
+
+def test_patch_title_if_default_returns_false_when_no_row(monkeypatch):
+    """No row returned -> title was already custom or wrong tenant."""
+    monkeypatch.setattr(C, "_q", lambda sql, params=None: [])
+    assert C.patch_title_if_default("tenant-1", "conv-uuid", "Auto Title") is False
+
+
+def test_patch_title_if_default_sql_returns_id(monkeypatch):
+    """RETURNING id::text is what we use to detect 'a row was updated'."""
+    captured = {}
+    monkeypatch.setattr(C, "_q",
+                        lambda sql, params=None: captured.update(sql=sql) or [])
+    C.patch_title_if_default("t", "c", "T")
+    assert "RETURNING id::text" in captured["sql"]
