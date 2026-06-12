@@ -2,8 +2,8 @@
 
 Reads ciso-copilot/anthropic-api-key on cold start and caches it. Two public
 functions:
-  call(system, messages, max_tokens)           — non-streaming, single-turn
-  stream_messages(system, messages, tools)     — streaming generator (SSE)
+  call(system, user_message, max_tokens, model, timeout) — non-streaming, single-turn
+  stream_messages(system, messages, tools)               — streaming generator (SSE)
 """
 from __future__ import annotations
 
