@@ -118,10 +118,15 @@ def _create(tenant_id: str, body: dict) -> dict:
         vals_sql += ", CAST(:said AS UUID)"
         params.append({"name": "said", "value": {"stringValue": source_approval_id}})
 
+        # The unique index `idx_risks_tenant_approval` is partial
+        # (WHERE source_approval_id IS NOT NULL) — Postgres requires the
+        # ON CONFLICT inference clause to mirror that predicate or it errors
+        # with SQLState 42P10 ("no unique constraint matches").
         rs = rds_data.execute_statement(
             resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
             sql=(f"INSERT INTO risks ({cols_sql}) VALUES ({vals_sql}) "
-                 "ON CONFLICT (tenant_id, source_approval_id) DO NOTHING "
+                 "ON CONFLICT (tenant_id, source_approval_id) "
+                 "WHERE source_approval_id IS NOT NULL DO NOTHING "
                  "RETURNING risk_id::text, status"),
             parameters=params,
         )

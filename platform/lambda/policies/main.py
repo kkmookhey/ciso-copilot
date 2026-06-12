@@ -307,13 +307,18 @@ def _create(tenant_id: str, body: dict) -> dict:
         # the TOCTOU window that a SELECT-then-INSERT pattern has.
         params.append({"name": "said", "value": {"stringValue": source_approval_id}})
 
+        # The unique index `idx_policies_tenant_approval` is partial
+        # (WHERE source_approval_id IS NOT NULL) — Postgres requires the
+        # ON CONFLICT inference clause to mirror that predicate or it errors
+        # with SQLState 42P10 ("no unique constraint matches").
         rs = rds_data.execute_statement(
             resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
             sql=("INSERT INTO policies (policy_id, tenant_id, template_key, title, content_md, "
                  "                      soc2_controls, vars, source_approval_id) "
                  "VALUES (CAST(:p AS UUID), CAST(:t AS UUID), :k, :ti, :body, "
                  "        CAST(:soc AS JSONB), CAST(:v AS JSONB), CAST(:said AS UUID)) "
-                 "ON CONFLICT (tenant_id, source_approval_id) DO NOTHING "
+                 "ON CONFLICT (tenant_id, source_approval_id) "
+                 "WHERE source_approval_id IS NOT NULL DO NOTHING "
                  "RETURNING policy_id::text, status"),
             parameters=params,
         )
