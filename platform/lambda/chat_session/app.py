@@ -233,6 +233,12 @@ async def stream_turn(request: Request) -> StreamingResponse:
                 print(f"agentic loop hit MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS}")
 
             # Persist the assembled assistant reply once the loop completes.
+            # NOTE: this lives inside the outer try (was previously after the
+            # try/except). An Aurora error here is now caught by the outer
+            # except, which surfaces an `upstream_failed` error frame after
+            # the successful text-delta frames the client already received.
+            # The web SSE dispatcher must tolerate a late error frame
+            # gracefully — see chatApi.streamMessage.
             if final_assistant_text:
                 M.append(cid, "assistant",
                          {"text": final_assistant_text, "modality": "text"})
