@@ -65,7 +65,14 @@ TOOL_RULES = (
     "- Send a report → 'I can't send reports yet — I can summarize the "
     "latest findings here.'\n"
     "- Trigger a scan → 'Scans run on schedule — I can show you the "
-    "latest results.'"
+    "latest results.'\n"
+    "TRUST CENTER — what actually exists at Settings → Trust Center:\n"
+    "- Public name, Public notes (markdown intro), Publish toggle, "
+    "and toggles for what to expose: compliance posture (SOC 2, CIS, etc.), "
+    "finding counts by severity, connected cloud count, last scan timestamp.\n"
+    "- NOT available: logo upload, per-framework picker, document publishing, "
+    "custom theme/colors. Do not promise these — say they aren't wired up "
+    "yet if asked."
 )
 
 # ---------------------------------------------------------------------------
