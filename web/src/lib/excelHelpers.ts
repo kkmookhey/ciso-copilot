@@ -2,7 +2,10 @@
  * Client-side Excel parsing + write-back for vendor security questionnaires.
  *
  * Parsing strategy:
- *  - Read first sheet
+ *  - Score every sheet by how many cells look like questions; pick the
+ *    highest-scoring one (handles multi-sheet workbooks where the real
+ *    questions live on a sheet other than the first — e.g. an
+ *    "Instructions" or "Cover" tab sits at index 0).
  *  - Auto-detect a "question" column: the column with the most cells whose
  *    text looks like a question (>= 20 chars, ends with "?", or contains
  *    typical question vocabulary)
@@ -12,11 +15,9 @@
  *
  * Write-back strategy:
  *  - Preserve the original workbook bytes (we kept it via FileReader)
- *  - Write each answer into the same row at the chosen answer column
+ *  - Write each answer into the same row at the chosen answer column on
+ *    the detected sheet
  *  - Trigger download of the modified .xlsx
- *
- * This lives in /voice/ for now to keep voice/Excel separable later; not
- * import-related to the voice module.
  */
 import * as XLSX from "xlsx";
 
@@ -48,15 +49,40 @@ function looksLikeQuestion(s: string): boolean {
   return QUESTION_HINTS.some((re) => re.test(t));
 }
 
+function scoreSheetForQuestions(aoa: string[][]): number {
+  let score = 0;
+  for (const row of aoa) {
+    for (const cell of row) {
+      if (looksLikeQuestion(String(cell ?? ""))) score++;
+    }
+  }
+  return score;
+}
+
 export async function parseExcel(file: File): Promise<ExcelParseResult> {
   const buf = await file.arrayBuffer();
   const workbook = XLSX.read(buf, { type: "array" });
-  const sheetName = workbook.SheetNames[0];
+  if (workbook.SheetNames.length === 0) throw new Error("No worksheet found");
+
+  // Pick the sheet with the most question-looking cells. Falls back to the
+  // first sheet if no sheet scores any questions (preserves prior behavior
+  // for non-questionnaire files).
+  let sheetName = workbook.SheetNames[0];
+  let aoa: string[][] = [];
+  let bestSheetScore = -1;
+  for (const name of workbook.SheetNames) {
+    const ws = workbook.Sheets[name];
+    if (!ws) continue;
+    const sheetAoa = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: "", raw: false }) as string[][];
+    const sheetScore = scoreSheetForQuestions(sheetAoa);
+    if (sheetScore > bestSheetScore) {
+      bestSheetScore = sheetScore;
+      sheetName = name;
+      aoa = sheetAoa;
+    }
+  }
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) throw new Error("No worksheet found");
-
-  // Convert to AOA (array-of-arrays) so we have row/col indices.
-  const aoa = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: "", raw: false }) as string[][];
 
   // Detect the column with the highest count of cells that look like questions.
   const colScores: number[] = [];
