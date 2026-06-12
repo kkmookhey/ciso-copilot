@@ -190,7 +190,8 @@ def _emit_finding(*, tenant_id: str, scan_id: str, conn_id: str, match: dict) ->
             "  (CAST(:fid AS UUID), CAST(:t AS UUID), CAST(:conn AS UUID), "
             "   CAST(:s AS UUID), :check_id, "
             "   :title, :desc, 'critical', 'fail', 'ai', "
-            "   CAST('[]' AS JSONB), CAST(:ep AS JSONB), NOW(), NOW()) "
+            # frameworks is JSONB object (FINDINGS.md §A.4): array would crash iOS decoder.
+            "   CAST('{}' AS JSONB), CAST(:ep AS JSONB), NOW(), NOW()) "
             "ON CONFLICT (tenant_id, conn_id, check_id, "
             "             COALESCE(resource_arn, ''), COALESCE(region, '')) "
             "DO UPDATE SET "
