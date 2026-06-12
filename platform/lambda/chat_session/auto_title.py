@@ -44,6 +44,7 @@ def _sanitize(raw: str) -> str | None:
     for open_q, close_q in _QUOTE_PAIRS:
         if len(s) >= 2 and s.startswith(open_q) and s.endswith(close_q):
             s = s[1:-1].strip()
+            break
     if not s:
         return None
     if len(s) > MAX_TITLE_CHARS:
