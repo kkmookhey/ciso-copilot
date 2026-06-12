@@ -157,6 +157,7 @@ export function TopRisks() {
   const severity  = params.get("severity")  ?? undefined;
   const cloud     = params.get("cloud")     ?? undefined;
   const framework = params.get("framework") ?? undefined;
+  const status    = (params.get("status") as Status | null) ?? undefined;
   const dim       = (params.get("group") as GroupDim) || "status";
   const initialQ  = params.get("q") ?? "";
 
@@ -175,15 +176,17 @@ export function TopRisks() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  // Fetch findings — pass URL filters to the server so LIMIT 200 applies
+  // Fetch findings — pass URL filters to the server so the limit applies
   // AFTER filtering (otherwise low-severity findings in narrow filters get
   // truncated out of the response, e.g. a single low-sev Entra finding among
-  // hundreds of AWS criticals).
+  // hundreds of AWS criticals). Limit 1000 comfortably covers all three
+  // statuses for a single-tenant view; passes are otherwise truncated by the
+  // severity-desc sort because critical/high fails win the cap.
   useEffect(() => {
     setFindings(null);
     api.listFindings({
-      status:   "fail,partial,pass",
-      limit:    200,
+      status:   status ?? "fail,partial,pass",
+      limit:    1000,
       framework,
       cloud:    cloud    || undefined,
       severity: severity || undefined,
@@ -194,7 +197,7 @@ export function TopRisks() {
       .then((r) => setLatestScan(mostRecentCompletedScan(r.connections)))
       .catch(() => setLatestScan(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [framework, cloud, severity]);
+  }, [framework, cloud, severity, status]);
 
   const q = params.get("q")?.toLowerCase() ?? "";
 
@@ -230,6 +233,7 @@ export function TopRisks() {
   }
 
   const filterChips = [
+    status    ? { key: "status",    label: `status: ${STATUS_LABEL[status as Status] ?? status}` } : null,
     severity  ? { key: "severity",  label: `severity: ${severity}` }   : null,
     cloud     ? { key: "cloud",     label: `cloud: ${cloud}` }          : null,
     framework ? {
@@ -333,7 +337,7 @@ export function TopRisks() {
               <SectionBlock
                 key={sec.key}
                 section={sec}
-                defaultCollapsed={dim === "status" && sec.key === "pass"}
+                defaultCollapsed={dim === "status" && sec.key === "pass" && !status}
               />
             ))}
           </div>

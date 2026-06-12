@@ -5,7 +5,7 @@ Query params:
   status    — comma-separated subset of {fail, pass, not_assessed, not_applicable}; default 'fail'
   cloud     — 'aws' | 'azure' | 'entra' | 'gcp' (matches via conn_id join)
   framework — JSONB top-level key, e.g. 'nist_ai_rmf'; filters to findings tagged with that framework
-  limit     — default 50, max 200
+  limit     — default 50, max 1000
   offset    — default 0
 
 Response:
@@ -57,7 +57,7 @@ def handler(event: dict, context) -> dict:
     if framework and not _FRAMEWORK_KEY_RE.match(framework):
         return _resp(400, {"error": "invalid_framework_key"})
     check_id   = (qp.get("check_id") or "").strip() or None
-    limit  = min(int(qp.get("limit",  "50") or 50), 200)
+    limit  = min(int(qp.get("limit",  "50") or 50), 1000)
     offset = max(int(qp.get("offset", "0")  or 0),  0)
 
     sql = (

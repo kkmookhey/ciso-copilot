@@ -91,9 +91,9 @@ export function Dashboard() {
       {/* Headline stats — full finding picture: fail / partial / pass */}
       <div className="mt-10 grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatTile label="Connected clouds" value={activeConns ?? "—"} onClick={() => nav("/connect")} />
-        <StatTile label="Fail"    value={summary?.by_status.fail    ?? "—"} tone="red"   onClick={() => nav("/findings")} />
-        <StatTile label="Partial" value={summary?.by_status.partial ?? "—"} tone="amber" onClick={() => nav("/findings")} />
-        <StatTile label="Pass"    value={summary?.by_status.pass    ?? "—"} tone="green" onClick={() => nav("/findings")} />
+        <StatTile label="Fail"    value={summary?.by_status.fail    ?? "—"} tone="red"   onClick={() => nav("/findings?status=fail")} />
+        <StatTile label="Partial" value={summary?.by_status.partial ?? "—"} tone="amber" onClick={() => nav("/findings?status=partial")} />
+        <StatTile label="Pass"    value={summary?.by_status.pass    ?? "—"} tone="green" onClick={() => nav("/findings?status=pass")} />
         <StatTile label="Critical alerts"  value={critical ?? "—"} tone="red" />
       </div>
 
