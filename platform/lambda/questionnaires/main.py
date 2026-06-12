@@ -47,12 +47,12 @@ def handler(event: dict, context) -> dict:
         return _get(tenant_id, qid)
     if method == "GET":
         return _list(tenant_id)
-    if method == "POST":
-        return _create(tenant_id, _body(event))
     if method == "POST" and path.endswith("/from-excel"):
         return _from_excel(tenant_id, _body(event))
     if method == "POST" and qid and iid:
         return _suggest_item(tenant_id, qid, iid)
+    if method == "POST":
+        return _create(tenant_id, _body(event))
     if method == "PATCH" and qid and iid:
         return _patch_item(tenant_id, qid, iid, _body(event))
     return _resp(400, {"error": "unsupported"})

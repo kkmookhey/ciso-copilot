@@ -1,13 +1,17 @@
-"""Per-framework display metadata for API responses (CME-v2 S4).
+"""Per-framework display metadata — canonical source (Task 1.1.1).
 
-Mirrors a tiny subset of the framework_registry's `frameworks` block —
-(name, family, source_url, version) per framework key — so read-side
-Lambdas can return family information for UI grouping without bundling
-the entire scanner_core registry.
+This is THE single edit point for framework display metadata. When adding or
+updating a framework, edit only this file. Consumer Lambdas (ai_summary,
+compliance_summary) carry byte-identical local copies for runtime because they
+are bundled via ``lambda.Code.fromAsset`` and cannot import scanner_core at
+Lambda invocation time.
 
-When a new framework is added to ai_framework_registry.json, mirror its
-metadata here. The duplication is intentional and accepted for the
-build phase — a future slice may consolidate via a shared layer.
+Mirrors a tiny subset of the framework_registry's ``frameworks`` block —
+(name, family, source_url, version) per framework key — so read-side Lambdas
+can return family information for UI grouping without bundling the entire
+scanner_core registry.
+
+Future: promote to a shared Lambda Layer so the local copies can be removed.
 """
 from __future__ import annotations
 

@@ -16,7 +16,55 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import { Construct } from 'constructs';
 import * as path from 'path';
+import * as fs from 'fs';
 import { config } from './config';
+
+// Bundles a Lambda's own directory PLUS scanner_core/framework_meta.py
+// (the canonical FRAMEWORK_META dict). Lets multiple read-side Lambdas
+// share one source of truth for framework metadata without per-Lambda
+// duplication or a Layer. Uses Node's fs.cpSync (no shell, no injection
+// surface) and skips __pycache__/*.pyc so the asset hash is deterministic
+// regardless of the developer's Python bytecode version.
+//
+// Docker bundling is NOT supported by this helper — CDK only mounts the
+// asset source at /asset-input, so `../scanner_core/` isn't reachable
+// from inside the container. If local bundling fails we re-throw rather
+// than silently falling through to the broken Docker command. If a future
+// CI environment forces Docker bundling, switch to an asset rooted at
+// platform/lambda/ with `exclude` filters; the Docker command below is
+// retained only to satisfy CDK's BundlingOptions schema.
+function lambdaCodeWithSharedMeta(lambdaDir: string): lambda.Code {
+  const sourceDir = path.join(__dirname, '..', 'lambda', lambdaDir);
+  const sharedFile = path.join(__dirname, '..', 'lambda', 'scanner_core', 'framework_meta.py');
+  const skipBytecode = (src: string) =>
+    !src.includes('__pycache__') && !src.endsWith('.pyc');
+  return lambda.Code.fromAsset(sourceDir, {
+    bundling: {
+      image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+      command: [
+        'bash', '-c',
+        // Unreachable under normal use — local.tryBundle returns true.
+        // Schema-required only; see helper docstring above.
+        'echo "Docker bundling not supported for lambdaCodeWithSharedMeta" >&2 && exit 1',
+      ],
+      local: {
+        tryBundle(outputDir: string): boolean {
+          try {
+            fs.cpSync(sourceDir, outputDir, { recursive: true, filter: skipBytecode });
+            fs.cpSync(sharedFile, path.join(outputDir, 'framework_meta.py'));
+            return true;
+          } catch (err) {
+            // Loud failure beats silent fallthrough to the (unsupported)
+            // Docker path. Surface the root cause.
+            throw new Error(
+              `lambdaCodeWithSharedMeta local bundle failed for ${lambdaDir}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        },
+      },
+    },
+  });
+}
 
 interface ApiStackProps extends cdk.StackProps {
   userPool:           cognito.UserPool;
@@ -281,7 +329,7 @@ export class ApiStack extends cdk.Stack {
     const complianceSummaryFn = new lambda.Function(this, 'ComplianceSummaryFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
-      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'compliance_summary')),
+      code:    lambdaCodeWithSharedMeta('compliance_summary'),
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       environment: dbEnv,
@@ -301,12 +349,36 @@ export class ApiStack extends cdk.Stack {
     const aiSummaryFn = new lambda.Function(this, 'AiSummaryFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'main.handler',
-      code:    lambda.Code.fromAsset(path.join(__dirname, '..', 'lambda', 'ai_summary')),
+      code:    lambdaCodeWithSharedMeta('ai_summary'),
       timeout: cdk.Duration.seconds(15),
       memorySize: 512,
       environment: dbEnv,
     });
     props.dbCluster.grantDataApiAccess(aiSummaryFn);
+
+    // /v1/ai/bom — CycloneDX-ML 1.6 AI-BOM export. Lambda has a
+    // cyclonedx-python-lib dependency in requirements.txt; pip-installs
+    // it into the asset at synth time via Docker bundling.
+    const aiBomExportFn = new lambda.Function(this, 'AiBomExportFn', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'main.handler',
+      code:    lambda.Code.fromAsset(
+        path.join(__dirname, '..', 'lambda', 'ai_bom_export'),
+        {
+          bundling: {
+            image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+            command: [
+              'bash', '-c',
+              'pip install --no-cache-dir -r requirements.txt -t /asset-output && cp -r . /asset-output/',
+            ],
+          },
+        },
+      ),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 512,
+      environment: dbEnv,
+    });
+    props.dbCluster.grantDataApiAccess(aiBomExportFn);
 
     const findingsRollupFn = new lambda.Function(this, 'FindingsRollupFn', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -464,6 +536,12 @@ export class ApiStack extends cdk.Stack {
       },
     });
 
+    // Pin the deployment logicalId so CisoCopilotApi-only redeploys don't
+    // clobber routes added by CisoCopilotAi. Bump 'v1' → 'v2' only on
+    // intentional major route-layout changes. See
+    // docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.d
+    api.latestDeployment?.addToLogicalId({ aiStackExtensionVersion: 'v1' });
+
     // Gateway-level rejections (e.g., 401 from the Cognito authorizer on expired
     // tokens) don't reach our Lambdas, so they don't pick up the CORS header
     // those Lambdas now emit. Add them at the gateway response layer too,
@@ -485,6 +563,23 @@ export class ApiStack extends cdk.Stack {
       authorizer:        cognitoAuth,
       authorizationType: apigw.AuthorizationType.COGNITO,
     };
+
+    // Cross-stack exports for CisoCopilotAi (see docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.a)
+    new cdk.CfnOutput(this, 'RestApiId', {
+      value:      api.restApiId,
+      exportName: 'CisoCopilotApi-RestApiId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue',
+    });
+    new cdk.CfnOutput(this, 'RootResourceId', {
+      value:      api.restApiRootResourceId,
+      exportName: 'CisoCopilotApi-RootResourceId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue',
+    });
+    new cdk.CfnOutput(this, 'CognitoAuthorizerId', {
+      value:      cognitoAuth.authorizerId,
+      exportName: 'CisoCopilotApi-CognitoAuthorizerId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue',
+    });
 
     // /me — GET caller's user+tenant + POST device-token registration.
     const deviceTokenFn = new lambda.Function(this, 'DeviceTokenRegisterFn', {
@@ -857,12 +952,24 @@ export class ApiStack extends cdk.Stack {
 
     // /v1/ai/connections — GitHub App install + listing
     const aiRes      = api.root.addResource('ai');
+    // Export the /ai resource ID so CisoCopilotAi can import-and-extend it
+    // (API Gateway forbids duplicate path segments under the same parent —
+    // a 2nd stack calling addResource('ai') would 409 with AlreadyExists).
+    // See docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md §5.a
+    new cdk.CfnOutput(this, 'AiResourceId', {
+      value:       aiRes.resourceId,
+      exportName:  'CisoCopilotApi-AiResourceId',
+      description: 'Consumed by CisoCopilotAi via Fn.importValue to extend /v1/ai/*',
+    });
     const aiConns    = aiRes.addResource('connections');
     const aiConnId   = aiConns.addResource('{id}');
     const aiGithub   = aiConns.addResource('github');
 
     aiConns.addMethod( 'GET',    new apigw.LambdaIntegration(aiGithubFn), authedOpts);
-    aiConnId.addMethod('DELETE', new apigw.LambdaIntegration(aiGithubFn), authedOpts);
+    // DELETE /v1/ai/connections/{id} route removed 2026-06-08 for CFN-cap
+    // relief — web revokeAIConnection had no callers (FINDINGS B
+    // verified across web/src + ios). aiGithubFn handler still supports
+    // DELETE; re-add the addMethod here if revoke UX is built.
     aiConnId.addResource('repos').addMethod(
       'GET', new apigw.LambdaIntegration(aiGithubFn), authedOpts,
     );
@@ -886,14 +993,21 @@ export class ApiStack extends cdk.Stack {
       'GET', new apigw.LambdaIntegration(aiSummaryFn), authedOpts,
     );
 
+    // /v1/ai/bom — CycloneDX-ML 1.6 AI-BOM export (AI Security Slice 1.2)
+    aiRes.addResource('bom').addMethod(
+      'GET', new apigw.LambdaIntegration(aiBomExportFn), authedOpts,
+    );
+
     const entities     = api.root.addResource('entities');
     const entityId     = entities.addResource('{id}');
-    const entityGraph  = entityId.addResource('graph');
-    const entityRels   = entityId.addResource('relationships');
     entities.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
     entityId.addMethod(    'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
-    entityGraph.addMethod( 'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
-    entityRels.addMethod(  'GET', new apigw.LambdaIntegration(entitiesApiFn), authedOpts);
+    // /v1/entities/{id}/graph and /v1/entities/{id}/relationships routes
+    // removed 2026-06-08 for CFN-cap relief — web functions
+    // getEntityGraph + getEntityRelationships had no callers
+    // (FINDINGS B verified across web/src + ios). Lambda handler in
+    // entities_api still supports them; re-add the Resource/Method here
+    // if a caller is added.
 
     // ========================================================================
     // V2-8 — GET /v1/scans/{scan_id} — scan progress (tier/status/phase/scope)

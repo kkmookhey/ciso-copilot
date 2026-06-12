@@ -10,8 +10,19 @@
 
 ---
 
+## 🤖 AI Security Slice 1 — top-of-mind (2026-06-09)
+
+- **[BLOCKING — DO FIRST]** Brainstorm + spec + plan + ship `CisoCopilotAi` stack extraction. Required before Sub-slice 1.4 (Workspace scanner OAuth routes would blow the CFN 500-resource cap). See HANDOFF.md "Architectural blocker" for the design constraints (cross-stack `RestApi.fromRestApiAttributes`, stage redeploy gotcha, decide what migrates vs. what stays). ~2-3 hours of careful CDK + thorough testing. Its own brainstorm/spec/plan cycle.
+- **[NOW after AI stack]** Sub-slice 1.4 — Google Workspace shadow-AI scanner (OAuth admin consent, Fargate container, 4 detectors, ConnectClouds tile). See `docs/superpowers/plans/2026-06-05-ai-security-slice-1.md` Tasks 1.4.0-1.4.10. Google OAuth verification kickoff is Task 1.4.0 (calendar dependency, 2-4 weeks queue) — start the OAuth client registration day 1.
+- **[NOW after 1.4]** Sub-slice 1.5 — 8 new mapping rules in `scanner_core/ai_framework_registry.json` + end-to-end smoke (KK Workspace tenant + real Bedrock invocation + AI-BOM cyclonedx schema validation).
+- **[NOW — small fix]** FINDINGS.md §A.4 — `ai_supply_chain_matcher` emits `findings.frameworks: []` (array) instead of `{}` (object). AI-BOM export is defended; iOS Finding decoder still crashes. One-line fix at `platform/lambda/ai_supply_chain_matcher/main.py` near `_emit_finding`. ~15 min.
+- **[NOW — operational]** Tenant CFN re-onboarding. Slice 1.3's Bedrock detection needs existing tenants to re-run their `aws-onboard.yaml` to pick up the new Bedrock eventName allowlist. New tenants get it automatically. Either a customer-facing one-pager or a per-tenant auto-run script. Track which existing tenants have re-run vs. haven't.
+
+---
+
 ## A. Done since this file was first written (kept here as a paper trail)
 
+- ✅ **AI Security Slice 1 Sub-slices 1.1 + 1.2 + 1.3** (2026-06-08/09, PR #46) — framework_meta consolidation, AI-BOM CycloneDX-ML export at `/v1/ai/bom`, Bedrock InvokeModel runtime detector via event_router + daily-rollup schedule. 25 unit tests, deployed + smoke-verified. Process guards (SPEC_TEMPLATE.md + CLAUDE.md "Verify before claiming new" rule) shipped along the way.
 - ✅ **`AISummary.tsx` deploy + stale "coming in S2" caption** — shipped in PR #20 (2026-05-25). Family-grouped tiles + mapping disclaimer also landed.
 - ✅ **Slice 3 spec blockers** — all four (PCI/Bedrock writer, AML.T0028 taxonomy, Entra commit path, compliance defensibility) folded into CME-v2 D-1..D-10 and shipped in PRs #17–#20.
 - ✅ **Slice 3 review concerns** — EU AI Act Art. 4 corrected to Art. 9/26 hooks; firing-rule IDs persisted as `_registry_rule_ids` per finding; per-rule observability via `registry_apply_summary` CloudWatch counter; FrameworkTile + framework chips on `/findings` carry the "Mapping only" tooltip; ISO 42001 / NIST AI RMF IDs source-verified against published standards in `ai_framework_registry.json`.

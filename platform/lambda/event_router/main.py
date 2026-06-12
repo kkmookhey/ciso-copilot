@@ -7,6 +7,11 @@ Pipeline (CISOBrief-v2.md §9):
   4. Insert into events (+ drift_events for kind='drift').
   5. Evaluate push rules; for any match, fire APNs to the tenant's users.
 
+Slice 1.3 — Bedrock runtime detector:
+  Bedrock InvokeModel/Converse/etc. CloudTrail events are intercepted BEFORE
+  the standard SOC flow and written to entities + findings (NOT events table).
+  A daily EventBridge schedule triggers the high-volume rollup detector.
+
 Status: pipeline shell. Source-specific parsers (§9 details) land in the
 follow-up commit; for now the router writes the raw payload to S3 and a
 minimal events row so the data path is exercised end-to-end.
@@ -16,7 +21,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import boto3
@@ -35,10 +40,77 @@ rds_data = boto3.client("rds-data")
 s3       = boto3.client("s3")
 sqs      = boto3.client("sqs")
 
+# ---------------------------------------------------------------------------
+# Slice 1.3 — Bedrock runtime constants
+# ---------------------------------------------------------------------------
+
+_BEDROCK_EVENT_NAMES = frozenset({
+    "InvokeModel",
+    "InvokeModelWithResponseStream",
+    "Converse",
+    "ConverseStream",
+    "InvokeAgent",
+    "Retrieve",
+    "RetrieveAndGenerate",
+})
+
+# Synthetic-scan strategy for runtime detections (Bedrock InvokeModel etc.):
+# findings.scan_id is NOT NULL FK → scans(scan_id), but real-time events
+# aren't part of a scheduled scan. We synthesize one stable scan_id per
+# (tenant, conn_id) using uuid5 — the row is INSERTed ON CONFLICT DO NOTHING
+# the first time a runtime finding lands for that connection. All Bedrock
+# findings for the connection share that scan_id (so the row only exists once
+# regardless of how many findings fire). Namespace is a fixed UUID so the
+# computation is deterministic.
+import uuid as _uuid
+_BEDROCK_SCAN_NAMESPACE = _uuid.UUID('a4e2b6f0-7d1c-4a4d-bd5e-b9c2c2c4a9b1')
+
+_BEDROCK_HIGH_VOLUME_DEFAULT = 10_000
+
+
+def _bedrock_synthetic_scan_id(tenant_id: str, conn_id: str) -> str:
+    """Deterministic scan_id per (tenant, conn) for Bedrock runtime detections."""
+    return str(_uuid.uuid5(_BEDROCK_SCAN_NAMESPACE, f"{tenant_id}::{conn_id}"))
+
+
+def _ensure_bedrock_runtime_scan(tenant_id: str, conn_id: str) -> str:
+    """Ensure a synthetic scans row exists for runtime findings on this
+    (tenant, conn) so the findings.scan_id FK is satisfied. Idempotent
+    via ON CONFLICT DO NOTHING."""
+    scan_id = _bedrock_synthetic_scan_id(tenant_id, conn_id)
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN, secretArn=DB_SECRET_ARN, database=DB_NAME,
+        sql=(
+            "INSERT INTO scans "
+            "  (scan_id, tenant_id, conn_id, trigger, status, scope, "
+            "   started_at, finished_at, stats) "
+            "VALUES "
+            "  (CAST(:s AS UUID), CAST(:t AS UUID), CAST(:c AS UUID), "
+            "   'runtime', 'completed', '{}'::jsonb, "
+            "   NOW(), NOW(), '{\"source\": \"event_router_bedrock\"}'::jsonb) "
+            "ON CONFLICT (scan_id) DO NOTHING"
+        ),
+        parameters=[
+            {"name": "s", "value": {"stringValue": scan_id}},
+            {"name": "t", "value": {"stringValue": tenant_id}},
+            {"name": "c", "value": {"stringValue": conn_id}},
+        ],
+    )
+    return scan_id
+
 
 def handler(event: dict, context) -> dict:
     """EventBridge invokes this with a single event payload."""
     print(json.dumps({"router": "received", "source": event.get("source"), "detail-type": event.get("detail-type")}))
+
+    # Slice 1.3: Daily rollup branch — runs before account resolution (no account field).
+    if event.get("detail-type") == "shasta.scheduled.bedrock_daily_rollup":
+        return _handle_bedrock_daily_rollup(event)
+
+    # Slice 1.3: Bedrock runtime detection branch — runs before the standard SOC flow.
+    # Writes to entities + findings, NOT the events table.
+    if _is_bedrock_event(event):
+        return _handle_bedrock(event)
 
     try:
         source       = event.get("source", "unknown")
@@ -442,3 +514,488 @@ def _insert_drift(event_id: str, action: str, before_state: dict | None, after_s
             {"name": "tgt",    "value": ({"stringValue": target_resource_arn}      if target_resource_arn else {"isNull": True})},
         ],
     )
+
+
+# ============================================================================
+# Slice 1.3 — Bedrock runtime detector
+# ============================================================================
+
+def _is_bedrock_event(event: dict) -> bool:
+    """True iff this is a CloudTrail event for a Bedrock runtime API call."""
+    return (
+        event.get("detail-type") == "AWS API Call via CloudTrail"
+        and (event.get("detail") or {}).get("eventName") in _BEDROCK_EVENT_NAMES
+    )
+
+
+def _handle_bedrock(event: dict) -> dict:
+    """Per-event Bedrock handler.  Writes to entities + findings; NOT the events table."""
+    detail     = event.get("detail") or {}
+    account_id = detail.get("recipientAccountId") or event.get("account")
+
+    conn = _find_connection_by_account(account_id)
+    if not conn:
+        print(f"[bedrock] DROP: no connection for account {account_id}")
+        return {"ok": False, "reason": "no_tenant_for_account", "account_id": account_id}
+
+    tenant_id = conn["tenant_id"]
+    conn_id   = conn["conn_id"]
+
+    model_id   = (detail.get("requestParameters") or {}).get("modelId") or "unknown"
+    principal  = (detail.get("userIdentity") or {}).get("arn") or "unknown"
+    region     = detail.get("awsRegion") or "unknown"
+    event_day  = (detail.get("eventTime") or "")[:10]  # YYYY-MM-DD
+
+    # 1) Upsert bedrock_model entity (per tenant + model + region)
+    model_nk        = f"bedrock_model::{region}::{model_id}"
+    model_entity_id = _upsert_bedrock_entity(
+        tenant_id=tenant_id,
+        kind="bedrock_model",
+        natural_key=model_nk,
+        display_name=model_id,
+        attributes={"region": region, "model_id": model_id},
+    )
+
+    # 2) Upsert bedrock_invocation rollup entity (per tenant + principal + model + day + region)
+    inv_nk = f"bedrock_invocation::{principal}::{model_id}::{event_day}::{region}"
+    _upsert_invocation_rollup(
+        tenant_id=tenant_id,
+        natural_key=inv_nk,
+        principal=principal,
+        model_id=model_id,
+        day=event_day,
+        region=region,
+    )
+
+    # 3) Upsert iam_principal entity
+    principal_nk        = f"iam_principal::{principal}"
+    principal_entity_id = _upsert_bedrock_entity(
+        tenant_id=tenant_id,
+        kind="iam_principal",
+        natural_key=principal_nk,
+        display_name=principal,
+        attributes={"arn": principal},
+    )
+
+    # 4) Upsert edge: iam_principal --uses-> bedrock_model
+    _upsert_bedrock_edge(
+        tenant_id=tenant_id,
+        source_entity_id=principal_entity_id,
+        target_entity_id=model_entity_id,
+        kind="uses",
+    )
+
+    # 5) Detectors
+    allowed = _bedrock_allowed_principals(conn_id)
+
+    # Detector A: unsanctioned principal (only when allowed-list IS configured)
+    if allowed is not None and principal not in allowed:
+        _emit_bedrock_finding(
+            tenant_id=tenant_id,
+            conn_id=conn_id,
+            check_id="aws_bedrock_invoke_unsanctioned",
+            title=f"Unsanctioned principal invoking Bedrock: {principal}",
+            description=(
+                f"Principal {principal} invoked Bedrock model {model_id} in {region} "
+                "but is not in the tenant's bedrock_allowed_principals list."
+            ),
+            severity="medium",
+            status="fail",
+            region=region,
+            resource_arn=model_id,
+            entity_id=model_entity_id,
+            evidence_packet={
+                "principal": principal,
+                "model_id":  model_id,
+                "region":    region,
+                "allowed_count": len(allowed),
+            },
+            frameworks={
+                "nist_ai_rmf":    ["GOVERN 1.1", "MANAGE 1.3"],
+                "owasp_llm_top10": ["LLM08:2025"],
+            },
+        )
+
+    # Detector B: model inventory — always emit (ON CONFLICT DO NOTHING makes it idempotent)
+    _emit_bedrock_finding(
+        tenant_id=tenant_id,
+        conn_id=conn_id,
+        check_id="aws_bedrock_model_inventory",
+        title=f"Bedrock model first seen: {model_id} in {region}",
+        description=f"Model {model_id} was invoked in region {region}.",
+        severity="informational",
+        status="pass",
+        region=region,
+        resource_arn=model_id,
+        entity_id=model_entity_id,
+        evidence_packet={"model_id": model_id, "region": region},
+        frameworks={"nist_ai_rmf": ["MAP 1.1"]},
+    )
+
+    # Detector C: cross-region — deferred to Slice 2.
+    # In Bedrock, the event's awsRegion IS the model's region (the call is always
+    # regional). A meaningful cross-region signal requires comparing the caller's
+    # home region (from IAM principal metadata) vs the invocation region, which
+    # needs an additional lookup not available from the raw event alone.
+    # Tracking: docs/superpowers/plans/2026-06-05-ai-security-slice-1.md TODO.
+
+    return {"ok": True, "model": model_id, "principal": principal, "tenant": tenant_id}
+
+
+def _handle_bedrock_daily_rollup(event: dict) -> dict:
+    """Emit aws_bedrock_invoke_high_volume for any (principal, model, day) above threshold."""
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "SELECT tenant_id::text, "
+            "       attributes->>'principal', "
+            "       attributes->>'model_id', "
+            "       (attributes->>'invocation_count')::int, "
+            "       attributes->>'region' "
+            "FROM entities "
+            "WHERE kind = 'bedrock_invocation' "
+            "  AND attributes->>'day' = :day"
+        ),
+        parameters=[{"name": "day", "value": {"stringValue": yesterday}}],
+    )
+    emitted = 0
+    for r in rs.get("records", []):
+        tenant_id  = r[0].get("stringValue")
+        principal  = r[1].get("stringValue")
+        model_id   = r[2].get("stringValue")
+        count      = r[3].get("longValue") or 0
+        region     = r[4].get("stringValue") if len(r) > 4 else "unknown"
+
+        threshold = _bedrock_high_volume_threshold(tenant_id)
+        if count > threshold:
+            conn_id = _conn_id_for_tenant(tenant_id)
+            if not conn_id:
+                print(f"[bedrock-rollup] no conn for tenant {tenant_id}, skipping")
+                continue
+            _emit_bedrock_finding(
+                tenant_id=tenant_id,
+                conn_id=conn_id,
+                check_id="aws_bedrock_invoke_high_volume",
+                title=f"High Bedrock invocation volume: {principal} → {model_id}",
+                description=(
+                    f"Principal {principal} made {count:,} Bedrock calls to {model_id} "
+                    f"on {yesterday} (threshold: {threshold:,})."
+                ),
+                severity="medium",
+                status="fail",
+                region=region,
+                resource_arn=model_id,
+                entity_id=None,
+                evidence_packet={
+                    "principal":   principal,
+                    "model_id":    model_id,
+                    "invocations": count,
+                    "threshold":   threshold,
+                    "day":         yesterday,
+                },
+                frameworks={
+                    "nist_ai_rmf":    ["MEASURE 2.3", "MANAGE 2.2"],
+                    "owasp_llm_top10": ["LLM10:2025"],
+                },
+            )
+            emitted += 1
+    return {"status": "ok", "emitted": emitted, "day": yesterday}
+
+
+# ============================================================================
+# Slice 1.3 — Bedrock entity / edge / finding helpers
+# ============================================================================
+
+def _upsert_bedrock_entity(
+    *,
+    tenant_id: str,
+    kind: str,
+    natural_key: str,
+    display_name: str,
+    attributes: dict,
+) -> str:
+    """Upsert an entity in the entities table.  Returns the persisted id.
+
+    Mirrors entities_api._upsert_repo_entity: ON CONFLICT (tenant_id, kind,
+    natural_key) updates last_seen_at + attributes. PK is `id` (UUID).
+    """
+    new_id   = str(uuid.uuid4())
+    # domain: bedrock entities live in 'cloud'; iam_principal lives in 'identity'
+    if kind == "iam_principal":
+        domain = "identity"
+    elif kind.startswith("bedrock_"):
+        domain = "cloud"
+    else:
+        domain = "cloud"
+
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "INSERT INTO entities "
+            "  (id, tenant_id, kind, natural_key, display_name, domain, "
+            "   attributes, evidence_packet, detector_id, detector_version) "
+            "VALUES (CAST(:id AS UUID), CAST(:tid AS UUID), :kind, "
+            "        :nk, :name, :domain, "
+            "        CAST(:attrs AS JSONB), NULL, 'event-router-bedrock', '1.0.0') "
+            "ON CONFLICT (tenant_id, kind, natural_key) "
+            "  DO UPDATE SET last_seen_at=NOW(), "
+            "                attributes=EXCLUDED.attributes "
+            "RETURNING id::text"
+        ),
+        parameters=[
+            {"name": "id",     "value": {"stringValue": new_id}},
+            {"name": "tid",    "value": {"stringValue": tenant_id}},
+            {"name": "kind",   "value": {"stringValue": kind}},
+            {"name": "nk",     "value": {"stringValue": natural_key}},
+            {"name": "name",   "value": {"stringValue": display_name}},
+            {"name": "domain", "value": {"stringValue": domain}},
+            {"name": "attrs",  "value": {"stringValue": json.dumps(attributes)}},
+        ],
+    )
+    rows = rs.get("records", [])
+    if rows and rows[0] and "stringValue" in rows[0][0]:
+        return rows[0][0]["stringValue"]
+    return new_id
+
+
+def _upsert_invocation_rollup(
+    *,
+    tenant_id: str,
+    natural_key: str,
+    principal: str,
+    model_id: str,
+    day: str,
+    region: str,
+) -> str:
+    """Upsert a bedrock_invocation rollup entity and increment invocation_count."""
+    new_id = str(uuid.uuid4())
+    attrs  = {
+        "principal":        principal,
+        "model_id":         model_id,
+        "day":              day,
+        "region":           region,
+        "invocation_count": 1,
+        "last_seen":        datetime.now(timezone.utc).isoformat(),
+    }
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "INSERT INTO entities "
+            "  (id, tenant_id, kind, natural_key, display_name, domain, "
+            "   attributes, evidence_packet, detector_id, detector_version) "
+            "VALUES (CAST(:id AS UUID), CAST(:tid AS UUID), 'bedrock_invocation', "
+            "        :nk, :name, 'cloud', "
+            "        CAST(:attrs AS JSONB), NULL, 'event-router-bedrock', '1.0.0') "
+            "ON CONFLICT (tenant_id, kind, natural_key) "
+            "  DO UPDATE SET "
+            "    last_seen_at=NOW(), "
+            "    attributes=jsonb_set( "
+            "      jsonb_set(entities.attributes, '{invocation_count}', "
+            "        to_jsonb(COALESCE((entities.attributes->>'invocation_count')::int, 0) + 1)), "
+            "      '{last_seen}', to_jsonb(NOW()::text)) "
+            "RETURNING id::text"
+        ),
+        parameters=[
+            {"name": "id",    "value": {"stringValue": new_id}},
+            {"name": "tid",   "value": {"stringValue": tenant_id}},
+            {"name": "nk",    "value": {"stringValue": natural_key}},
+            {"name": "name",  "value": {"stringValue": f"{principal}→{model_id} ({day})"}},
+            {"name": "attrs", "value": {"stringValue": json.dumps(attrs)}},
+        ],
+    )
+    rows = rs.get("records", [])
+    if rows and rows[0] and "stringValue" in rows[0][0]:
+        return rows[0][0]["stringValue"]
+    return new_id
+
+
+def _upsert_bedrock_edge(
+    *,
+    tenant_id: str,
+    source_entity_id: str,
+    target_entity_id: str,
+    kind: str,
+) -> None:
+    """Upsert an edge between two entities.  Uses source_entity_id / target_entity_id
+    (NOT source_id / target_id — Aurora schema gotcha)."""
+    rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "INSERT INTO edges "
+            "  (id, tenant_id, source_entity_id, target_entity_id, kind, "
+            "   attributes, evidence_packet, detector_id, detector_version) "
+            "VALUES (CAST(:id AS UUID), CAST(:tid AS UUID), "
+            "        CAST(:src AS UUID), CAST(:tgt AS UUID), :kind, "
+            "        '{}'::jsonb, '{\"detector\": \"event-router-bedrock\"}'::jsonb, "
+            "        'event-router-bedrock', '1.0.0') "
+            "ON CONFLICT (source_entity_id, target_entity_id, kind) "
+            "  DO UPDATE SET last_seen_at=NOW()"
+        ),
+        parameters=[
+            {"name": "id",   "value": {"stringValue": str(uuid.uuid4())}},
+            {"name": "tid",  "value": {"stringValue": tenant_id}},
+            {"name": "src",  "value": {"stringValue": source_entity_id}},
+            {"name": "tgt",  "value": {"stringValue": target_entity_id}},
+            {"name": "kind", "value": {"stringValue": kind}},
+        ],
+    )
+
+
+def _emit_bedrock_finding(
+    *,
+    tenant_id: str,
+    conn_id: str,
+    check_id: str,
+    title: str,
+    description: str,
+    severity: str,
+    status: str,
+    region: str | None,
+    resource_arn: str | None,
+    entity_id: str | None,
+    evidence_packet: dict,
+    frameworks: dict,
+) -> str:
+    """Upsert a finding.  Uses ON CONFLICT on the natural key so re-fire is idempotent.
+
+    scan_id resolves to a per-(tenant, conn) synthetic 'runtime' scan row
+    (see _ensure_bedrock_runtime_scan above) so the findings.scan_id FK is
+    satisfied without needing a global sentinel.
+    findings.frameworks must be a JSON object {}, never an array (Aurora schema gotcha).
+    findings.status enum: fail / pass / partial / not_assessed / not_applicable (no 'open').
+    """
+    assert isinstance(frameworks, dict), "frameworks must be a dict, not a list"
+    finding_id = str(uuid.uuid4())
+    scan_id = _ensure_bedrock_runtime_scan(tenant_id, conn_id)
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "INSERT INTO findings "
+            "  (finding_id, tenant_id, conn_id, scan_id, check_id, "
+            "   title, description, severity, status, region, domain, "
+            "   frameworks, evidence_packet, resource_arn, subject_entity_id, "
+            "   first_seen, last_seen) "
+            "VALUES (CAST(:fid AS UUID), CAST(:tid AS UUID), CAST(:cid AS UUID), "
+            "        CAST(:sid AS UUID), :check_id, "
+            "        :title, :desc, :sev, :status, :region, 'cloud', "
+            "        CAST(:fw AS JSONB), CAST(:ep AS JSONB), :resource_arn, "
+            "        CAST(:eid AS UUID), NOW(), NOW()) "
+            "ON CONFLICT (tenant_id, conn_id, check_id, "
+            "             COALESCE(resource_arn, ''), COALESCE(region, '')) "
+            "  DO UPDATE SET "
+            "    last_seen=NOW(), "
+            "    evidence_packet=EXCLUDED.evidence_packet, "
+            "    resolved_at=NULL "
+            "RETURNING finding_id::text"
+        ),
+        parameters=[
+            {"name": "fid",          "value": {"stringValue": finding_id}},
+            {"name": "tid",          "value": {"stringValue": tenant_id}},
+            {"name": "cid",          "value": {"stringValue": conn_id}},
+            {"name": "sid",          "value": {"stringValue": scan_id}},
+            {"name": "check_id",     "value": {"stringValue": check_id}},
+            {"name": "title",        "value": {"stringValue": title[:500]}},
+            {"name": "desc",         "value": {"stringValue": description}},
+            {"name": "sev",          "value": {"stringValue": severity}},
+            {"name": "status",       "value": {"stringValue": status}},
+            {"name": "region",       "value": ({"stringValue": region} if region else {"isNull": True})},
+            {"name": "fw",           "value": {"stringValue": json.dumps(frameworks)}},
+            {"name": "ep",           "value": {"stringValue": json.dumps(evidence_packet)}},
+            {"name": "resource_arn", "value": ({"stringValue": resource_arn} if resource_arn else {"isNull": True})},
+            {"name": "eid",          "value": ({"stringValue": entity_id} if entity_id else {"isNull": True})},
+        ],
+    )
+    records = (rs.get("records") or [])
+    if records and records[0]:
+        return records[0][0].get("stringValue") or finding_id
+    return finding_id
+
+
+def _bedrock_allowed_principals(conn_id: str) -> list[str] | None:
+    """Return the tenant's bedrock_allowed_principals list from cloud_connections.evidence_packet.
+
+    Returns None if the key is not set (meaning 'no restriction configured, never emit
+    the unsanctioned finding').  Returns a (possibly empty) list if the key IS set.
+    """
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "SELECT evidence_packet::text "
+            "FROM cloud_connections "
+            "WHERE conn_id = CAST(:cid AS UUID) "
+            "LIMIT 1"
+        ),
+        parameters=[{"name": "cid", "value": {"stringValue": conn_id}}],
+    )
+    rows = rs.get("records", [])
+    if not rows or not rows[0]:
+        return None
+    raw = rows[0][0].get("stringValue") or "{}"
+    try:
+        ep = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    allowed = ep.get("bedrock_allowed_principals")
+    if allowed is None:
+        return None
+    return list(allowed) if isinstance(allowed, (list, tuple)) else []
+
+
+def _bedrock_high_volume_threshold(tenant_id: str) -> int:
+    """Return per-tenant threshold from cloud_connections.evidence_packet, or default."""
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "SELECT evidence_packet->>'bedrock_high_volume_threshold' "
+            "FROM cloud_connections "
+            "WHERE tenant_id = CAST(:tid AS UUID) "
+            "  AND cloud_type = 'aws' AND status = 'active' "
+            "LIMIT 1"
+        ),
+        parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
+    )
+    rows = rs.get("records", [])
+    if rows and rows[0]:
+        raw = rows[0][0].get("stringValue")
+        if raw:
+            try:
+                return int(raw)
+            except (ValueError, TypeError):
+                pass
+    return _BEDROCK_HIGH_VOLUME_DEFAULT
+
+
+def _conn_id_for_tenant(tenant_id: str) -> str | None:
+    """Return the first active AWS conn_id for a tenant (for daily rollup findings)."""
+    rs = rds_data.execute_statement(
+        resourceArn=DB_CLUSTER_ARN,
+        secretArn=DB_SECRET_ARN,
+        database=DB_NAME,
+        sql=(
+            "SELECT conn_id::text "
+            "FROM cloud_connections "
+            "WHERE tenant_id = CAST(:tid AS UUID) "
+            "  AND cloud_type = 'aws' AND status = 'active' "
+            "LIMIT 1"
+        ),
+        parameters=[{"name": "tid", "value": {"stringValue": tenant_id}}],
+    )
+    rows = rs.get("records", [])
+    if rows and rows[0]:
+        return rows[0][0].get("stringValue")
+    return None

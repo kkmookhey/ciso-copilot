@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AISummaryResponse, type AIStatusCounts } from "../lib/api";
+import { ExportAIBOMButton } from "../components/ExportAIBOMButton";
 
 const SOURCE_LABELS: Record<string, string> = {
   aws:   "AWS",
@@ -29,7 +30,10 @@ export default function AISummary() {
 
   return (
     <div className="p-6 space-y-8">
-      <h1 className="text-2xl font-semibold">AI Exposure</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">AI Exposure</h1>
+        <ExportAIBOMButton />
+      </div>
 
       {/* Headline: single AI Exposure Score */}
       <ExposureScore score={data.score} byFramework={data.by_framework} />

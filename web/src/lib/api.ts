@@ -663,4 +663,18 @@ export const api = {
     call<EntityGraph>(`/entities/${id}/graph?depth=${depth}&max_nodes=${maxNodes}`),
   getEntityRelationships:   (id: string, direction: "both" | "outgoing" | "incoming" = "both") =>
     call<{ relationships: EntityRelationship[] }>(`/entities/${id}/relationships?direction=${direction}`),
+  // AI Security Slice 1.2: CycloneDX-ML 1.6 AI-BOM download.
+  // Returns a Blob (not JSON) — bypasses the call() helper because the
+  // backend sets Content-Type: application/vnd.cyclonedx+json and we
+  // want the raw bytes for browser download.
+  exportAIBOM: async (format: "cyclonedx" = "cyclonedx"): Promise<Blob> => {
+    const token = await validIdToken();
+    if (!token) { signOut(); throw new Error("not_signed_in"); }
+    const res = await fetch(`${BASE_URL}/ai/bom?format=${format}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) { signOut(); throw new Error("unauthorized"); }
+    if (!res.ok) throw new Error(`AI-BOM export failed: ${res.status} ${await res.text()}`);
+    return res.blob();
+  },
 };
