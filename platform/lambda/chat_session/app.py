@@ -24,7 +24,8 @@ SSE wire format (the web client depends on this exactly):
   data: {"type":"text-delta","text":"..."}\n\n
   data: {"type":"tool-result","tool_name":"...","artifact_hint":{...}}\n\n
   data: {"type":"tool-result","tool_name":"...","artifact_hints":[...]}\n\n
-  data: {"type":"tool-result","tool_name":"navigate_to","side_effect":{...}}\n\n
+  data: {"type":"tool-result","tool_name":"...","side_effect":{...}}\n\n
+  data: {"type":"title-updated","conversation_id":"<uuid>","title":"<str>"}\n\n
   data: {"type":"done"}\n\n
   data: {"error":"..."}\n\n            (on any failure)
 """
@@ -38,6 +39,7 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 
 import conversations as C
+import auto_title
 import messages as M
 import prompts
 import tools_dispatch
@@ -121,6 +123,7 @@ async def stream_turn(request: Request) -> StreamingResponse:
 
     # Build history for Anthropic (user + assistant turns from stored messages).
     history = _history_for_anthropic(conv.get("messages", []))
+    prior_msg_count = len(conv.get("messages", []))
     history.append({"role": "user", "content": user_text})
 
     # --- agentic stream ------------------------------------------------
@@ -148,17 +151,12 @@ async def stream_turn(request: Request) -> StreamingResponse:
                             "name":  ev["name"],
                             "input": ev.get("input") or {},
                         })
-                    # "done" — round's stream finished; fall through below
 
                 final_assistant_text += round_text
 
-                # No tool requested this round → the assistant is finished.
                 if not tool_uses:
                     break
 
-                # Rebuild the assistant turn with ALL content blocks (text +
-                # tool_use) — the Anthropic protocol requires the full block
-                # list on the assistant message that the tool_results answer.
                 assistant_blocks: list[dict] = []
                 if round_text:
                     assistant_blocks.append({"type": "text", "text": round_text})
@@ -171,9 +169,6 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     })
                 messages.append({"role": "assistant", "content": assistant_blocks})
 
-                # Execute each tool server-side, stream a tool-result event,
-                # persist a `tool` conversation_message, and collect the
-                # tool_result blocks for the next Anthropic call.
                 tool_result_blocks: list[dict] = []
                 for tu in tool_uses:
                     name, args = tu["name"], tu["input"]
@@ -190,7 +185,6 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     artifact_hints = out.get("_artifact_hints")
                     source = out.get("source")
 
-                    # Stream a tool-result SSE event for the browser renderer.
                     sse_ev: dict = {"type": "tool-result", "tool_name": name}
                     if artifact_hints is not None:
                         sse_ev["artifact_hints"] = artifact_hints
@@ -198,15 +192,11 @@ async def stream_turn(request: Request) -> StreamingResponse:
                         sse_ev["artifact_hint"] = artifact_hint
                     if source is not None:
                         sse_ev["source"] = source
-                    # Side-effect tools (navigate_to / filter_findings_view)
-                    # carry no artifact — surface the intent for the browser.
                     if artifact_hint is None and artifact_hints is None \
                             and isinstance(result, dict):
                         sse_ev["side_effect"] = result
                     yield _sse(sse_ev)
 
-                    # Persist a `tool` conversation_message so a reload
-                    # reconstitutes the artifact card.
                     M.append(cid, "tool", {
                         "tool_name":       name,
                         "args":            args,
@@ -216,8 +206,6 @@ async def stream_turn(request: Request) -> StreamingResponse:
                         "source":          source,
                     })
 
-                    # The tool_result block sent back to Anthropic carries the
-                    # JSON result so the model can reason over real data.
                     tool_result_blocks.append({
                         "type":        "tool_result",
                         "tool_use_id": tu["id"],
@@ -225,27 +213,42 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     })
 
                 messages.append({"role": "user", "content": tool_result_blocks})
-                # Loop continues — Anthropic is called again with the results.
             else:
-                # Loop exhausted MAX_TOOL_ROUNDS without a tool-free finish.
                 print(f"agentic loop hit MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS}")
+
+            # Persist the assembled assistant reply once the loop completes.
+            if final_assistant_text:
+                M.append(cid, "assistant",
+                         {"text": final_assistant_text, "modality": "text"})
+
+            # Auto-title the conversation on the first turn (best-effort).
+            # Guards: title still default + this was the first turn (no prior
+            # messages) + assistant produced text. Never raises.
+            if (
+                prior_msg_count == 0
+                and (conv.get("title") or "") == "New conversation"
+                and final_assistant_text
+            ):
+                try:
+                    new_title = auto_title.generate_title(user_text, final_assistant_text)
+                    if new_title and C.patch_title_if_default(tenant_id, cid, new_title):
+                        yield _sse({
+                            "type":            "title-updated",
+                            "conversation_id": cid,
+                            "title":           new_title,
+                        })
+                except Exception as e:  # noqa: BLE001 — defence in depth
+                    print(f"auto_title block failed: {e}")
 
             yield _sse({"type": "done"})
 
         except Exception as e:  # noqa: BLE001
             print(f"Anthropic stream error: {e}")
             yield _sse({"error": "upstream_failed", "detail": str(e)[:200]})
-            # Persist a placeholder assistant message so the conversation
-            # history stays consistent — the user message is already stored.
             M.append(cid, "assistant",
                      {"text": "[Error: the assistant could not complete this response]",
                       "modality": "text"})
             return
-
-        # Persist the assembled assistant reply once the loop completes.
-        if final_assistant_text:
-            M.append(cid, "assistant",
-                     {"text": final_assistant_text, "modality": "text"})
 
     return _sse_response(gen())
 
