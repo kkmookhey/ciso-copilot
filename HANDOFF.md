@@ -1,13 +1,22 @@
 # Shasta by Transilience — Handoff & State
 
-## 🤖 AI Security Slice 1 — Sub-slices 1.1 + 1.2 + 1.3 shipped (2026-06-08/09, PR #46 open)
+## ▶️ Next session — Sub-slice 1.4 (Google Workspace shadow-AI scanner)
 
-**Status:** three of five sub-slices live + deployed + smoke-verified. Two
-remain (1.4 Workspace scanner + 1.5 mapping rules + smoke). **Next session
-should NOT start Sub-slice 1.4 directly — the AI-stack extraction
-brainstorm must land first.** See "Architectural blocker" below.
+**Start with this.** All blockers cleared. PR #46 (Slice 1 parts 1.1+1.2+1.3 + CisoCopilotAi stack extraction + AI-BOM CORS fix) is merged to main as `77253f3` (2026-06-12). PR #47 (frameworks shape fix) merged as `af4039d`. The CisoCopilotAi stack is live in prod with headroom for ~480 more CFN resources.
 
-**Branch:** `feat/ai-security-slice-1` @ commit `1cab7f5`. **PR:** [#46](https://github.com/kkmookhey/ciso-copilot/pull/46) — single PR currently bundling Sub-slices 1.1, 1.2, 1.3 plus interim work (questionnaires FINDINGS A.1 fix + codebase doc sweep). Still open. KK can decide whether to merge as a Slice 1 part-1 PR or split later.
+**Day-1 action:** kick off Google OAuth verification for the restricted Workspace scopes (`admin.reports.audit.readonly` + `admin.directory.user.readonly`). 2-4 week calendar queue. Dev work proceeds against the unverified client; production flips when verification approves. See `docs/superpowers/plans/2026-06-05-ai-security-slice-1.md` Tasks 1.4.0–1.4.10.
+
+**What 1.4 ships:** Workspace OAuth admin-consent flow + Fargate scanner container + 4 detectors (`gws_ai_signin_personal_tier`, `gws_ai_oauth_grant`, `gws_drive_shared_to_ai_domain`, `gws_gemini_assigned`) + ConnectClouds tile + `tenant_workspace_oauth` table (migration 016).
+
+**First implementation touch-point in CisoCopilotAi:** the OAuth Lambdas need `connectorTokensKey: kms.IKey` added to `AiStackProps` and wired from `data.connectorTokensKey` in `bin/platform.ts`. Not pre-added (YAGNI); add it as the first task of 1.4.
+
+---
+
+## 🤖 AI Security Slice 1 — Sub-slices 1.1 + 1.2 + 1.3 + stack extraction shipped (2026-06-10/12, PR #46 merged, PR #47 merged)
+
+**Status:** three of five sub-slices live + deployed + smoke-verified, PLUS the CisoCopilotAi cross-stack CDK extraction (which was the BLOCKING item before 1.4). Two sub-slices remain (1.4 Workspace scanner, 1.5 mapping rules + smoke).
+
+**Merged:** [`77253f3`](https://github.com/kkmookhey/ciso-copilot/pull/46) (PR #46) on 2026-06-12 — Sub-slices 1.1+1.2+1.3 + CisoCopilotAi stack + AI-BOM CORS hotfix. [`af4039d`](https://github.com/kkmookhey/ciso-copilot/pull/47) (PR #47) on 2026-06-12 — `ai_supply_chain_matcher` `frameworks: []` → `{}` shape fix (FINDINGS.md §A.4). Hotswap deployed: `ciso-copilot-ai-supply-chain-matcher` Lambda LastModified 2026-06-12 08:49 UTC.
 
 ### Sub-slice 1.1 — `framework_meta` consolidation ✅
 
@@ -51,16 +60,18 @@ fires `aws_bedrock_invoke_high_volume` for rollups over threshold.
 
 `CisoCopilotApi` synth was 666 resources → CFN reported 506 actual (>500 cap). Removed 3 verified-dead routes in `api-stack.ts` to make room: `GET /v1/entities/{id}/graph`, `GET /v1/entities/{id}/relationships`, `DELETE /v1/ai/connections/{id}`. Web grep + iOS grep confirmed zero callers. Lambda handlers in `entities_api` + `ai_github` still support those operations; **re-adding the routes is one line each** if a caller appears. Freed ~6 resources; current actual ~494/500.
 
-### Architectural blocker — DO BEFORE Sub-slice 1.4
+### Architectural blocker — RESOLVED (CisoCopilotAi stack live in prod, 2026-06-10/12)
 
-**Stand up `CisoCopilotAi` stack.** Sub-slice 1.4 (Workspace OAuth routes + Fargate scanner + ConnectClouds tile) adds ~12-16 CDK resources to `CisoCopilotApi`. Even after today's cap relief, that takes us past 500 again. The fix that scales (per KK's 2026-06-05 criterion) is extracting AI-domain Lambdas into a separate stack with cross-stack `RestApi` reference.
+`CisoCopilotApi` was at 494/500 CFN resources. **Fixed via new `CisoCopilotAi` stack** that shares the existing `RestApi` + Cognito authorizer via `Fn.importValue`. Spec: `docs/superpowers/specs/2026-06-10-ai-stack-extraction-design.md`. Plan: `docs/superpowers/plans/2026-06-10-ai-stack-extraction.md`. ADR-016 in `ARCHITECTURE.md`.
 
-This is a real engineering project, **not a 30-min task**:
-- Cross-stack `RestApi.fromRestApiAttributes()` works but has gotchas (stage doesn't auto-redeploy on new routes added from a different stack — need explicit `Deployment` logicalId hash or manual `aws apigateway create-deployment`)
-- Must decide what moves: only the NEW Sub-slice 1.4 Lambdas, or also retrofit `aiSummaryFn` + `aiBomExportFn` + `entitiesApiFn`?
-- Permissions for cross-stack `LambdaFunction` invocation by API Gateway need care
+**Three design fixes landed during deploy:**
+1. **`/v1/ai` resource conflict.** API Gateway 409s on duplicate path segments. Solved by exporting `AiResourceId` and using `Resource.fromResourceAttributes`.
+2. **API Gateway HTTP-verb IAM.** `apigateway:UpdateStage` is not a real IAM action. Switched from `fromSdkCalls` to `fromStatements` with explicit `apigateway:PATCH` + `apigateway:POST`.
+3. **CFN-managed Deployment doesn't see cross-stack Methods.** Verified bug; same call via aws-cli works fine. Replaced `apigw.Deployment` + UpdateStage CR pair with one CR calling `createDeployment` with `stageName='v1'` (atomic create-and-publish).
 
-Should be its own brainstorm → spec → plan cycle. Estimated ~2-3 hours of careful CDK work + thorough testing.
+**Operational rules** (also in section below): full `cdk deploy CisoCopilotAi` for route changes (hotswap skips the CR); the `aiStackExtensionVersion: 'v1'` pin in `api-stack.ts` keeps `CisoCopilotApi`'s Deployment stable across non-AI redeploys (T9 regression test verified); any CisoCopilotApi deploy that changes its own methods should be followed by `cdk deploy CisoCopilotAi` to refresh the stage.
+
+**T11 (optional cleanup):** delete `/v1/ai/_health` stub Lambda once Sub-slice 1.4's first real Workspace OAuth route is live. Skip until then.
 
 ### Process guards landed in this slice (repo-wide, scales for all future specs)
 
@@ -72,32 +83,18 @@ The verify-before-claiming rule was tested today by the AI-BOM subagent (caught 
 
 ### Open follow-ups carried forward
 
-- **Sub-slice 1.4 — Google Workspace scanner.** **Blocked on AI-stack extraction (above).** Don't start without that.
+- **Sub-slice 1.4 — Google Workspace scanner.** UNBLOCKED. Start with the Google OAuth verification kickoff (2-4 wk queue) — see "▶️ Next session" at the top.
 - **Sub-slice 1.5 — 8 new mapping rules** in `scanner_core/ai_framework_registry.json` + end-to-end smoke (real Workspace tenant + real Bedrock invocation + AI-BOM cyclonedx schema validation).
-- **`docs/codebase/FINDINGS.md` §A.4 still open** — `ai_supply_chain_matcher` writes `findings.frameworks` as `[]` not `{}`. AI-BOM export is defended against it, but other consumers (iOS Finding decoder per the FINDINGS note) still crash on `[]`. Worth a tiny fix PR.
+- ~~`docs/codebase/FINDINGS.md` §A.4 — `ai_supply_chain_matcher` writes `findings.frameworks` as `[]`.~~ **Fixed in PR #47 (merged `af4039d`, hotswap deployed 2026-06-12 08:49 UTC).**
 - **Tenant operational note** — Slice 1.3 needs existing tenants to re-run `aws-onboard.yaml` to get Bedrock eventNames forwarded. Either a customer-facing one-pager OR a script that auto-re-runs onboard CFN per-tenant.
 
-### Commit trail (Slice 1 work, top to bottom on `feat/ai-security-slice-1`)
+### Merge SHAs
 
-```
-1cab7f5 feat(cdk): EventBridge daily-rollup schedule for Bedrock high-volume detection
-ce3c065 fix(event-router): synthetic-scan strategy for Bedrock runtime findings + CFN allowlist
-d5a7d6f feat(event-router): Bedrock event branch + entity upserts (subagent: 1.3.2-1.3.4)
-3cb304c feat(web): Export AI-BOM button on /ai page
-a515c69 feat(cdk): wire ai_bom_export Lambda + /v1/ai/bom route, free CFN headroom
-0ceaeba feat(ai-bom): finding → vulnerability mapping with defensive frameworks parsing
-6852168 feat(ai-bom): edge → CycloneDX dependency mapping
-52c2797 feat(ai-bom): entity → CycloneDX component mapping
-0aff811 feat(ai-bom): handler skeleton with tenant resolution + format validation
-ea2a6fd feat(ai-bom): pin cyclonedx-python-lib==11.9.0 for CycloneDX-ML 1.6
-09d956f fix(cdk): harden lambdaCodeWithSharedMeta — skip bytecode, loud failure
-27aba70 refactor(framework-meta): consolidate to scanner_core canonical home
-4edf24a docs(process): require Codebase baseline §0 + Verify-before-claiming-new rule
-f3a59fb docs(plans,specs): apply codebase-map findings to Slice 1 plan + spec
-777ef03 docs(plans): AI Security Slice 1 implementation plan — 5 sub-slices, 31 tasks
-225e4d8 docs(specs): correct AI Security Slice 1 to match shipped baseline
-331b714 docs(specs): AI Security Slice 1 — initial draft
-```
+- `77253f3` — PR #46 (AI Security Slice 1 parts 1.1+1.2+1.3 + CisoCopilotAi stack extraction + AI-BOM CORS fix), merged 2026-06-12
+- `af4039d` — PR #47 (frameworks `[]` → `{}` shape fix in ai_supply_chain_matcher), merged 2026-06-12
+- `8d180fc` — PR #5 (Threat Exposure design spec), merged 2026-06-12 alongside the others
+
+`git log --oneline 416ba1b..main` will show the full sub-slice commit trail; the PR #46 squash commit contains all 25 of the prior individual commits including spec/plan, sub-slice implementations, the 3 design-fix iterations during cross-stack deploy debugging, and the docs updates.
 
 ---
 
