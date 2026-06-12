@@ -154,9 +154,13 @@ async def stream_turn(request: Request) -> StreamingResponse:
 
                 final_assistant_text += round_text
 
+                # No tool requested this round → the assistant is finished.
                 if not tool_uses:
                     break
 
+                # Rebuild the assistant turn with ALL content blocks (text +
+                # tool_use) — the Anthropic protocol requires the full block
+                # list on the assistant message that the tool_results answer.
                 assistant_blocks: list[dict] = []
                 if round_text:
                     assistant_blocks.append({"type": "text", "text": round_text})
@@ -169,6 +173,9 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     })
                 messages.append({"role": "assistant", "content": assistant_blocks})
 
+                # Execute each tool server-side, stream a tool-result event,
+                # persist a `tool` conversation_message, and collect the
+                # tool_result blocks for the next Anthropic call.
                 tool_result_blocks: list[dict] = []
                 for tu in tool_uses:
                     name, args = tu["name"], tu["input"]
@@ -185,6 +192,7 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     artifact_hints = out.get("_artifact_hints")
                     source = out.get("source")
 
+                    # Stream a tool-result SSE event for the browser renderer.
                     sse_ev: dict = {"type": "tool-result", "tool_name": name}
                     if artifact_hints is not None:
                         sse_ev["artifact_hints"] = artifact_hints
@@ -192,11 +200,15 @@ async def stream_turn(request: Request) -> StreamingResponse:
                         sse_ev["artifact_hint"] = artifact_hint
                     if source is not None:
                         sse_ev["source"] = source
+                    # Side-effect tools (navigate_to / filter_findings_view)
+                    # carry no artifact — surface the intent for the browser.
                     if artifact_hint is None and artifact_hints is None \
                             and isinstance(result, dict):
                         sse_ev["side_effect"] = result
                     yield _sse(sse_ev)
 
+                    # Persist a `tool` conversation_message so a reload
+                    # reconstitutes the artifact card.
                     M.append(cid, "tool", {
                         "tool_name":       name,
                         "args":            args,
@@ -206,6 +218,8 @@ async def stream_turn(request: Request) -> StreamingResponse:
                         "source":          source,
                     })
 
+                    # The tool_result block sent back to Anthropic carries the
+                    # JSON result so the model can reason over real data.
                     tool_result_blocks.append({
                         "type":        "tool_result",
                         "tool_use_id": tu["id"],
@@ -213,7 +227,9 @@ async def stream_turn(request: Request) -> StreamingResponse:
                     })
 
                 messages.append({"role": "user", "content": tool_result_blocks})
+                # Loop continues — Anthropic is called again with the results.
             else:
+                # Loop exhausted MAX_TOOL_ROUNDS without a tool-free finish.
                 print(f"agentic loop hit MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS}")
 
             # Persist the assembled assistant reply once the loop completes.
@@ -245,6 +261,8 @@ async def stream_turn(request: Request) -> StreamingResponse:
         except Exception as e:  # noqa: BLE001
             print(f"Anthropic stream error: {e}")
             yield _sse({"error": "upstream_failed", "detail": str(e)[:200]})
+            # Persist a placeholder assistant message so the conversation
+            # history stays consistent — the user message is already stored.
             M.append(cid, "assistant",
                      {"text": "[Error: the assistant could not complete this response]",
                       "modality": "text"})
