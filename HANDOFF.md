@@ -12,6 +12,26 @@
 
 ---
 
+## 🐛 Web punch-list — 5 bug fixes shipped to main (2026-06-12)
+
+KK walked a punch list of web/chat bugs found while using the live app. Five fixes shipped as four conventional commits (`2653355`, `bb09439`, `c037da6`, `26fd010`) pushed directly to `main` after each was hotswap-deployed + verified in prod. Three open items deferred (auto-titled conversations, scan history picker, Trust Center editor expansion).
+
+**1. Risk Register bulk-log 502 (`fix(risks,policies)` `2653355`).** Every chat-approved Add Risk and Draft Policy returned `502 Internal server error`. Root cause: `007_approval_idempotency.sql` defines the `idx_*_tenant_approval` unique indexes as **partial** (`WHERE source_approval_id IS NOT NULL`), but `risks/main.py:124` and `policies/main.py:316` did `ON CONFLICT (tenant_id, source_approval_id) DO NOTHING` without mirroring that predicate. Postgres requires the inference clause to match the partial index — Lambda threw `SQLState 42P10` ("no unique constraint matches"), API GW bubbled it as 502. Existing unit tests mocked `rds_data` so they never caught it. Fix: append `WHERE source_approval_id IS NOT NULL` to both ON CONFLICT clauses. Hotswap on `CisoCopilotApi` (RisksFn + PoliciesFn). **Reusable lesson:** any future `ON CONFLICT` on the `idx_*_tenant_approval` family must include the partial predicate.
+
+**2 + 3. Findings tab missing Pass + dashboard tile drill-through (`fix(findings)` `bb09439`).** Two issues with one user-visible symptom (the Findings tab showed only Fail + Partial sections even though the Dashboard counted 74 Pass). Root cause A: `findings_list/main.py` capped `limit` at 200 with a severity-desc sort, so 202 Fail + 27 Partial findings filled the cap before any Pass row could be returned. Root cause B: `Dashboard.tsx` Fail/Partial/Pass tiles all linked to bare `/findings` (no filter) AND `TopRisks.tsx` hardcoded `status: "fail,partial,pass"` and ignored URL params. Fix: bump server cap to 1000 (single-tenant view, ~300 findings is comfortable); plumb a `status` query param tile → URL → API → filter chip; the Pass section still defaults to collapsed when viewing everything but expands when the user explicitly filters for `status=pass`. Hotswap on `FindingsListFn` + web rebuild + S3 sync + CloudFront invalidation.
+
+**4. Multi-sheet Excel uploads truncated to sheet 1 (`fix(questionnaires)` `c037da6`).** Workbooks where the questions lived on sheet 2+ (Cover or Instructions tab at index 0) produced almost no detected rows. Root cause: `excelHelpers.ts` parser read `SheetNames[0]` only. Fix: score every sheet by question-looking-cell count and pick the highest; single-sheet workbooks behave identically; write-back still targets a single sheet (the detected one), so the data model is unchanged. **No new test** — would require an in-memory XLSX fixture; flagged as a future add. Web-only deploy.
+
+**5. Trust Center hallucinated features in chat (`fix(chat)` `26fd010`).** The assistant was telling users to edit "logo, company description, visible frameworks, and document publishing" at Settings → Trust Center — none of which exist. The actual page (verified via screenshot) has Public name, Public notes, what-to-expose toggles (compliance posture / finding counts by severity / connected cloud count / last scan timestamp), and Publish. No logo upload, no per-framework picker, no doc publishing, no custom theme. Root cause: `chat_session/prompts.py` had zero mention of Trust Center, so the LLM filled in plausible-but-wrong features. Fix: added a TRUST CENTER clause in `TOOL_RULES` enumerating what's wired and what isn't. Hotswap on `ChatSessionFn`.
+
+**Open punch-list items deferred** (not blocking, will revisit when commerce/UX work resumes):
+
+- **Auto-titled conversations.** Sidebar is a stack of "New conversation" entries; ChatGPT-style auto-naming should be the default. Manual rename works today. Cheapest fix: one Claude/Haiku call on first-turn content via `conversations.py`.
+- **Scan history picker.** Add a dropdown next to the "Medium Scan · 10h ago" pill on Findings/Dashboard so users can switch between recent scans and visually compare. Retention policy + UI + API delta — its own slice.
+- **Trust Center editor expansion (companion to #5).** Real ask underneath the prompt fix: actually wire up logo upload + per-framework toggles in the existing Settings → Trust Center page (the page is already there; this is a small delta, not a from-scratch build). High sales-surface value.
+
+---
+
 ## 🤖 AI Security Slice 1 — Sub-slices 1.1 + 1.2 + 1.3 + stack extraction shipped (2026-06-10/12, PR #46 merged, PR #47 merged)
 
 **Status:** three of five sub-slices live + deployed + smoke-verified, PLUS the CisoCopilotAi cross-stack CDK extraction (which was the BLOCKING item before 1.4). Two sub-slices remain (1.4 Workspace scanner, 1.5 mapping rules + smoke).
