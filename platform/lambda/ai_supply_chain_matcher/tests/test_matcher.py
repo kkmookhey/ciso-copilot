@@ -56,3 +56,34 @@ def test_handler_no_matches_no_emit(mock_find):
     # Should complete without raising.
     handler(event, None)
     # No assertion — the test passes if no exception fires.
+
+
+@patch("ai_supply_chain_matcher.main._rds")
+def test_emit_finding_writes_frameworks_as_object_not_array(mock_rds):
+    """Regression for FINDINGS.md §A.4 — `findings.frameworks` must be a JSON
+    object `{}`, not an array `[]`. iOS Finding decoder crashes on arrays.
+    """
+    from ai_supply_chain_matcher.main import _emit_finding
+
+    _emit_finding(
+        tenant_id="t-1",
+        scan_id="s-1",
+        conn_id="c-1",
+        match={
+            "cve":                 "CVE-2026-0470",
+            "package":             "langchain",
+            "version":             "0.0.184",
+            "framework_entity_id": "fw-1",
+            "repo_entity_id":      "repo-1",
+            "repo_full_name":      "acme/paying-system",
+        },
+    )
+
+    call_kwargs = mock_rds.execute_statement.call_args.kwargs
+    sql = call_kwargs["sql"]
+    assert "CAST('{}' AS JSONB)" in sql, (
+        f"frameworks must be empty object, but SQL contained:\n{sql}"
+    )
+    assert "CAST('[]' AS JSONB)" not in sql, (
+        "frameworks must NOT be empty array (breaks iOS decoder)"
+    )
