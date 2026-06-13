@@ -2,8 +2,8 @@
 
 Reads ciso-copilot/anthropic-api-key on cold start and caches it. Two public
 functions:
-  call(system, messages, max_tokens)           — non-streaming, single-turn
-  stream_messages(system, messages, tools)     — streaming generator (SSE)
+  call(system, user_message, max_tokens, model, timeout) — non-streaming, single-turn
+  stream_messages(system, messages, tools)               — streaming generator (SSE)
 """
 from __future__ import annotations
 
@@ -30,10 +30,21 @@ def _api_key() -> str:
     return _key
 
 
-def call(system: str, user_message: str, max_tokens: int = 2048) -> str:
-    """Single-turn call to Claude. Returns the model's text output."""
+def call(
+    system: str,
+    user_message: str,
+    max_tokens: int = 2048,
+    model: str | None = None,
+    timeout: int = 45,
+) -> str:
+    """Single-turn call to Claude. Returns the model's text output.
+
+    `model` defaults to the module-level MODEL env (Sonnet today); callers
+    can override per-call (the auto-titler uses Haiku).
+    `timeout` is forwarded to urlopen — auto-titler uses 5s.
+    """
     body = json.dumps({
-        "model":      MODEL,
+        "model":      model or MODEL,
         "max_tokens": max_tokens,
         "system":     system,
         "messages":   [{"role": "user", "content": user_message}],
@@ -50,13 +61,12 @@ def call(system: str, user_message: str, max_tokens: int = 2048) -> str:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         detail = e.read().decode()[:500]
         raise RuntimeError(f"Anthropic HTTP {e.code}: {detail}")
 
-    # Concatenate text blocks
     blocks = data.get("content") or []
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
 

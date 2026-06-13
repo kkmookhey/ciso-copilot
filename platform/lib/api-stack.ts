@@ -1040,6 +1040,7 @@ export class ApiStack extends cdk.Stack {
       ...dbEnv,
       OPENAI_SECRET_NAME:    props.openaiApiKeySecret.secretName,
       ANTHROPIC_SECRET_NAME: 'ciso-copilot/anthropic-api-key',
+      ANTHROPIC_TITLE_MODEL: 'claude-haiku-4-5',
       USER_POOL_ID:          props.userPool.userPoolId,
     };
     // ChatSessionFn's code asset. The streaming-only files (app.py, run.sh,

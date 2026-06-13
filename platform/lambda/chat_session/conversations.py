@@ -80,6 +80,24 @@ def patch_title(tenant_id: str, conversation_id: str, title: str) -> bool:
     return bool(rows)
 
 
+def patch_title_if_default(tenant_id: str, conversation_id: str, title: str) -> bool:
+    """Set title only if it's still the default 'New conversation'.
+
+    Used by the auto-titler to ensure manual renames always win — if the
+    user (or any race) has already set a non-default title, the WHERE
+    clause matches zero rows and we return False without overwriting.
+    Returns True iff a row was updated.
+    """
+    rows = _q(
+        "UPDATE conversations SET title = :title, updated_at = NOW() "
+        "WHERE id = :id::uuid AND tenant_id = :tenant_id::uuid "
+        "AND title = 'New conversation' "
+        "RETURNING id::text",
+        {"title": title, "id": conversation_id, "tenant_id": tenant_id},
+    )
+    return bool(rows)
+
+
 def soft_delete(tenant_id: str, conversation_id: str) -> bool:
     rows = _q(
         "UPDATE conversations SET deleted_at = NOW() "

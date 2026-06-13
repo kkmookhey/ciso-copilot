@@ -214,6 +214,16 @@ export function ChatShell() {
             console.log("chat side-effect", toolName, intent);
           }
         },
+        onTitleUpdated: (conversationId, title) => {
+          // Same pattern as onRename: in-place rail update + header dispatch.
+          // No backend PATCH needed — the server already wrote the title.
+          setConvs((prev) => prev.map((c) =>
+            c.id === conversationId ? { ...c, title } : c
+          ));
+          if (state.conversationId === conversationId) {
+            dispatch({ type: "setTitle", title });
+          }
+        },
       });
     } finally {
       dispatch({ type: "streaming", on: false });

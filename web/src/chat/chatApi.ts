@@ -103,9 +103,10 @@ export interface ToolResultEvent {
 
 /** Callbacks for the streaming turn. onDelta is required; the rest optional. */
 export interface StreamCallbacks {
-  onDelta:        (t: string) => void;
-  onToolResult?:  (ev: ToolResultEvent) => void;
-  onSideEffect?:  (toolName: string, intent: Record<string, unknown>) => void;
+  onDelta:          (t: string) => void;
+  onToolResult?:    (ev: ToolResultEvent) => void;
+  onSideEffect?:    (toolName: string, intent: Record<string, unknown>) => void;
+  onTitleUpdated?:  (conversationId: string, title: string) => void;
 }
 
 /**
@@ -168,6 +169,8 @@ export async function streamMessage(
         if (ev.side_effect) {
           cb.onSideEffect?.(ev.tool_name, ev.side_effect);
         }
+      } else if (ev.type === "title-updated") {
+        cb.onTitleUpdated?.(ev.conversation_id, ev.title);
       } else if (ev.error) {
         throw new Error(`stream error: ${ev.error}`);
       }

@@ -24,7 +24,8 @@ SSE wire format (the web client depends on this exactly):
   data: {"type":"text-delta","text":"..."}\n\n
   data: {"type":"tool-result","tool_name":"...","artifact_hint":{...}}\n\n
   data: {"type":"tool-result","tool_name":"...","artifact_hints":[...]}\n\n
-  data: {"type":"tool-result","tool_name":"navigate_to","side_effect":{...}}\n\n
+  data: {"type":"tool-result","tool_name":"...","side_effect":{...}}\n\n
+  data: {"type":"title-updated","conversation_id":"<uuid>","title":"<str>"}\n\n
   data: {"type":"done"}\n\n
   data: {"error":"..."}\n\n            (on any failure)
 """
@@ -38,6 +39,7 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Route
 
 import conversations as C
+import auto_title
 import messages as M
 import prompts
 import tools_dispatch
@@ -121,6 +123,7 @@ async def stream_turn(request: Request) -> StreamingResponse:
 
     # Build history for Anthropic (user + assistant turns from stored messages).
     history = _history_for_anthropic(conv.get("messages", []))
+    prior_msg_count = len(conv.get("messages", []))
     history.append({"role": "user", "content": user_text})
 
     # --- agentic stream ------------------------------------------------
@@ -148,7 +151,6 @@ async def stream_turn(request: Request) -> StreamingResponse:
                             "name":  ev["name"],
                             "input": ev.get("input") or {},
                         })
-                    # "done" — round's stream finished; fall through below
 
                 final_assistant_text += round_text
 
@@ -230,6 +232,36 @@ async def stream_turn(request: Request) -> StreamingResponse:
                 # Loop exhausted MAX_TOOL_ROUNDS without a tool-free finish.
                 print(f"agentic loop hit MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS}")
 
+            # Persist the assembled assistant reply once the loop completes.
+            # NOTE: this lives inside the outer try (was previously after the
+            # try/except). An Aurora error here is now caught by the outer
+            # except, which surfaces an `upstream_failed` error frame after
+            # the successful text-delta frames the client already received.
+            # The web SSE dispatcher must tolerate a late error frame
+            # gracefully — see chatApi.streamMessage.
+            if final_assistant_text:
+                M.append(cid, "assistant",
+                         {"text": final_assistant_text, "modality": "text"})
+
+            # Auto-title the conversation on the first turn (best-effort).
+            # Guards: title still default + this was the first turn (no prior
+            # messages) + assistant produced text. Never raises.
+            if (
+                prior_msg_count == 0
+                and (conv.get("title") or "") == "New conversation"
+                and final_assistant_text
+            ):
+                try:
+                    new_title = auto_title.generate_title(user_text, final_assistant_text)
+                    if new_title and C.patch_title_if_default(tenant_id, cid, new_title):
+                        yield _sse({
+                            "type":            "title-updated",
+                            "conversation_id": cid,
+                            "title":           new_title,
+                        })
+                except Exception as e:  # noqa: BLE001 — defence in depth
+                    print(f"auto_title block failed: {e}")
+
             yield _sse({"type": "done"})
 
         except Exception as e:  # noqa: BLE001
@@ -241,11 +273,6 @@ async def stream_turn(request: Request) -> StreamingResponse:
                      {"text": "[Error: the assistant could not complete this response]",
                       "modality": "text"})
             return
-
-        # Persist the assembled assistant reply once the loop completes.
-        if final_assistant_text:
-            M.append(cid, "assistant",
-                     {"text": final_assistant_text, "modality": "text"})
 
     return _sse_response(gen())
 
