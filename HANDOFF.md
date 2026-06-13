@@ -26,9 +26,32 @@ KK walked a punch list of web/chat bugs found while using the live app. Five fix
 
 **Open punch-list items deferred** (not blocking, will revisit when commerce/UX work resumes):
 
-- **Auto-titled conversations.** Sidebar is a stack of "New conversation" entries; ChatGPT-style auto-naming should be the default. Manual rename works today. Cheapest fix: one Claude/Haiku call on first-turn content via `conversations.py`.
 - **Scan history picker.** Add a dropdown next to the "Medium Scan · 10h ago" pill on Findings/Dashboard so users can switch between recent scans and visually compare. Retention policy + UI + API delta — its own slice.
 - **Trust Center editor expansion (companion to #5).** Real ask underneath the prompt fix: actually wire up logo upload + per-framework toggles in the existing Settings → Trust Center page (the page is already there; this is a small delta, not a from-scratch build). High sales-surface value.
+
+---
+
+## 🎯 Web punch-list #1 — Auto-titled conversations shipped (2026-06-13)
+
+First of the three deferred punch-list items from 2026-06-12 is in prod. New chats now get a Haiku-generated 3–7 word title after the first assistant reply, with manual rename winning every race via a default-guard UPDATE. Smoke-verified on the live app: happy path renames a brand-new conversation from "New conversation" to a meaningful title within ~1–2s of the response settling; the manual-rename-mid-stream race correctly preserves the manual title.
+
+**Branch + PR.** Shipped on `feat/auto-titled-conversations` (14 commits — spec + plan + 12 feature/fix/docs). Hotswap-deployed to `CisoCopilotApi` 2026-06-13; web bundle synced + CloudFront invalidated. PR open against `main` — replace with link when merged.
+
+**Architecture.** One change site in the chat streaming Lambda. After the assistant message is persisted, on the first turn of a default-titled conversation, `chat_session/auto_title.py` calls Haiku 4.5 with a 5s budget. If the sanitized title comes back, `conversations.patch_title_if_default()` runs a guarded UPDATE (`WHERE title='New conversation'`), and on success the Lambda yields one new SSE event `title-updated` before `done`. The web client (`chatApi.streamMessage` → `Shell.tsx`) mirrors the existing `onRename` pattern: in-place `setConvs` map + conditional `setTitle` dispatch when the updated conversation is the active one. Zero new infra; ChatStreamFn lives off a Function URL so no CFN-cap impact on the 494/500 `CisoCopilotApi` budget.
+
+**Key files.**
+- `platform/lambda/chat_session/auto_title.py` (NEW, ~70 lines) — `generate_title(user, assistant) -> str | None`, swallows every error.
+- `platform/lambda/chat_session/conversations.py` — `patch_title_if_default()` (guarded UPDATE).
+- `platform/lambda/chat_session/anthropic_call.py` — `call()` learned optional `model` + `timeout` params (backward-compatible).
+- `platform/lambda/chat_session/app.py:stream_turn` — reordered tail of `gen()` so assistant-message persistence happens INSIDE the try block (was outside), making room for the auto-title block to run after persistence but before `done`. **Reorder side-effect documented in-file:** Aurora errors at persist-time now surface as `upstream_failed` SSE frames AFTER the successful `text-delta` frames the client already received. Net better for data integrity; web client tolerates the late error frame via the existing `throw` → caller toast path.
+- `platform/lib/api-stack.ts` — `ANTHROPIC_TITLE_MODEL=claude-haiku-4-5` added to `chatEnv`.
+- `web/src/chat/chatApi.ts` + `web/src/chat/Shell.tsx` — new SSE branch + new optional `onTitleUpdated` callback.
+
+**Test coverage.** 123 chat_session unit/integration tests pass (up from 105). 10 new tests for `auto_title.generate_title()` (happy + sanitization + 4 failure paths + truncation + parameter forwarding); 2 new tests for `patch_title_if_default()` (guarded UPDATE + tenant-scoped); 6 new integration tests for the `stream_turn` integration via the Starlette TestClient (mirroring the `test_agentic_loop.py` harness — emit on first turn, skip on history-not-empty, skip on custom title, swallow None return, swallow exception, no event when patch returned False).
+
+**Reusable lesson — for any future streaming Lambda needing a post-response side-effect to the UI.** An extra SSE event in the existing stream is cheaper than any out-of-band channel: zero new CFN resources, no extra round-trip, sub-1.5s added billed duration on the first turn only. Pattern: yield the side-effect SSE event BEFORE `done`, with a defensive inner try/except so the side-effect can never break the stream. Costs ~$0.001 per first turn at Haiku 4.5 rates.
+
+**Spec + plan.** `docs/superpowers/specs/2026-06-12-auto-titled-conversations-design.md` (387 lines, includes §0 Codebase baseline per the verify-before-claiming-new rule). `docs/superpowers/plans/2026-06-12-auto-titled-conversations.md` (1250 lines, 9 bite-sized TDD tasks). Both committed on the feature branch.
 
 ---
 
